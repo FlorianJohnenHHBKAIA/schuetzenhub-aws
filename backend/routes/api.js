@@ -116,21 +116,21 @@ router.get("/companies", requireAuth, async (req, res) => {
 });
 
 router.post("/companies", requireAuth, async (req, res) => {
-  const { name, description } = req.body;
+  const { name, description, founded_year } = req.body;
   if (!name) return res.status(400).json({ error: "Name erforderlich" });
   const id = uuidv4();
   const result = await pool.query(
-    "INSERT INTO companies (id, club_id, name, description) VALUES ($1,$2,$3,$4) RETURNING *",
-    [id, req.clubId, name, description || null]
+    "INSERT INTO companies (id, club_id, name, description, founded_year) VALUES ($1,$2,$3,$4,$5) RETURNING *",
+    [id, req.clubId, name, description || null, founded_year || null]
   );
   res.status(201).json(result.rows[0]);
 });
 
 router.put("/companies/:id", requireAuth, async (req, res) => {
-  const { name, description } = req.body;
+  const { name, description, founded_year } = req.body;
   const result = await pool.query(
-    "UPDATE companies SET name = COALESCE($1,name), description = $2 WHERE id = $3 AND club_id = $4 RETURNING *",
-    [name, description || null, req.params.id, req.clubId]
+    "UPDATE companies SET name = COALESCE($1,name), description = $2, founded_year = $3 WHERE id = $4 AND club_id = $5 RETURNING *",
+    [name, description || null, founded_year || null, req.params.id, req.clubId]
   );
   if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
   res.json(result.rows[0]);
@@ -292,6 +292,26 @@ router.post("/gallery", requireAuth, upload.single("file"), async (req, res) => 
     [id, req.clubId, destPath, title || null, description || null, req.member.id]
   );
   res.status(201).json({ ...result.rows[0], url: getPublicUrl("gallery-images", destPath) });
+});
+
+router.put("/gallery/:id", requireAuth, upload.single("file"), async (req, res) => {
+  const { title, description, is_visible } = req.body;
+  const img = (await pool.query("SELECT * FROM gallery_images WHERE id = $1 AND club_id = $2", [req.params.id, req.clubId])).rows[0];
+  if (!img) return res.status(404).json({ error: "Nicht gefunden" });
+
+  let filePath = img.file_path;
+  if (req.file) {
+    const ext = req.file.originalname.split(".").pop();
+    filePath = `${req.clubId}/${uuidv4()}.${ext}`;
+    await saveFile(req.file, "gallery-images", filePath);
+    if (img.file_path) await deleteFile("gallery-images", img.file_path);
+  }
+
+  const result = await pool.query(
+    `UPDATE gallery_images SET title=$1, description=$2, is_visible=$3, file_path=$4 WHERE id=$5 AND club_id=$6 RETURNING *`,
+    [title || null, description || null, is_visible === "false" ? false : Boolean(is_visible), filePath, req.params.id, req.clubId]
+  );
+  res.json({ ...result.rows[0], url: getPublicUrl("gallery-images", filePath) });
 });
 
 router.delete("/gallery/:id", requireAuth, async (req, res) => {

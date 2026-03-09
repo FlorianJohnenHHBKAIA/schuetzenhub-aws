@@ -62,7 +62,7 @@ async function apiJson<T = unknown>(
 
 // ─── Upload-Helper ────────────────────────────────────────────────────────────
 
-async function apiUpload(path: string, file: File, extraFields?: Record<string, string>) {
+async function apiUpload(path: string, file: File, extraFields?: Record<string, string>, method: string = "POST") {
   const token = getToken();
   const formData = new FormData();
   formData.append("file", file);
@@ -70,7 +70,7 @@ async function apiUpload(path: string, file: File, extraFields?: Record<string, 
     Object.entries(extraFields).forEach(([k, v]) => formData.append(k, v));
   }
   const res = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
+    method,
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: formData,
   });

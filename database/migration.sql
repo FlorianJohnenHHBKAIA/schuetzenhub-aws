@@ -516,3 +516,5 @@ INSERT INTO permissions (key, description) VALUES
   ('company.posts.manage',                   'Kompanie-Beitraege verwalten'),
   ('company.work_shifts.manage',             'Kompanie-Arbeitsdienste verwalten')
 ON CONFLICT (key) DO NOTHING;
+
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS founded_year INTEGER;
