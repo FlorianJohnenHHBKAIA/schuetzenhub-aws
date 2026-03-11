@@ -12,7 +12,7 @@ import {
   Calendar,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/supabase/client";
 
 interface ClubData {
   id: string;
@@ -56,7 +56,7 @@ const PublicGallery = () => {
       setClub(clubData);
 
       if (clubData.logo_path) {
-        const { data: urlData } = supabase.storage.from("club-assets").getPublicUrl(clubData.logo_path);
+        const urlData = { publicUrl: getStorageUrl("club-assets", clubData.logo_path) || "" };
         setLogoUrl(urlData.publicUrl);
       }
 
@@ -77,7 +77,7 @@ const PublicGallery = () => {
   };
 
   const getImageUrl = (path: string) => 
-    `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/gallery-images/${path}`;
+    `${getStorageUrl("gallery-images", path) || ""}`;
 
   const openLightbox = (index: number) => setSelectedIndex(index);
   const closeLightbox = () => setSelectedIndex(null);

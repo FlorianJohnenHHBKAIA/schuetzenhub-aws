@@ -15,7 +15,7 @@ import {
   Calendar,
   User,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import PortalLayout from "@/components/portal/PortalLayout";
 import { Button } from "@/components/ui/button";
@@ -177,10 +177,7 @@ export default function PhotoManagement() {
     },
   });
 
-  const getImageUrl = (path: string) => {
-    const { data } = supabase.storage.from("gallery-images").getPublicUrl(path);
-    return data.publicUrl;
-  };
+  const getImageUrl = (path: string) => getStorageUrl("gallery-images", path) || "";
 
   const handleApprove = (image: GalleryImage) => {
     updateStatusMutation.mutate({ imageId: image.id, status: "approved" });

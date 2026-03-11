@@ -14,7 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/lib/auth";
 import { usePostComments, usePostReactions } from "@/hooks/usePostInteractions";
 import { createNotification } from "@/hooks/useNotifications";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import {
@@ -211,7 +211,7 @@ const PostDetailDialog = ({ open, onOpenChange, post }: PostDetailDialogProps) =
             {/* Cover Image */}
             {post.cover_image_path && (
               <img
-                src={`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/post-images/${post.cover_image_path}`}
+                src={`${getStorageUrl("post-images", post.cover_image_path) || ""}`}
                 alt={post.title}
                 className="w-full h-48 object-cover rounded-lg"
               />

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import PortalLayout from "@/components/portal/PortalLayout";
 import { Card, CardContent } from "@/components/ui/card";
@@ -98,7 +98,7 @@ const SharedGallery = () => {
   }, [fetchSharedImages]);
 
   const getImageUrl = (path: string) =>
-    `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/gallery-images/${path}`;
+    `${getStorageUrl("gallery-images", path) || ""}`;
 
   const openLightbox = (images: SharedImage[], index: number) => {
     setCurrentImages(images);

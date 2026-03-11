@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 
@@ -103,7 +103,7 @@ const PublicCompanyProfile = () => {
       setClub(clubData);
 
       if (clubData.logo_path) {
-        const { data: urlData } = supabase.storage.from("club-assets").getPublicUrl(clubData.logo_path);
+        const urlData = { publicUrl: getStorageUrl("club-assets", clubData.logo_path) || "" };
         setClubLogoUrl(urlData.publicUrl);
       }
 
@@ -122,7 +122,7 @@ const PublicCompanyProfile = () => {
         if (companyData.logo_url.startsWith('http')) {
           setCompanyLogoUrl(companyData.logo_url);
         } else {
-          const { data: urlData } = supabase.storage.from("company-assets").getPublicUrl(companyData.logo_url);
+          const urlData = { publicUrl: getStorageUrl("company-assets", companyData.logo_url) || "" };
           setCompanyLogoUrl(urlData.publicUrl);
         }
       }
@@ -130,7 +130,7 @@ const PublicCompanyProfile = () => {
         if (companyData.cover_url.startsWith('http')) {
           setCompanyCoverUrl(companyData.cover_url);
         } else {
-          const { data: urlData } = supabase.storage.from("company-assets").getPublicUrl(companyData.cover_url);
+          const urlData = { publicUrl: getStorageUrl("company-assets", companyData.cover_url) || "" };
           setCompanyCoverUrl(urlData.publicUrl);
         }
       }
@@ -414,7 +414,7 @@ const PublicCompanyProfile = () => {
                 const avatarUrl = position.member.avatar_url 
                   ? (position.member.avatar_url.startsWith('http') 
                       ? position.member.avatar_url 
-                      : supabase.storage.from("avatars").getPublicUrl(position.member.avatar_url).data.publicUrl)
+                      : (getStorageUrl("avatars", position.member.avatar_url) || ""))
                   : null;
                 
                 return (
@@ -584,7 +584,7 @@ const PublicCompanyProfile = () => {
                   {post.cover_image_path && (
                     <div className="aspect-video overflow-hidden">
                       <img 
-                        src={supabase.storage.from("club-assets").getPublicUrl(post.cover_image_path).data.publicUrl}
+                        src={(getStorageUrl("club-assets", post.cover_image_path) || "")}
                         alt={post.title}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       />

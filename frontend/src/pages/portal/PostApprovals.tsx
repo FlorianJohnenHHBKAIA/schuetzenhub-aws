@@ -13,7 +13,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { createNotificationsForMembers } from "@/hooks/useNotifications";
@@ -298,7 +298,7 @@ const PostApprovals = () => {
 
               {selectedPost.cover_image_path && (
                 <img
-                  src={`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/post-images/${selectedPost.cover_image_path}`}
+                  src={`${getStorageUrl("post-images", selectedPost.cover_image_path) || ""}`}
                   alt={selectedPost.title}
                   className="w-full h-48 object-cover rounded-lg"
                 />

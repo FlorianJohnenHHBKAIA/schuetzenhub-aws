@@ -25,7 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ShareButtons } from "@/components/ui/share-buttons";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import heroBg from "@/assets/hero-bg.jpg";
@@ -151,11 +151,11 @@ const PublicClubProfile = () => {
       setClub(clubData);
 
       if (clubData.logo_path) {
-        const { data: urlData } = supabase.storage.from("club-assets").getPublicUrl(clubData.logo_path);
+        const urlData = { publicUrl: getStorageUrl("club-assets", clubData.logo_path) || "" };
         setLogoUrl(urlData.publicUrl);
       }
       if (clubData.hero_image_path) {
-        const { data: urlData } = supabase.storage.from("club-assets").getPublicUrl(clubData.hero_image_path);
+        const urlData = { publicUrl: getStorageUrl("club-assets", clubData.hero_image_path) || "" };
         setHeroUrl(urlData.publicUrl);
       }
 
@@ -611,7 +611,7 @@ const PublicClubProfile = () => {
                 const companyLogoUrl = company.logo_url 
                   ? (company.logo_url.startsWith('http') 
                       ? company.logo_url 
-                      : supabase.storage.from("company-assets").getPublicUrl(company.logo_url).data.publicUrl)
+                      : (getStorageUrl("company-assets", company.logo_url) || ""))
                   : null;
                 
                 return (
@@ -827,7 +827,7 @@ const PublicClubProfile = () => {
                       {post.cover_image_path && (
                         <div className="h-48 bg-muted overflow-hidden">
                           <img
-                            src={`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/post-images/${post.cover_image_path}`}
+                            src={`${getStorageUrl("post-images", post.cover_image_path) || ""}`}
                             alt={post.title}
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                           />
@@ -920,7 +920,7 @@ const PublicClubProfile = () => {
 
             <GallerySection 
               images={galleryImages} 
-              supabaseUrl={import.meta.env.VITE_SUPABASE_URL}
+              
               gridOnly
             />
 

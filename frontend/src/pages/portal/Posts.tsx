@@ -17,7 +17,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl, apiUpload } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { createNotificationsForMembers } from "@/hooks/useNotifications";
@@ -703,7 +703,7 @@ const Posts = () => {
                 title={formTitle}
                 content={formContent}
                 category={formCategory}
-                coverImageUrl={formCoverPreviewUrl || (editingPost?.cover_image_path ? supabase.storage.from('post-images').getPublicUrl(editingPost.cover_image_path).data.publicUrl : null)}
+                coverImageUrl={formCoverPreviewUrl || (editingPost?.cover_image_path ? getStorageUrl("post-images", editingPost.cover_image_path) || "" : null)}
                 postId={editingPost?.id}
                 clubSlug={clubSlug}
                 createdAt={editingPost?.created_at}
@@ -790,7 +790,7 @@ const PostGrid = ({
           {post.cover_image_path && (
             <div className="h-32 bg-muted">
               <img
-                src={`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/post-images/${post.cover_image_path}`}
+                src={`${getStorageUrl("post-images", post.cover_image_path) || ""}`}
                 alt={post.title}
                 className="w-full h-full object-cover"
               />

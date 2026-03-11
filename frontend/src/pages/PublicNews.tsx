@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -143,7 +143,7 @@ const PublicNews = () => {
                     {post.cover_image_path && (
                       <div className="h-64 bg-muted">
                         <img
-                          src={`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/post-images/${post.cover_image_path}`}
+                          src={`${getStorageUrl("post-images", post.cover_image_path) || ""}`}
                           alt={post.title}
                           className="w-full h-full object-cover"
                         />

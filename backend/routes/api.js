@@ -697,3 +697,87 @@ router.get("/storage-url", (req, res) => {
 });
 
 module.exports = router;
+// ─── Generischer Upload-Endpoint ─────────────────────────────────────────────
+// POST /api/upload - universeller File-Upload (ersetzt supabase.storage.from(bucket).upload())
+router.post("/upload", requireAuth, upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "Keine Datei" });
+    const { bucket, path: filePath } = req.body;
+    if (!bucket) return res.status(400).json({ error: "Bucket fehlt" });
+
+    const savedPath = await saveFile(req.file, bucket, filePath || req.file.originalname);
+    const publicUrl = getPublicUrl(bucket, savedPath);
+
+    res.json({ path: savedPath, publicUrl });
+  } catch (err) {
+    console.error("Upload error:", err);
+    res.status(500).json({ error: "Upload fehlgeschlagen" });
+  }
+});
+
+// POST /api/storage/delete - Dateien löschen (ersetzt supabase.storage.from(bucket).remove())
+router.post("/storage/delete", requireAuth, async (req, res) => {
+  try {
+    const { bucket, paths } = req.body;
+    if (!bucket || !Array.isArray(paths)) {
+      return res.status(400).json({ error: "Bucket und paths erforderlich" });
+    }
+    for (const p of paths) {
+      try { await deleteFile(bucket, p); } catch (e) { /* ignorieren */ }
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Fehler beim Löschen" });
+  }
+});
+
+// GET /api/documents/download - Datei herunterladen
+router.get("/documents/download", requireAuth, async (req, res) => {
+  try {
+    const { path: filePath, bucket } = req.query;
+    if (!filePath) return res.status(400).json({ error: "Pfad fehlt" });
+    
+    const { UPLOAD_BASE } = require("../storage");
+    const fs = require("fs");
+    const path = require("path");
+    
+    if (process.env.USE_S3 === "true") {
+      // S3: Redirect zu presigned URL
+      const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
+      const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+      const s3 = new S3Client({ region: process.env.AWS_REGION });
+      const command = new GetObjectCommand({
+        Bucket: process.env.AWS_S3_BUCKET,
+        Key: `${bucket || "documents"}/${filePath}`,
+      });
+      const url = await getSignedUrl(s3, command, { expiresIn: 300 });
+      return res.redirect(url);
+    }
+    
+    // Lokal: Datei direkt senden
+    const fullPath = path.join(UPLOAD_BASE, bucket || "documents", filePath);
+    if (!fs.existsSync(fullPath)) return res.status(404).json({ error: "Datei nicht gefunden" });
+    res.download(fullPath);
+  } catch (err) {
+    console.error("Download error:", err);
+    res.status(500).json({ error: "Download fehlgeschlagen" });
+  }
+});
+
+// POST /api/gallery/upload - Foto mit Metadaten hochladen (PhotoUploadDialog)
+router.post("/gallery/upload", requireAuth, async (req, res) => {
+  try {
+    const { member_id, club_id, company_id, image_path, visibility, usage_permission, description, status } = req.body;
+    const id = uuidv4();
+    await pool.query(
+      `INSERT INTO member_gallery_images 
+       (id, member_id, club_id, company_id, image_path, visibility, usage_permission, description, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [id, member_id, club_id, company_id || null, image_path, visibility, usage_permission || "internal", description || null, status || "pending"]
+    );
+    res.json({ id });
+  } catch (err) {
+    console.error("Gallery upload error:", err);
+    res.status(500).json({ error: "Fehler beim Speichern" });
+  }
+});

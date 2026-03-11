@@ -46,7 +46,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
 interface Magazine {
@@ -169,8 +169,7 @@ const MagazineAds = () => {
   };
 
   const getImageUrl = (path: string) => {
-    const { data } = supabase.storage.from("club-assets").getPublicUrl(path);
-    return data.publicUrl;
+    return getStorageUrl("club-assets", path) || "";
   };
 
   const openCreateDialog = () => {

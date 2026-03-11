@@ -20,9 +20,18 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import type { Database } from "@/integrations/supabase/types";
 
-type Club = Database["public"]["Tables"]["clubs"]["Row"];
+type Club = {
+  id: string;
+  name: string;
+  slug: string;
+  city: string | null;
+  plan: string | null;
+  plan_started_at: string | null;
+  custom_domain: string | null;
+  domain_status: string | null;
+  [key: string]: unknown;
+};
 
 const planLabels: Record<string, { label: string; color: string }> = {
   free: { label: "Kostenlos", color: "secondary" },

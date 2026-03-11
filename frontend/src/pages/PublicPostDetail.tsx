@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { ArrowLeft, Megaphone, User } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ShareButtons } from "@/components/ui/share-buttons";
@@ -65,9 +65,7 @@ const PublicPostDetail = () => {
 
         // Get club logo URL
         if (clubData.logo_path) {
-          const { data: logoData } = supabase.storage
-            .from("club-assets")
-            .getPublicUrl(clubData.logo_path);
+          const { data: logoData } = { data: { publicUrl: getStorageUrl("club-assets", clubData.logo_path) || "" } };
           setClubLogoUrl(logoData?.publicUrl || null);
         }
 
@@ -93,9 +91,7 @@ const PublicPostDetail = () => {
 
         // Get cover image URL
         if (postData.cover_image_path) {
-          const { data: coverData } = supabase.storage
-            .from("post-images")
-            .getPublicUrl(postData.cover_image_path);
+          const { data: coverData } = { data: { publicUrl: getStorageUrl("post-images", postData.cover_image_path) || "" } };
           setCoverImageUrl(coverData?.publicUrl || null);
         }
       } catch (error) {

@@ -16,7 +16,6 @@ import { de } from "date-fns/locale";
 import { CalendarIcon, Loader2, Award, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getIconConfig } from "@/pages/portal/AwardTypesManagement";
-import { Tables } from "@/integrations/supabase/types";
 
 type AwardType = Tables<"award_types">;
 

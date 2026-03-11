@@ -34,7 +34,6 @@ import {
   Sparkles
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Tables } from "@/integrations/supabase/types";
 
 type AwardType = Tables<"award_types">;
 

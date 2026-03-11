@@ -7,7 +7,7 @@ import { Link, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/supabase/client";
 import PublicHeader from "@/components/public/PublicHeader";
 import PublicFooter from "@/components/public/PublicFooter";
 
@@ -89,9 +89,7 @@ const PublicEvents = () => {
 
       // Resolve logo URL
       if (effectiveClub.logo_path) {
-        const { data: urlData } = supabase.storage
-          .from("club-assets")
-          .getPublicUrl(effectiveClub.logo_path);
+        const { data: urlData } = { data: { publicUrl: getStorageUrl("club-assets", effectiveClub.logo_path) || "" } };
         setLogoUrl(urlData?.publicUrl || null);
       }
 

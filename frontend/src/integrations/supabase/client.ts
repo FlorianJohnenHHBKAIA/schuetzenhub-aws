@@ -1,2 +1,1 @@
-// Diese Datei leitet alle Supabase-Aufrufe an unseren eigenen API-Client um.
-export { supabase } from "@/integrations/api/client";
+export { supabase, getStorageUrl, apiUpload, apiJson } from "@/integrations/api/client";

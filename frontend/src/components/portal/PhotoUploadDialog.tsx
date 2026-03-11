@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, apiUpload } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "@/hooks/use-toast";
 
@@ -114,21 +114,21 @@ export function PhotoUploadDialog({
         const filePath = `members/${member.id}/${fileName}`;
 
         // Upload to storage
-        const { error: uploadError } = await supabase.storage
-          .from("gallery-images")
-          .upload(filePath, file);
-
-        if (uploadError) {
-          console.error("Upload error:", uploadError);
+        try {
+          await apiUpload(`/api/upload`, file, { bucket: "gallery-images", path: filePath });
+        } catch (uploadErr) {
+          console.error("Upload error:", uploadErr);
           uploadedCount.failed++;
           continue;
         }
 
         // Create database record
         const visibility = scope === "company" ? "company" : "club";
-        const { error: dbError } = await supabase
-          .from("member_gallery_images")
-          .insert({
+        let dbError = null;
+        try {
+          await (supabase as any).json("/api/gallery/upload", {
+            method: "POST",
+            body: JSON.stringify({
             member_id: member.id,
             club_id: member.club_id,
             company_id: scope === "company" ? companyId : null,
@@ -137,7 +137,9 @@ export function PhotoUploadDialog({
             usage_permission: getUsagePermissionValue(),
             description: description || null,
             status: "pending",
+          })
           });
+        } catch(e: any) { dbError = e; }
 
         if (dbError) {
           console.error("DB error:", dbError);

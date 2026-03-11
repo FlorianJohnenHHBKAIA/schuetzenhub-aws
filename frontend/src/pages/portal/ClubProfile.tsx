@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import PortalLayout from "@/components/portal/PortalLayout";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/supabase/client";
 
 interface ClubProfile {
   id: string;
@@ -65,12 +65,10 @@ const ClubProfilePage = () => {
       
       // Set image previews
       if (data.logo_path) {
-        const { data: urlData } = supabase.storage.from("club-assets").getPublicUrl(data.logo_path);
-        setLogoPreview(urlData.publicUrl);
+        { data: { publicUrl: getStorageUrl("club-assets", data.logo_path) || "" } };
       }
       if (data.hero_image_path) {
-        const { data: urlData } = supabase.storage.from("club-assets").getPublicUrl(data.hero_image_path);
-        setHeroPreview(urlData.publicUrl);
+        { data: { publicUrl: getStorageUrl("club-assets", data.hero_image_path) || "" } };
       }
     } catch (error) {
       console.error("Error fetching profile:", error);

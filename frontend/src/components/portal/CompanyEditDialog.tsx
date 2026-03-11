@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, apiUpload, getStorageUrl } from "@/integrations/supabase/client";
 import {
   Dialog,
   DialogContent,
@@ -50,15 +50,8 @@ const CompanyEditDialog = ({ open, onOpenChange, company, onSave }: CompanyEditD
       const fileExt = file.name.split(".").pop();
       const fileName = `${company.id}/${type}-${Date.now()}.${fileExt}`;
       
-      const { error: uploadError } = await supabase.storage
-        .from("company-assets")
-        .upload(fileName, file, { upsert: true });
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from("company-assets")
-        .getPublicUrl(fileName);
+      const uploadResult = await apiUpload(`/api/upload`, file, { bucket: "company-assets", path: fileName });
+      const publicUrl = getStorageUrl("company-assets", fileName) || "";
 
       if (isLogo) {
         setLogoUrl(publicUrl);

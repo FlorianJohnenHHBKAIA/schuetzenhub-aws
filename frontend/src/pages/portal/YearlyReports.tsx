@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import PortalLayout from "@/components/portal/PortalLayout";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -119,9 +119,7 @@ const YearlyReports = () => {
     if (club) {
       setClubInfo(club);
       if (club.logo_path) {
-        const { data: urlData } = supabase.storage
-          .from("club-assets")
-          .getPublicUrl(club.logo_path);
+        const { data: urlData } = { data: { publicUrl: getStorageUrl("club-assets", club.logo_path) || "" } };
         setClubLogoUrl(urlData?.publicUrl || null);
       }
     }

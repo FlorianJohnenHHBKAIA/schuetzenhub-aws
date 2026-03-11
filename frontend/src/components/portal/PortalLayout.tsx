@@ -2,7 +2,7 @@ import { ReactNode, useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { OfflineBanner } from "@/components/pwa/OfflineBanner";
 import { motion, AnimatePresence } from "framer-motion";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/supabase/client";
 import {
   LogOut,
   Menu,
@@ -66,9 +66,7 @@ const PortalLayout = ({ children }: PortalLayoutProps) => {
         
         // Get logo URL if exists
         if (club.logo_path) {
-          const { data: urlData } = supabase.storage
-            .from("club-assets")
-            .getPublicUrl(club.logo_path);
+          const { data: urlData } = { data: { publicUrl: getStorageUrl("club-assets", club.logo_path) || "" } };
           setClubLogoUrl(urlData?.publicUrl || null);
         }
       }

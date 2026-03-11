@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, apiUpload, getStorageUrl } from "@/integrations/supabase/client";
 import {
   Dialog,
   DialogContent,
@@ -63,15 +63,8 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
       const bucket = isAvatar ? "avatars" : "covers";
       const fileName = `${member.id}/${type}-${Date.now()}.${fileExt}`;
       
-      const { error: uploadError } = await supabase.storage
-        .from(bucket)
-        .upload(fileName, file, { upsert: true });
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from(bucket)
-        .getPublicUrl(fileName);
+      const uploadResult = await apiUpload(`/api/upload`, file, { bucket, path: fileName });
+      const publicUrl = getStorageUrl(bucket, fileName) || "";
 
       if (isAvatar) {
         setAvatarUrl(publicUrl);

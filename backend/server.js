@@ -25,6 +25,8 @@ if (process.env.USE_S3 !== "true") {
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/members", require("./routes/members"));
 app.use("/api/events", require("./routes/events"));
+app.use("/api/rpc", require("./routes/rpc"));
+app.use("/api/functions", require("./routes/rpc"));
 app.use("/api", require("./routes/api"));
 
 // Health Check

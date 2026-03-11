@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ShareButtons } from "@/components/ui/share-buttons";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/supabase/client";
 
 interface EventData {
   id: string;
@@ -71,7 +71,7 @@ const PublicEventDetail = () => {
       setClub(clubData);
 
       if (clubData.logo_path) {
-        const { data: urlData } = supabase.storage.from("club-assets").getPublicUrl(clubData.logo_path);
+        const urlData = { publicUrl: getStorageUrl("club-assets", clubData.logo_path) || "" };
         setClubLogoUrl(urlData.publicUrl);
       }
 

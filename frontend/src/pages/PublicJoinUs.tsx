@@ -18,7 +18,7 @@ import {
   Target,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/supabase/client";
 
 interface ClubData {
   id: string;
@@ -98,7 +98,7 @@ const PublicJoinUs = () => {
       setClub(clubData);
 
       if (clubData.logo_path) {
-        const { data: urlData } = supabase.storage.from("club-assets").getPublicUrl(clubData.logo_path);
+        const urlData = { publicUrl: getStorageUrl("club-assets", clubData.logo_path) || "" };
         setLogoUrl(urlData.publicUrl);
       }
 
