@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { 
-  Plus, Book, Calendar, Edit, FileDown, Lock, 
-  MoreHorizontal, Trash2, Loader2 
+import {
+  Plus, Book, Calendar, Edit, FileDown, Lock,
+  MoreHorizontal, Trash2, Loader2
 } from "lucide-react";
 import PortalLayout from "@/components/portal/PortalLayout";
 import { Button } from "@/components/ui/button";
@@ -36,7 +36,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/integrations/supabase/client";
+import { apiJson } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
 
 interface Magazine {
@@ -45,11 +45,8 @@ interface Magazine {
   year: number;
   status: "draft" | "finalized";
   created_at: string;
-  created_by_member_id: string | null;
-  creator?: {
-    first_name: string;
-    last_name: string;
-  };
+  creator_first_name?: string;
+  creator_last_name?: string;
   section_count?: number;
 }
 
@@ -74,82 +71,59 @@ const Magazines = () => {
 
   const fetchMagazines = async () => {
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from("magazines")
-      .select(`
-        *,
-        creator:members!magazines_created_by_member_id_fkey(first_name, last_name),
-        magazine_sections(id)
-      `)
-      .eq("club_id", member!.club_id)
-      .order("year", { ascending: false });
-
-    if (!error && data) {
-      setMagazines(
-        data.map((m: any) => ({
-          ...m,
-          section_count: m.magazine_sections?.length || 0,
-        }))
-      );
+    try {
+      const data = await apiJson<Magazine[]>("/api/magazines");
+      setMagazines(data || []);
+    } catch (e) {
+      console.error("Fehler beim Laden:", e);
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const handleCreate = async () => {
     if (!newTitle.trim()) return;
     setIsSaving(true);
-
-    const { data, error } = await supabase
-      .from("magazines")
-      .insert({
-        club_id: member!.club_id,
-        title: newTitle.trim(),
-        year: newYear,
-        created_by_member_id: member!.id,
-      })
-      .select()
-      .single();
-
-    if (error) {
-      toast({ title: "Fehler", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: "Schützenheft erstellt" });
+    try {
+      const data = await apiJson<Magazine>("/api/magazines", {
+        method: "POST",
+        body: JSON.stringify({ title: newTitle.trim(), year: newYear }),
+      });
+      toast({ title: "Schuetzenheft erstellt" });
       setIsCreateOpen(false);
       setNewTitle("");
       navigate(`/portal/magazine/${data.id}`);
+    } catch (e) {
+      toast({ title: "Fehler beim Erstellen", variant: "destructive" });
+    } finally {
+      setIsSaving(false);
     }
-    setIsSaving(false);
   };
 
   const handleDelete = async () => {
     if (!selectedMagazine) return;
-
-    const { error } = await supabase
-      .from("magazines")
-      .delete()
-      .eq("id", selectedMagazine.id);
-
-    if (error) {
-      toast({ title: "Fehler", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: "Schützenheft gelöscht" });
+    try {
+      await apiJson(`/api/magazines/${selectedMagazine.id}`, { method: "DELETE" });
+      toast({ title: "Schuetzenheft geloescht" });
       fetchMagazines();
+    } catch (e) {
+      toast({ title: "Fehler beim Loeschen", variant: "destructive" });
+    } finally {
+      setIsDeleteOpen(false);
+      setSelectedMagazine(null);
     }
-    setIsDeleteOpen(false);
-    setSelectedMagazine(null);
   };
 
   const handleFinalize = async (magazine: Magazine) => {
-    const { error } = await supabase
-      .from("magazines")
-      .update({ status: "finalized" })
-      .eq("id", magazine.id);
-
-    if (error) {
-      toast({ title: "Fehler", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: "Schützenheft finalisiert" });
+    try {
+      await apiJson(`/api/magazines/${magazine.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ status: "finalized" }),
+      });
+      toast({ title: "Schuetzenheft finalisiert" });
       fetchMagazines();
+    } catch (e) {
+      toast({ title: "Fehler", variant: "destructive" });
     }
   };
 
@@ -157,7 +131,7 @@ const Magazines = () => {
     return (
       <PortalLayout>
         <p className="text-center py-12 text-muted-foreground">
-          Keine Berechtigung für Schützenhefte
+          Keine Berechtigung fuer Schuetzenhefte
         </p>
       </PortalLayout>
     );
@@ -172,8 +146,8 @@ const Magazines = () => {
           className="flex items-center justify-between mb-8"
         >
           <div>
-            <h1 className="font-display text-3xl font-bold">Schützenhefte</h1>
-            <p className="text-muted-foreground">Festbücher und Jahreshefte verwalten</p>
+            <h1 className="font-display text-3xl font-bold">Schuetzenhefte</h1>
+            <p className="text-muted-foreground">Festbuecher und Jahreshefte verwalten</p>
           </div>
           <Button onClick={() => setIsCreateOpen(true)}>
             <Plus className="w-4 h-4 mr-2" />
@@ -192,9 +166,9 @@ const Magazines = () => {
             className="text-center py-16 bg-card rounded-xl border"
           >
             <Book className="w-16 h-16 mx-auto text-muted-foreground/50 mb-4" />
-            <h3 className="text-lg font-medium mb-2">Noch keine Schützenhefte</h3>
+            <h3 className="text-lg font-medium mb-2">Noch keine Schuetzenhefte</h3>
             <p className="text-muted-foreground mb-6">
-              Erstellen Sie Ihr erstes Schützenheft für den Verein
+              Erstellen Sie Ihr erstes Schuetzenheft fuer den Verein
             </p>
             <Button onClick={() => setIsCreateOpen(true)}>
               <Plus className="w-4 h-4 mr-2" />
@@ -223,11 +197,9 @@ const Magazines = () => {
                           <Calendar className="w-4 h-4" />
                           {magazine.year}
                         </span>
-                        <span>{magazine.section_count} Kapitel</span>
-                        {magazine.creator && (
-                          <span>
-                            von {magazine.creator.first_name} {magazine.creator.last_name}
-                          </span>
+                        <span>{magazine.section_count || 0} Kapitel</span>
+                        {magazine.creator_first_name && (
+                          <span>von {magazine.creator_first_name} {magazine.creator_last_name}</span>
                         )}
                       </div>
                     </div>
@@ -239,13 +211,8 @@ const Magazines = () => {
                       className={magazine.status === "finalized" ? "bg-green-600" : ""}
                     >
                       {magazine.status === "finalized" ? (
-                        <>
-                          <Lock className="w-3 h-3 mr-1" />
-                          Finalisiert
-                        </>
-                      ) : (
-                        "Entwurf"
-                      )}
+                        <><Lock className="w-3 h-3 mr-1" />Finalisiert</>
+                      ) : "Entwurf"}
                     </Badge>
 
                     <DropdownMenu>
@@ -272,13 +239,10 @@ const Magazines = () => {
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-destructive"
-                              onClick={() => {
-                                setSelectedMagazine(magazine);
-                                setIsDeleteOpen(true);
-                              }}
+                              onClick={() => { setSelectedMagazine(magazine); setIsDeleteOpen(true); }}
                             >
                               <Trash2 className="w-4 h-4 mr-2" />
-                              Löschen
+                              Loeschen
                             </DropdownMenuItem>
                           </>
                         )}
@@ -291,23 +255,21 @@ const Magazines = () => {
           </div>
         )}
 
-        {/* Create Dialog */}
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Neues Schützenheft</DialogTitle>
-              <DialogDescription>
-                Erstellen Sie ein neues Schützenheft für Ihren Verein
-              </DialogDescription>
+              <DialogTitle>Neues Schuetzenheft</DialogTitle>
+              <DialogDescription>Erstellen Sie ein neues Schuetzenheft fuer Ihren Verein</DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label htmlFor="title">Titel</Label>
                 <Input
                   id="title"
-                  placeholder="z.B. Schützenheft 2025"
+                  placeholder="z.B. Schuetzenheft 2025"
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleCreate()}
                 />
               </div>
               <div className="space-y-2">
@@ -323,9 +285,7 @@ const Magazines = () => {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
-                Abbrechen
-              </Button>
+              <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Abbrechen</Button>
               <Button onClick={handleCreate} disabled={!newTitle.trim() || isSaving}>
                 {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Erstellen"}
               </Button>
@@ -333,20 +293,19 @@ const Magazines = () => {
           </DialogContent>
         </Dialog>
 
-        {/* Delete Confirmation */}
         <AlertDialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Schützenheft löschen?</AlertDialogTitle>
+              <AlertDialogTitle>Schuetzenheft loeschen?</AlertDialogTitle>
               <AlertDialogDescription>
-                Das Schützenheft „{selectedMagazine?.title}" wird unwiderruflich gelöscht.
+                Das Schuetzenheft "{selectedMagazine?.title}" wird unwiderruflich geloescht.
                 Alle Kapitel und Inhalte gehen verloren.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Abbrechen</AlertDialogCancel>
               <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
-                Löschen
+                Loeschen
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

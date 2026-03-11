@@ -533,6 +533,161 @@ router.get("/award-types", requireAuth, async (req, res) => {
   res.json(result.rows);
 });
 
+// ─── Magazines ────────────────────────────────────────────────────────────────
+
+router.get("/magazines", requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT m.*, 
+        mem.first_name as creator_first_name, mem.last_name as creator_last_name,
+        (SELECT COUNT(*) FROM magazine_sections ms WHERE ms.magazine_id = m.id) as section_count
+       FROM magazines m
+       LEFT JOIN members mem ON mem.id = m.created_by_member_id
+       WHERE m.club_id = $1
+       ORDER BY m.year DESC, m.created_at DESC`,
+      [req.clubId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+router.post("/magazines", requireAuth, async (req, res) => {
+  const { title, year } = req.body;
+  if (!title || !year) return res.status(400).json({ error: "Titel und Jahr erforderlich" });
+  try {
+    const result = await pool.query(
+      "INSERT INTO magazines (id, club_id, title, year, status, created_by_member_id) VALUES ($1,$2,$3,$4,'draft',$5) RETURNING *",
+      [uuidv4(), req.clubId, title, year, req.member.id]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+router.put("/magazines/:id", requireAuth, async (req, res) => {
+  const { title, year, status } = req.body;
+  try {
+    const result = await pool.query(
+      "UPDATE magazines SET title=COALESCE($1,title), year=COALESCE($2,year), status=COALESCE($3,status) WHERE id=$4 AND club_id=$5 RETURNING *",
+      [title, year, status, req.params.id, req.clubId]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+router.delete("/magazines/:id", requireAuth, async (req, res) => {
+  try {
+    await pool.query("DELETE FROM magazines WHERE id=$1 AND club_id=$2", [req.params.id, req.clubId]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// ─── Magazine Sections ────────────────────────────────────────────────────────
+
+router.get("/magazines/:id", requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM magazines WHERE id=$1 AND club_id=$2",
+      [req.params.id, req.clubId]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
+    res.json(result.rows[0]);
+  } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
+});
+
+router.get("/magazines/:id/sections", requireAuth, async (req, res) => {
+  try {
+    const sections = await pool.query(
+      "SELECT *, sort_order as order_index FROM magazine_sections WHERE magazine_id=$1 ORDER BY sort_order",
+      [req.params.id]
+    );
+    const items = await pool.query(
+      "SELECT *, sort_order as order_index, content as custom_text, title as content_type FROM magazine_items WHERE section_id = ANY(SELECT id FROM magazine_sections WHERE magazine_id=$1) ORDER BY sort_order",
+      [req.params.id]
+    );
+    res.json({ sections: sections.rows, items: items.rows });
+  } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
+});
+
+router.post("/magazines/:id/sections", requireAuth, async (req, res) => {
+  const { title, type, sort_order } = req.body;
+  if (!title) return res.status(400).json({ error: "Titel erforderlich" });
+  try {
+    const result = await pool.query(
+      "INSERT INTO magazine_sections (id, magazine_id, title, sort_order) VALUES ($1,$2,$3,$4) RETURNING *",
+      [uuidv4(), req.params.id, title, sort_order ?? 0]
+    );
+    res.status(201).json({ ...result.rows[0], type: type || "custom" });
+  } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
+});
+
+router.delete("/magazine-sections/:id", requireAuth, async (req, res) => {
+  try {
+    await pool.query("DELETE FROM magazine_sections WHERE id=$1", [req.params.id]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
+});
+
+router.put("/magazine-sections/:id", requireAuth, async (req, res) => {
+  const { sort_order } = req.body;
+  try {
+    await pool.query("UPDATE magazine_sections SET sort_order=$1 WHERE id=$2", [sort_order, req.params.id]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
+});
+
+router.post("/magazine-items", requireAuth, async (req, res) => {
+  const { section_id, content_type, content_id, custom_text, company_id, sort_order } = req.body;
+  try {
+    const result = await pool.query(
+      "INSERT INTO magazine_items (id, section_id, title, content, sort_order) VALUES ($1,$2,$3,$4,$5) RETURNING *",
+      [uuidv4(), section_id, content_type || null, custom_text ?? null, sort_order ?? 0]
+    );
+    const row = result.rows[0];
+    res.status(201).json({
+      id: row.id,
+      section_id: row.section_id,
+      content_type: content_type || row.title,
+      content_id: content_id || null,
+      custom_text: row.content,
+      company_id: company_id || null,
+      order_index: row.sort_order,
+    });
+  } catch (err) {
+    console.error("magazine-items POST error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+router.put("/magazine-items/:id", requireAuth, async (req, res) => {
+  const { custom_text, sort_order } = req.body;
+  try {
+    await pool.query(
+      "UPDATE magazine_items SET content=$1, sort_order=COALESCE($2,sort_order) WHERE id=$3",
+      [custom_text ?? null, sort_order ?? null, req.params.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("magazine-items PUT error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+router.delete("/magazine-items/:id", requireAuth, async (req, res) => {
+  try {
+    await pool.query("DELETE FROM magazine_items WHERE id=$1", [req.params.id]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
+});
+
 // ─── Public URLs helper ───────────────────────────────────────────────────────
 
 router.get("/storage-url", (req, res) => {

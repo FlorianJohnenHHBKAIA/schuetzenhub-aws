@@ -518,3 +518,6 @@ INSERT INTO permissions (key, description) VALUES
 ON CONFLICT (key) DO NOTHING;
 
 ALTER TABLE companies ADD COLUMN IF NOT EXISTS founded_year INTEGER;
+
+ALTER TABLE magazines ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE magazines ADD COLUMN IF NOT EXISTS created_by_member_id UUID REFERENCES members(id) ON DELETE SET NULL;

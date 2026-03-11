@@ -3,45 +3,26 @@ import { useParams, useNavigate } from "react-router-dom";
 import { motion, Reorder } from "framer-motion";
 import {
   ArrowLeft, Plus, GripVertical, Trash2, FileText, Image,
-  Calendar, Award, Users, MessageSquare, Loader2, Save, FileDown, Lock,
-  Megaphone
+  Calendar, Award, Users, MessageSquare, Loader2, FileDown, Lock, Megaphone
 } from "lucide-react";
 import PortalLayout from "@/components/portal/PortalLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/integrations/supabase/client";
+import { apiJson } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
-import MagazineContentPicker from "@/components/magazine/MagazineContentPicker";
 import MagazineSectionContent from "@/components/magazine/MagazineSectionContent";
 
 interface Magazine {
@@ -92,9 +73,7 @@ const MagazineEditor = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Dialogs
   const [isAddSectionOpen, setIsAddSectionOpen] = useState(false);
-  const [isAddContentOpen, setIsAddContentOpen] = useState(false);
   const [isDeleteSectionOpen, setIsDeleteSectionOpen] = useState(false);
   const [newSectionType, setNewSectionType] = useState("custom");
   const [newSectionTitle, setNewSectionTitle] = useState("");
@@ -102,184 +81,126 @@ const MagazineEditor = () => {
   const canManage = hasPermission("club.magazine.manage");
   const isEditable = magazine?.status === "draft" && canManage;
 
-  useEffect(() => {
-    if (id) fetchMagazineData();
+  const fetchMagazineData = useCallback(async () => {
+    if (!id) return;
+    setIsLoading(true);
+    try {
+      const mag = await apiJson<Magazine>(`/api/magazines/${id}`);
+      setMagazine(mag);
+
+      const { sections: secs, items: its } = await apiJson<{ sections: Section[]; items: MagazineItem[] }>(
+        `/api/magazines/${id}/sections`
+      );
+      setSections(secs || []);
+      setItems(its || []);
+      if (secs?.length > 0) setSelectedSection(secs[0]);
+    } catch (e) {
+      toast({ title: "Fehler", description: "Schuetzenheft nicht gefunden", variant: "destructive" });
+      navigate("/portal/magazine");
+    } finally {
+      setIsLoading(false);
+    }
   }, [id]);
 
-  const fetchMagazineData = async () => {
-    setIsLoading(true);
-
-    // Fetch magazine
-    const { data: magData, error: magError } = await supabase
-      .from("magazines")
-      .select("*")
-      .eq("id", id)
-      .single();
-
-    if (magError || !magData) {
-      toast({ title: "Fehler", description: "Schützenheft nicht gefunden", variant: "destructive" });
-      navigate("/portal/magazine");
-      return;
-    }
-
-    setMagazine(magData);
-
-    // Fetch sections
-    const { data: sectionsData } = await supabase
-      .from("magazine_sections")
-      .select("*")
-      .eq("magazine_id", id)
-      .order("order_index");
-
-    const secs = sectionsData || [];
-    setSections(secs);
-
-    // Fetch items for all sections
-    if (secs.length > 0) {
-      const { data: itemsData } = await supabase
-        .from("magazine_items")
-        .select("*")
-        .in("section_id", secs.map((s) => s.id))
-        .order("order_index");
-
-      setItems(itemsData || []);
-    }
-
-    // Select first section by default
-    if (secs.length > 0 && !selectedSection) {
-      setSelectedSection(secs[0]);
-    }
-
-    setIsLoading(false);
-  };
+  useEffect(() => { fetchMagazineData(); }, [fetchMagazineData]);
 
   const handleAddSection = async () => {
     if (!newSectionTitle.trim() || !id) return;
     setIsSaving(true);
-
-    const maxOrder = Math.max(...sections.map((s) => s.order_index), -1);
-
-    const { data, error } = await supabase
-      .from("magazine_sections")
-      .insert({
-        magazine_id: id,
-        type: newSectionType as "greeting" | "report" | "company_reports" | "events" | "honors" | "custom",
-        title: newSectionTitle.trim(),
-        order_index: maxOrder + 1,
-      })
-      .select()
-      .single();
-
-    if (error) {
-      toast({ title: "Fehler", description: error.message, variant: "destructive" });
-    } else {
+    try {
+      const maxOrder = Math.max(...sections.map((s) => s.order_index), -1);
+      const data = await apiJson<Section>(`/api/magazines/${id}/sections`, {
+        method: "POST",
+        body: JSON.stringify({ title: newSectionTitle.trim(), type: newSectionType, order_index: maxOrder + 1 }),
+      });
       setSections([...sections, data]);
       setSelectedSection(data);
       setIsAddSectionOpen(false);
       setNewSectionTitle("");
       setNewSectionType("custom");
-      toast({ title: "Kapitel hinzugefügt" });
+      toast({ title: "Kapitel hinzugefuegt" });
+    } catch (e) {
+      toast({ title: "Fehler", variant: "destructive" });
+    } finally {
+      setIsSaving(false);
     }
-
-    setIsSaving(false);
   };
 
   const handleDeleteSection = async () => {
     if (!selectedSection) return;
-
-    const { error } = await supabase
-      .from("magazine_sections")
-      .delete()
-      .eq("id", selectedSection.id);
-
-    if (error) {
-      toast({ title: "Fehler", description: error.message, variant: "destructive" });
-    } else {
+    try {
+      await apiJson(`/api/magazine-sections/${selectedSection.id}`, { method: "DELETE" });
       const newSections = sections.filter((s) => s.id !== selectedSection.id);
       setSections(newSections);
       setSelectedSection(newSections[0] || null);
       setItems(items.filter((i) => i.section_id !== selectedSection.id));
-      toast({ title: "Kapitel gelöscht" });
+      toast({ title: "Kapitel geloescht" });
+    } catch (e) {
+      toast({ title: "Fehler", variant: "destructive" });
+    } finally {
+      setIsDeleteSectionOpen(false);
     }
-
-    setIsDeleteSectionOpen(false);
   };
 
   const handleReorderSections = async (newOrder: Section[]) => {
     setSections(newOrder);
-
-    // Update order in database
-    for (let i = 0; i < newOrder.length; i++) {
-      await supabase
-        .from("magazine_sections")
-        .update({ order_index: i })
-        .eq("id", newOrder[i].id);
-    }
+    await Promise.all(
+      newOrder.map((s, i) => apiJson(`/api/magazine-sections/${s.id}`, {
+        method: "PUT", body: JSON.stringify({ order_index: i }),
+      }))
+    );
   };
 
   const handleAddContent = async (contentType: string, contentId: string | null, customText?: string, companyId?: string) => {
     if (!selectedSection) return;
-
-    const sectionItems = items.filter((i) => i.section_id === selectedSection.id);
-    const maxOrder = Math.max(...sectionItems.map((i) => i.order_index), -1);
-
-    const { data, error } = await supabase
-      .from("magazine_items")
-      .insert({
-        section_id: selectedSection.id,
-        content_type: contentType as "post" | "report" | "event" | "custom_text" | "image",
-        content_id: contentId,
-        custom_text: customText || null,
-        company_id: companyId || null,
-        order_index: maxOrder + 1,
-      })
-      .select()
-      .single();
-
-    if (error) {
-      toast({ title: "Fehler", description: error.message, variant: "destructive" });
-    } else {
+    try {
+      const sectionItems = items.filter((i) => i.section_id === selectedSection.id);
+      const maxOrder = Math.max(...sectionItems.map((i) => i.order_index), -1);
+      const data = await apiJson<MagazineItem>("/api/magazine-items", {
+        method: "POST",
+        body: JSON.stringify({
+          section_id: selectedSection.id,
+          content_type: contentType,
+          content_id: contentId,
+          custom_text: customText || null,
+          company_id: companyId || null,
+          order_index: maxOrder + 1,
+        }),
+      });
       setItems([...items, data]);
-      setIsAddContentOpen(false);
-      toast({ title: "Inhalt hinzugefügt" });
+      toast({ title: "Inhalt hinzugefuegt" });
+    } catch (e) {
+      toast({ title: "Fehler", variant: "destructive" });
     }
   };
 
   const handleDeleteItem = async (itemId: string) => {
-    const { error } = await supabase
-      .from("magazine_items")
-      .delete()
-      .eq("id", itemId);
-
-    if (error) {
-      toast({ title: "Fehler", description: error.message, variant: "destructive" });
-    } else {
+    try {
+      await apiJson(`/api/magazine-items/${itemId}`, { method: "DELETE" });
       setItems(items.filter((i) => i.id !== itemId));
+    } catch (e) {
+      toast({ title: "Fehler", variant: "destructive" });
     }
   };
 
   const handleReorderItems = async (sectionId: string, newOrder: MagazineItem[]) => {
     const otherItems = items.filter((i) => i.section_id !== sectionId);
     setItems([...otherItems, ...newOrder]);
-
-    for (let i = 0; i < newOrder.length; i++) {
-      await supabase
-        .from("magazine_items")
-        .update({ order_index: i })
-        .eq("id", newOrder[i].id);
-    }
+    await Promise.all(
+      newOrder.map((item, i) => apiJson(`/api/magazine-items/${item.id}`, {
+        method: "PUT", body: JSON.stringify({ order_index: i }),
+      }))
+    );
   };
 
   const handleUpdateItemText = async (itemId: string, text: string) => {
-    const { error } = await supabase
-      .from("magazine_items")
-      .update({ custom_text: text })
-      .eq("id", itemId);
-
-    if (error) {
-      toast({ title: "Fehler", description: error.message, variant: "destructive" });
-    } else {
+    try {
+      await apiJson(`/api/magazine-items/${itemId}`, {
+        method: "PUT", body: JSON.stringify({ custom_text: text }),
+      });
       setItems(items.map((i) => (i.id === itemId ? { ...i, custom_text: text } : i)));
+    } catch (e) {
+      toast({ title: "Fehler", variant: "destructive" });
     }
   };
 
@@ -296,19 +217,16 @@ const MagazineEditor = () => {
   if (!magazine) {
     return (
       <PortalLayout>
-        <p className="text-center py-12 text-muted-foreground">Schützenheft nicht gefunden</p>
+        <p className="text-center py-12 text-muted-foreground">Schuetzenheft nicht gefunden</p>
       </PortalLayout>
     );
   }
 
-  const sectionItems = selectedSection
-    ? items.filter((i) => i.section_id === selectedSection.id)
-    : [];
+  const sectionItems = selectedSection ? items.filter((i) => i.section_id === selectedSection.id) : [];
 
   return (
     <PortalLayout>
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -323,81 +241,57 @@ const MagazineEditor = () => {
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <span>{magazine.year}</span>
                 <Badge variant={magazine.status === "finalized" ? "default" : "secondary"}>
-                  {magazine.status === "finalized" ? (
-                    <>
-                      <Lock className="w-3 h-3 mr-1" />
-                      Finalisiert
-                    </>
-                  ) : (
-                    "Entwurf"
-                  )}
+                  {magazine.status === "finalized" ? <><Lock className="w-3 h-3 mr-1" />Finalisiert</> : "Entwurf"}
                 </Badge>
               </div>
             </div>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => navigate(`/portal/magazine/${id}/ads`)}>
-              <Megaphone className="w-4 h-4 mr-2" />
-              Anzeigen
+              <Megaphone className="w-4 h-4 mr-2" />Anzeigen
             </Button>
             <Button variant="outline" onClick={() => navigate(`/portal/magazine/${id}/pdf`)}>
-              <FileDown className="w-4 h-4 mr-2" />
-              PDF erzeugen
+              <FileDown className="w-4 h-4 mr-2" />PDF erzeugen
             </Button>
           </div>
         </motion.div>
 
-        {/* Two Column Layout */}
         <div className="grid lg:grid-cols-3 gap-6">
-          {/* Left Column - Sections */}
+          {/* Sections */}
           <div className="lg:col-span-1">
             <div className="bg-card rounded-xl border p-4">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-medium">Kapitel</h3>
                 {isEditable && (
                   <Button size="sm" variant="outline" onClick={() => setIsAddSectionOpen(true)}>
-                    <Plus className="w-4 h-4 mr-1" />
-                    Hinzufügen
+                    <Plus className="w-4 h-4 mr-1" />Hinzufuegen
                   </Button>
                 )}
               </div>
-
               {sections.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">
-                  Noch keine Kapitel. Fügen Sie das erste Kapitel hinzu.
+                  Noch keine Kapitel. Fuegen Sie das erste Kapitel hinzu.
                 </p>
               ) : (
-                <Reorder.Group
-                  axis="y"
-                  values={sections}
-                  onReorder={isEditable ? handleReorderSections : () => {}}
-                  className="space-y-2"
-                >
+                <Reorder.Group axis="y" values={sections} onReorder={isEditable ? handleReorderSections : () => {}} className="space-y-2">
                   {sections.map((section) => {
                     const typeInfo = SECTION_TYPES.find((t) => t.value === section.type);
                     const Icon = typeInfo?.icon || FileText;
                     const itemCount = items.filter((i) => i.section_id === section.id).length;
-
                     return (
                       <Reorder.Item
                         key={section.id}
                         value={section}
                         className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                          selectedSection?.id === section.id
-                            ? "bg-primary/10 border-primary"
-                            : "bg-background hover:bg-muted/50"
+                          selectedSection?.id === section.id ? "bg-primary/10 border-primary" : "bg-background hover:bg-muted/50"
                         }`}
                         onClick={() => setSelectedSection(section)}
                       >
-                        {isEditable && (
-                          <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
-                        )}
+                        {isEditable && <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />}
                         <Icon className="w-4 h-4 text-muted-foreground" />
                         <div className="flex-1 min-w-0">
                           <p className="font-medium truncate">{section.title}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {typeInfo?.label} • {itemCount} Inhalte
-                          </p>
+                          <p className="text-xs text-muted-foreground">{typeInfo?.label} • {itemCount} Inhalte</p>
                         </div>
                       </Reorder.Item>
                     );
@@ -407,7 +301,7 @@ const MagazineEditor = () => {
             </div>
           </div>
 
-          {/* Right Column - Content */}
+          {/* Content */}
           <div className="lg:col-span-2">
             <div className="bg-card rounded-xl border p-6">
               {selectedSection ? (
@@ -419,26 +313,17 @@ const MagazineEditor = () => {
                         {SECTION_TYPES.find((t) => t.value === selectedSection.type)?.label}
                       </p>
                     </div>
-                    <div className="flex gap-2">
-                      {isEditable && (
-                        <>
-                          <Button size="sm" onClick={() => setIsAddContentOpen(true)}>
-                            <Plus className="w-4 h-4 mr-1" />
-                            Inhalt
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-destructive"
-                            onClick={() => setIsDeleteSectionOpen(true)}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </>
-                      )}
-                    </div>
+                    {isEditable && (
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={() => handleAddContent("custom_text", null, "")}>
+                          <Plus className="w-4 h-4 mr-1" />Text
+                        </Button>
+                        <Button size="sm" variant="outline" className="text-destructive" onClick={() => setIsDeleteSectionOpen(true)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    )}
                   </div>
-
                   <MagazineSectionContent
                     items={sectionItems}
                     isEditable={isEditable}
@@ -451,7 +336,7 @@ const MagazineEditor = () => {
               ) : (
                 <div className="text-center py-12 text-muted-foreground">
                   <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>Wählen Sie ein Kapitel aus der linken Liste</p>
+                  <p>Waehlen Sie ein Kapitel aus der linken Liste</p>
                 </div>
               )}
             </div>
@@ -462,25 +347,18 @@ const MagazineEditor = () => {
         <Dialog open={isAddSectionOpen} onOpenChange={setIsAddSectionOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Kapitel hinzufügen</DialogTitle>
-              <DialogDescription>
-                Fügen Sie ein neues Kapitel zum Schützenheft hinzu
-              </DialogDescription>
+              <DialogTitle>Kapitel hinzufuegen</DialogTitle>
+              <DialogDescription>Fuegen Sie ein neues Kapitel zum Schuetzenheft hinzu</DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label>Kapitel-Typ</Label>
                 <Select value={newSectionType} onValueChange={setNewSectionType}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {SECTION_TYPES.map((type) => (
                       <SelectItem key={type.value} value={type.value}>
-                        <div className="flex items-center gap-2">
-                          <type.icon className="w-4 h-4" />
-                          {type.label}
-                        </div>
+                        <div className="flex items-center gap-2"><type.icon className="w-4 h-4" />{type.label}</div>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -488,49 +366,31 @@ const MagazineEditor = () => {
               </div>
               <div className="space-y-2">
                 <Label>Titel</Label>
-                <Input
-                  placeholder="z.B. Grußwort des Hauptmanns"
-                  value={newSectionTitle}
-                  onChange={(e) => setNewSectionTitle(e.target.value)}
-                />
+                <Input placeholder="z.B. Grußwort des Hauptmanns" value={newSectionTitle} onChange={(e) => setNewSectionTitle(e.target.value)} />
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsAddSectionOpen(false)}>
-                Abbrechen
-              </Button>
+              <Button variant="outline" onClick={() => setIsAddSectionOpen(false)}>Abbrechen</Button>
               <Button onClick={handleAddSection} disabled={!newSectionTitle.trim() || isSaving}>
-                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Hinzufügen"}
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Hinzufuegen"}
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* Add Content Dialog */}
-        <MagazineContentPicker
-          open={isAddContentOpen}
-          onOpenChange={setIsAddContentOpen}
-          sectionType={selectedSection?.type || "custom"}
-          clubId={magazine.club_id}
-          onSelect={handleAddContent}
-        />
-
-        {/* Delete Section Confirmation */}
+        {/* Delete Section */}
         <AlertDialog open={isDeleteSectionOpen} onOpenChange={setIsDeleteSectionOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Kapitel löschen?</AlertDialogTitle>
+              <AlertDialogTitle>Kapitel loeschen?</AlertDialogTitle>
               <AlertDialogDescription>
-                Das Kapitel „{selectedSection?.title}" und alle Inhalte werden gelöscht.
+                Das Kapitel "{selectedSection?.title}" und alle Inhalte werden geloescht.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={handleDeleteSection}
-                className="bg-destructive text-destructive-foreground"
-              >
-                Löschen
+              <AlertDialogAction onClick={handleDeleteSection} className="bg-destructive text-destructive-foreground">
+                Loeschen
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

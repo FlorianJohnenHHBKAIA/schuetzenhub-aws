@@ -3,7 +3,7 @@ import { Reorder } from "framer-motion";
 import { GripVertical, Trash2, FileText, Calendar, MessageSquare, Users, Edit, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/integrations/supabase/client";
+import { apiJson } from "@/integrations/api/client";
 
 interface MagazineItem {
   id: string;
@@ -49,55 +49,42 @@ const MagazineSectionContent = ({
   const fetchContentDetails = async () => {
     const details: Record<string, ContentDetails> = {};
 
-    // Fetch post details
+    type Post = { id: string; title: string; content: string | null };
+    type Event = { id: string; title: string; description: string | null; start_at: string };
+    type Company = { id: string; name: string; description: string | null };
+
     const postIds = items.filter((i) => i.content_type === "post" && i.content_id).map((i) => i.content_id!);
     if (postIds.length > 0) {
-      const { data: posts } = await supabase
-        .from("posts")
-        .select("id, title, content")
-        .in("id", postIds);
-
-      posts?.forEach((post) => {
-        details[post.id] = {
-          title: post.title,
-          subtitle: "Beitrag",
-          content: post.content,
-        };
-      });
+      try {
+        const posts = await apiJson<Post[]>(`/api/posts?ids=${postIds.join(",")}`);
+        posts?.forEach((post) => {
+          details[post.id] = { title: post.title, subtitle: "Beitrag", content: post.content ?? undefined };
+        });
+      } catch (e) { /* ignore */ }
     }
 
-    // Fetch event details
     const eventIds = items.filter((i) => i.content_type === "event" && i.content_id).map((i) => i.content_id!);
     if (eventIds.length > 0) {
-      const { data: events } = await supabase
-        .from("events")
-        .select("id, title, description, start_at")
-        .in("id", eventIds);
-
-      events?.forEach((event) => {
-        details[event.id] = {
-          title: event.title,
-          subtitle: new Date(event.start_at).toLocaleDateString("de-DE"),
-          content: event.description || undefined,
-        };
-      });
+      try {
+        const events = await apiJson<Event[]>(`/api/events?ids=${eventIds.join(",")}`);
+        events?.forEach((event) => {
+          details[event.id] = {
+            title: event.title,
+            subtitle: new Date(event.start_at).toLocaleDateString("de-DE"),
+            content: event.description ?? undefined,
+          };
+        });
+      } catch (e) { /* ignore */ }
     }
 
-    // Fetch company details
     const companyIds = items.filter((i) => i.company_id).map((i) => i.company_id!);
     if (companyIds.length > 0) {
-      const { data: companies } = await supabase
-        .from("companies")
-        .select("id, name, description")
-        .in("id", companyIds);
-
-      companies?.forEach((company) => {
-        details[company.id] = {
-          title: company.name,
-          subtitle: "Kompaniebericht",
-          content: company.description || undefined,
-        };
-      });
+      try {
+        const companies = await apiJson<Company[]>("/api/companies");
+        companies?.filter((c) => companyIds.includes(c.id)).forEach((company) => {
+          details[company.id] = { title: company.name, subtitle: "Kompaniebericht", content: company.description ?? undefined };
+        });
+      } catch (e) { /* ignore */ }
     }
 
     setContentDetails(details);
@@ -105,16 +92,11 @@ const MagazineSectionContent = ({
 
   const getItemIcon = (contentType: string) => {
     switch (contentType) {
-      case "post":
-        return FileText;
-      case "event":
-        return Calendar;
-      case "custom_text":
-        return MessageSquare;
-      case "report":
-        return Users;
-      default:
-        return FileText;
+      case "post": return FileText;
+      case "event": return Calendar;
+      case "custom_text": return MessageSquare;
+      case "report": return Users;
+      default: return FileText;
     }
   };
 
@@ -122,19 +104,12 @@ const MagazineSectionContent = ({
     if (item.content_type === "custom_text") {
       return {
         title: "Freier Text",
-        subtitle: item.custom_text?.substring(0, 50) + (item.custom_text && item.custom_text.length > 50 ? "..." : "") || "",
+        subtitle: item.custom_text?.substring(0, 50) + (item.custom_text && item.custom_text.length > 50 ? "..." : "") || "Klicke auf Bearbeiten um Text einzugeben",
         content: item.custom_text || undefined,
       };
     }
-
-    if (item.company_id && contentDetails[item.company_id]) {
-      return contentDetails[item.company_id];
-    }
-
-    if (item.content_id && contentDetails[item.content_id]) {
-      return contentDetails[item.content_id];
-    }
-
+    if (item.company_id && contentDetails[item.company_id]) return contentDetails[item.company_id];
+    if (item.content_id && contentDetails[item.content_id]) return contentDetails[item.content_id];
     return { title: "Laden...", subtitle: "" };
   };
 
@@ -159,33 +134,22 @@ const MagazineSectionContent = ({
       <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-lg">
         <FileText className="w-8 h-8 mx-auto mb-2 opacity-50" />
         <p>Noch keine Inhalte</p>
-        <p className="text-sm">Fügen Sie Beiträge, Events oder Texte hinzu</p>
+        <p className="text-sm">Klicke oben auf "Text" um einen freien Text hinzuzufuegen</p>
       </div>
     );
   }
 
   return (
-    <Reorder.Group
-      axis="y"
-      values={items}
-      onReorder={isEditable ? onReorder : () => {}}
-      className="space-y-3"
-    >
+    <Reorder.Group axis="y" values={items} onReorder={isEditable ? onReorder : () => {}} className="space-y-3">
       {items.map((item) => {
         const Icon = getItemIcon(item.content_type);
         const info = getItemInfo(item);
         const isEditing = editingItemId === item.id;
 
         return (
-          <Reorder.Item
-            key={item.id}
-            value={item}
-            className="bg-background border rounded-lg p-4"
-          >
+          <Reorder.Item key={item.id} value={item} className="bg-background border rounded-lg p-4">
             <div className="flex items-start gap-3">
-              {isEditable && (
-                <GripVertical className="w-4 h-4 mt-1 text-muted-foreground cursor-grab flex-shrink-0" />
-              )}
+              {isEditable && <GripVertical className="w-4 h-4 mt-1 text-muted-foreground cursor-grab flex-shrink-0" />}
               <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
                 <Icon className="w-4 h-4 text-muted-foreground" />
               </div>
@@ -200,15 +164,15 @@ const MagazineSectionContent = ({
                       onChange={(e) => setEditText(e.target.value)}
                       rows={6}
                       className="resize-none"
+                      placeholder="Text hier eingeben..."
+                      autoFocus
                     />
                     <div className="flex gap-2">
                       <Button size="sm" onClick={() => handleSaveEdit(item.id)}>
-                        <Check className="w-4 h-4 mr-1" />
-                        Speichern
+                        <Check className="w-4 h-4 mr-1" />Speichern
                       </Button>
                       <Button size="sm" variant="outline" onClick={handleCancelEdit}>
-                        <X className="w-4 h-4 mr-1" />
-                        Abbrechen
+                        <X className="w-4 h-4 mr-1" />Abbrechen
                       </Button>
                     </div>
                   </div>
@@ -224,11 +188,7 @@ const MagazineSectionContent = ({
               {isEditable && !isEditing && (
                 <div className="flex gap-1 flex-shrink-0">
                   {item.content_type === "custom_text" && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => handleStartEdit(item)}
-                    >
+                    <Button size="icon" variant="ghost" onClick={() => handleStartEdit(item)}>
                       <Edit className="w-4 h-4" />
                     </Button>
                   )}

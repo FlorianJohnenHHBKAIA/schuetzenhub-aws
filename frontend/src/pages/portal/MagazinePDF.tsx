@@ -1,28 +1,26 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowLeft, FileDown, Loader2, Eye, Printer } from "lucide-react";
+import { ArrowLeft, FileDown, Loader2, Printer } from "lucide-react";
 import PortalLayout from "@/components/portal/PortalLayout";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
+import { apiJson, getStorageUrl as getUrl } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/lib/auth";
 
 interface Magazine {
   id: string;
   title: string;
   year: number;
   club_id: string;
-  club?: {
-    name: string;
-    logo_path: string | null;
-  };
+  club_name?: string;
+  club_logo?: string;
 }
 
 interface Section {
   id: string;
   type: string;
   title: string;
+  sort_order: number;
   order_index: number;
 }
 
@@ -36,8 +34,17 @@ interface MagazineItem {
   order_index: number;
 }
 
+interface Club {
+  name: string;
+  logo_path: string | null;
+}
+
+interface PostData { id: string; title: string; content: string; }
+interface EventData { id: string; title: string; description: string; start_at: string; location?: string; }
+interface CompanyData { id: string; name: string; description?: string; }
+
 interface ContentData {
-  posts: Record<string, { title: string; content: string; cover_image_path?: string }>;
+  posts: Record<string, { title: string; content: string }>;
   events: Record<string, { title: string; description: string; start_at: string; location?: string }>;
   companies: Record<string, { name: string; description?: string }>;
 }
@@ -45,20 +52,14 @@ interface ContentData {
 const MagazinePDF = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { member } = useAuth();
   const { toast } = useToast();
   const printRef = useRef<HTMLDivElement>(null);
 
   const [magazine, setMagazine] = useState<Magazine | null>(null);
   const [sections, setSections] = useState<Section[]>([]);
   const [items, setItems] = useState<MagazineItem[]>([]);
-  const [contentData, setContentData] = useState<ContentData>({
-    posts: {},
-    events: {},
-    companies: {},
-  });
+  const [contentData, setContentData] = useState<ContentData>({ posts: {}, events: {}, companies: {} });
   const [isLoading, setIsLoading] = useState(true);
-  const [isGenerating, setIsGenerating] = useState(false);
 
   useEffect(() => {
     if (id) fetchMagazineData();
@@ -66,128 +67,86 @@ const MagazinePDF = () => {
 
   const fetchMagazineData = async () => {
     setIsLoading(true);
+    try {
+      // Magazine laden
+      const mag = await apiJson<Magazine>(`/api/magazines/${id}`);
 
-    // Fetch magazine with club info
-    const { data: magData, error: magError } = await supabase
-      .from("magazines")
-      .select(`
-        *,
-        club:clubs(name, logo_path)
-      `)
-      .eq("id", id)
-      .single();
+      // Club-Info laden
+      const club = await apiJson<Club>("/api/clubs/me").catch(() => null);
+      setMagazine({
+        ...mag,
+        club_name: club?.name,
+        club_logo: club?.logo_path ? getUrl("club-assets", club.logo_path) : undefined,
+      });
 
-    if (magError || !magData) {
-      toast({ title: "Fehler", description: "Schützenheft nicht gefunden", variant: "destructive" });
+      // Sections + Items laden
+      const { sections: secs, items: its } = await apiJson<{ sections: Section[]; items: MagazineItem[] }>(
+        `/api/magazines/${id}/sections`
+      );
+      setSections(secs || []);
+      setItems(its || []);
+
+      // Content-Details laden
+      if (its?.length > 0) {
+        await fetchContentDetails(its);
+      }
+    } catch (e) {
+      toast({ title: "Fehler", description: "Schuetzenheft nicht gefunden", variant: "destructive" });
       navigate("/portal/magazine");
-      return;
+    } finally {
+      setIsLoading(false);
     }
-
-    setMagazine(magData);
-
-    // Fetch sections
-    const { data: sectionsData } = await supabase
-      .from("magazine_sections")
-      .select("*")
-      .eq("magazine_id", id)
-      .order("order_index");
-
-    const secs = sectionsData || [];
-    setSections(secs);
-
-    // Fetch items
-    if (secs.length > 0) {
-      const { data: itemsData } = await supabase
-        .from("magazine_items")
-        .select("*")
-        .in("section_id", secs.map((s) => s.id))
-        .order("order_index");
-
-      const allItems = itemsData || [];
-      setItems(allItems);
-
-      // Fetch content details
-      await fetchContentDetails(allItems);
-    }
-
-    setIsLoading(false);
   };
 
   const fetchContentDetails = async (allItems: MagazineItem[]) => {
     const data: ContentData = { posts: {}, events: {}, companies: {} };
 
-    // Fetch posts
     const postIds = allItems.filter((i) => i.content_type === "post" && i.content_id).map((i) => i.content_id!);
     if (postIds.length > 0) {
-      const { data: posts } = await supabase
-        .from("posts")
-        .select("id, title, content, cover_image_path")
-        .in("id", postIds);
-
-      posts?.forEach((p) => {
-        data.posts[p.id] = { title: p.title, content: p.content, cover_image_path: p.cover_image_path || undefined };
-      });
+      try {
+        const posts = await apiJson<PostData[]>(`/api/posts?ids=${postIds.join(",")}`);
+        posts?.forEach((p: PostData) => { data.posts[p.id] = { title: p.title, content: p.content }; });
+      } catch {
+        // ignorieren
+      }
     }
 
-    // Fetch events
     const eventIds = allItems.filter((i) => i.content_type === "event" && i.content_id).map((i) => i.content_id!);
     if (eventIds.length > 0) {
-      const { data: events } = await supabase
-        .from("events")
-        .select("id, title, description, start_at, location")
-        .in("id", eventIds);
-
-      events?.forEach((e) => {
-        data.events[e.id] = {
-          title: e.title,
-          description: e.description || "",
-          start_at: e.start_at,
-          location: e.location || undefined,
-        };
-      });
+      try {
+        const events = await apiJson<EventData[]>(`/api/events?ids=${eventIds.join(",")}`);
+        events?.forEach((e: EventData) => {
+          data.events[e.id] = { title: e.title, description: e.description || "", start_at: e.start_at, location: e.location };
+        });
+      } catch {
+        // ignorieren
+      }
     }
 
-    // Fetch companies
     const companyIds = allItems.filter((i) => i.company_id).map((i) => i.company_id!);
     if (companyIds.length > 0) {
-      const { data: companies } = await supabase
-        .from("companies")
-        .select("id, name, description")
-        .in("id", companyIds);
-
-      companies?.forEach((c) => {
-        data.companies[c.id] = { name: c.name, description: c.description || undefined };
-      });
+      try {
+        const companies = await apiJson<CompanyData[]>("/api/companies");
+        companies?.filter((c: CompanyData) => companyIds.includes(c.id)).forEach((c: CompanyData) => {
+          data.companies[c.id] = { name: c.name, description: c.description };
+        });
+      } catch {
+        // ignorieren
+      }
     }
 
     setContentData(data);
   };
 
-  const handlePrint = () => {
-    window.print();
-  };
+  const handlePrint = () => window.print();
 
   const handleDownloadPDF = () => {
-    setIsGenerating(true);
-    // Use browser print to PDF
-    window.print();
-    setIsGenerating(false);
-    toast({ title: "PDF wird erstellt", description: "Wählen Sie 'Als PDF speichern' im Druckdialog" });
+    toast({ title: "PDF wird erstellt", description: "Waehlen Sie 'Als PDF speichern' im Druckdialog" });
+    setTimeout(() => window.print(), 300);
   };
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString("de-DE", {
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
-  };
-
-  const getStorageUrl = (path: string | null | undefined) => {
-    if (!path) return null;
-    return `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/${path}`;
-  };
+  const formatDate = (dateStr: string) =>
+    new Date(dateStr).toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
   if (isLoading) {
     return (
@@ -202,14 +161,14 @@ const MagazinePDF = () => {
   if (!magazine) {
     return (
       <PortalLayout>
-        <p className="text-center py-12 text-muted-foreground">Schützenheft nicht gefunden</p>
+        <p className="text-center py-12 text-muted-foreground">Schuetzenheft nicht gefunden</p>
       </PortalLayout>
     );
   }
 
   return (
     <PortalLayout>
-      {/* Controls - hidden in print */}
+      {/* Steuerleiste – wird beim Drucken ausgeblendet */}
       <div className="max-w-4xl mx-auto mb-6 print:hidden">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -227,158 +186,121 @@ const MagazinePDF = () => {
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={handlePrint}>
-              <Printer className="w-4 h-4 mr-2" />
-              Drucken
+              <Printer className="w-4 h-4 mr-2" />Drucken
             </Button>
-            <Button onClick={handleDownloadPDF} disabled={isGenerating}>
-              {isGenerating ? (
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-              ) : (
-                <FileDown className="w-4 h-4 mr-2" />
-              )}
-              Als PDF speichern
+            <Button onClick={handleDownloadPDF}>
+              <FileDown className="w-4 h-4 mr-2" />Als PDF speichern
             </Button>
           </div>
         </motion.div>
       </div>
 
-      {/* PDF Content */}
-      <div
-        ref={printRef}
-        className="max-w-4xl mx-auto bg-white text-black print:max-w-none print:mx-0"
-      >
-        {/* Cover Page */}
-        <div className="min-h-[100vh] flex flex-col items-center justify-center text-center p-12 print:break-after-page">
-          {magazine.club?.logo_path && (
-            <img
-              src={getStorageUrl(magazine.club.logo_path) || ""}
-              alt="Vereinslogo"
-              className="w-32 h-32 object-contain mb-8"
-            />
+      {/* PDF-Inhalt */}
+      <div ref={printRef} className="max-w-4xl mx-auto bg-white text-black shadow-lg print:max-w-none print:shadow-none print:mx-0">
+
+        {/* Deckblatt */}
+        <div className="min-h-screen flex flex-col items-center justify-center text-center p-16 print:break-after-page border-b">
+          {magazine.club_logo && (
+            <img src={magazine.club_logo} alt="Vereinslogo" className="w-32 h-32 object-contain mb-8" />
           )}
-          <h1 className="text-5xl font-bold mb-4">{magazine.title}</h1>
-          <p className="text-2xl text-gray-600">{magazine.club?.name}</p>
-          <p className="text-xl text-gray-500 mt-4">{magazine.year}</p>
+          <h1 className="text-5xl font-bold mb-6">{magazine.title}</h1>
+          {magazine.club_name && <p className="text-2xl text-gray-600 mb-2">{magazine.club_name}</p>}
+          <p className="text-xl text-gray-500">{magazine.year}</p>
         </div>
 
-        {/* Table of Contents */}
-        <div className="min-h-[100vh] p-12 print:break-after-page">
-          <h2 className="text-3xl font-bold mb-8 pb-4 border-b-2">Inhaltsverzeichnis</h2>
-          <div className="space-y-4">
-            {sections.map((section, index) => (
-              <div key={section.id} className="flex items-center justify-between text-lg">
-                <span>{section.title}</span>
-                <span className="text-gray-400">{index + 1}</span>
-              </div>
-            ))}
+        {/* Inhaltsverzeichnis */}
+        {sections.length > 0 && (
+          <div className="p-12 print:break-after-page border-b">
+            <h2 className="text-3xl font-bold mb-8 pb-4 border-b-2">Inhaltsverzeichnis</h2>
+            <div className="space-y-3">
+              {sections.map((section, index) => (
+                <div key={section.id} className="flex items-center justify-between text-lg border-b border-dotted border-gray-300 pb-2">
+                  <span>{section.title}</span>
+                  <span className="text-gray-400 text-sm">Seite {index + 2}</span>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Content Sections */}
+        {/* Kapitel */}
         {sections.map((section) => {
           const sectionItems = items
             .filter((i) => i.section_id === section.id)
             .sort((a, b) => a.order_index - b.order_index);
 
           return (
-            <div key={section.id} className="min-h-[50vh] p-12 print:break-after-page">
-              <h2 className="text-3xl font-bold mb-8 pb-4 border-b-2">{section.title}</h2>
+            <div key={section.id} className="p-12 print:break-after-page border-b">
+              <h2 className="text-3xl font-bold mb-8 pb-4 border-b-2 border-gray-800">{section.title}</h2>
 
-              <div className="space-y-8">
-                {sectionItems.map((item) => {
-                  // Custom text
-                  if (item.content_type === "custom_text" && item.custom_text) {
-                    return (
-                      <div key={item.id} className="prose prose-lg max-w-none">
-                        <p className="whitespace-pre-wrap leading-relaxed">{item.custom_text}</p>
-                      </div>
-                    );
-                  }
-
-                  // Post
-                  if (item.content_type === "post" && item.content_id && contentData.posts[item.content_id]) {
-                    const post = contentData.posts[item.content_id];
-                    return (
-                      <article key={item.id} className="mb-8">
-                        <h3 className="text-2xl font-semibold mb-4">{post.title}</h3>
-                        <div className="prose prose-lg max-w-none">
-                          <p className="whitespace-pre-wrap leading-relaxed">{post.content}</p>
+              {sectionItems.length === 0 ? (
+                <p className="text-gray-400 italic">Kein Inhalt in diesem Kapitel.</p>
+              ) : (
+                <div className="space-y-8">
+                  {sectionItems.map((item) => {
+                    if (item.content_type === "custom_text" && item.custom_text) {
+                      return (
+                        <div key={item.id} className="leading-relaxed text-lg">
+                          <p className="whitespace-pre-wrap">{item.custom_text}</p>
                         </div>
-                      </article>
-                    );
-                  }
-
-                  // Event
-                  if (item.content_type === "event" && item.content_id && contentData.events[item.content_id]) {
-                    const event = contentData.events[item.content_id];
-                    return (
-                      <article key={item.id} className="mb-8">
-                        <h3 className="text-2xl font-semibold mb-2">{event.title}</h3>
-                        <p className="text-gray-600 mb-4">
-                          {formatDate(event.start_at)}
-                          {event.location && ` • ${event.location}`}
-                        </p>
-                        {event.description && (
-                          <div className="prose prose-lg max-w-none">
-                            <p className="whitespace-pre-wrap leading-relaxed">{event.description}</p>
-                          </div>
-                        )}
-                      </article>
-                    );
-                  }
-
-                  // Company report
-                  if (item.company_id && contentData.companies[item.company_id]) {
-                    const company = contentData.companies[item.company_id];
-                    return (
-                      <article key={item.id} className="mb-8">
-                        <h3 className="text-2xl font-semibold mb-4">{company.name}</h3>
-                        {company.description && (
-                          <div className="prose prose-lg max-w-none">
-                            <p className="whitespace-pre-wrap leading-relaxed">{company.description}</p>
-                          </div>
-                        )}
-                      </article>
-                    );
-                  }
-
-                  return null;
-                })}
-              </div>
+                      );
+                    }
+                    if (item.content_type === "post" && item.content_id && contentData.posts[item.content_id]) {
+                      const post = contentData.posts[item.content_id];
+                      return (
+                        <article key={item.id}>
+                          <h3 className="text-2xl font-semibold mb-3">{post.title}</h3>
+                          <p className="whitespace-pre-wrap leading-relaxed text-lg">{post.content}</p>
+                        </article>
+                      );
+                    }
+                    if (item.content_type === "event" && item.content_id && contentData.events[item.content_id]) {
+                      const event = contentData.events[item.content_id];
+                      return (
+                        <article key={item.id}>
+                          <h3 className="text-2xl font-semibold mb-2">{event.title}</h3>
+                          <p className="text-gray-500 mb-3 italic">
+                            {formatDate(event.start_at)}{event.location && ` • ${event.location}`}
+                          </p>
+                          {event.description && <p className="whitespace-pre-wrap leading-relaxed text-lg">{event.description}</p>}
+                        </article>
+                      );
+                    }
+                    if (item.company_id && contentData.companies[item.company_id]) {
+                      const company = contentData.companies[item.company_id];
+                      return (
+                        <article key={item.id}>
+                          <h3 className="text-2xl font-semibold mb-3">{company.name}</h3>
+                          {company.description && <p className="whitespace-pre-wrap leading-relaxed text-lg">{company.description}</p>}
+                        </article>
+                      );
+                    }
+                    return null;
+                  })}
+                </div>
+              )}
             </div>
           );
         })}
 
-        {/* Footer Page */}
-        <div className="min-h-[50vh] flex flex-col items-center justify-center text-center p-12">
-          <p className="text-xl text-gray-600">{magazine.club?.name}</p>
+        {/* Schlussseite */}
+        <div className="min-h-64 flex flex-col items-center justify-center text-center p-12">
+          {magazine.club_name && <p className="text-xl text-gray-600">{magazine.club_name}</p>}
           <p className="text-lg text-gray-500 mt-2">{magazine.year}</p>
-          <p className="text-sm text-gray-400 mt-8">
-            Erstellt mit dem Vereinsportal
-          </p>
+          <p className="text-sm text-gray-400 mt-6">Erstellt mit SchutzenHub</p>
         </div>
       </div>
 
-      {/* Print Styles */}
+      {/* Druckstile */}
       <style>{`
         @media print {
-          @page {
-            size: A4;
-            margin: 2cm;
-          }
-          
-          body {
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-          }
-          
-          .print\\:hidden {
-            display: none !important;
-          }
-          
-          .print\\:break-after-page {
-            break-after: page;
-          }
+          @page { size: A4; margin: 2cm; }
+          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .print\\:hidden { display: none !important; }
+          .print\\:break-after-page { break-after: page; }
+          .print\\:shadow-none { box-shadow: none !important; }
+          .print\\:mx-0 { margin-left: 0 !important; margin-right: 0 !important; }
+          .print\\:max-w-none { max-width: none !important; }
         }
       `}</style>
     </PortalLayout>
