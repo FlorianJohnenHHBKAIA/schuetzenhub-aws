@@ -100,11 +100,11 @@ const PublicCompanyProfile = () => {
         .single();
 
       if (clubError) throw clubError;
-      setClub(clubData);
+      const club = clubData as ClubData;
+      setClub(club);
 
-      if (clubData.logo_path) {
-        const urlData = { publicUrl: getStorageUrl("club-assets", clubData.logo_path) || "" };
-        setClubLogoUrl(urlData.publicUrl);
+      if (club.logo_path) {
+        setClubLogoUrl(getStorageUrl("club-assets", club.logo_path) || "");
       }
 
       // Fetch company data
@@ -112,26 +112,25 @@ const PublicCompanyProfile = () => {
         .from("companies")
         .select("*")
         .eq("id", companyId)
-        .eq("club_id", clubData.id)
+        .eq("club_id", club.id)
         .single();
 
       if (companyError) throw companyError;
-      setCompany(companyData);
+      const company = companyData as CompanyData;
+      setCompany(company);
 
-      if (companyData.logo_url) {
-        if (companyData.logo_url.startsWith('http')) {
-          setCompanyLogoUrl(companyData.logo_url);
+      if (company.logo_url) {
+        if (company.logo_url.startsWith('http')) {
+          setCompanyLogoUrl(company.logo_url);
         } else {
-          const urlData = { publicUrl: getStorageUrl("company-assets", companyData.logo_url) || "" };
-          setCompanyLogoUrl(urlData.publicUrl);
+          setCompanyLogoUrl(getStorageUrl("company-assets", company.logo_url) || "");
         }
       }
-      if (companyData.cover_url) {
-        if (companyData.cover_url.startsWith('http')) {
-          setCompanyCoverUrl(companyData.cover_url);
+      if (company.cover_url) {
+        if (company.cover_url.startsWith('http')) {
+          setCompanyCoverUrl(company.cover_url);
         } else {
-          const urlData = { publicUrl: getStorageUrl("company-assets", companyData.cover_url) || "" };
-          setCompanyCoverUrl(urlData.publicUrl);
+          setCompanyCoverUrl(getStorageUrl("company-assets", company.cover_url) || "");
         }
       }
 
@@ -139,7 +138,7 @@ const PublicCompanyProfile = () => {
       const { data: eventsData } = await supabase
         .from("events")
         .select("id, title, start_at, end_at, location, category, description")
-        .eq("club_id", clubData.id)
+        .eq("club_id", club.id)
         .eq("owner_id", companyId)
         .eq("owner_type", "company")
         .in("audience", ["public", "club_internal"])
@@ -148,13 +147,13 @@ const PublicCompanyProfile = () => {
         .order("start_at", { ascending: true })
         .limit(5);
 
-      setEvents(eventsData || []);
+      setEvents((eventsData as PublicEvent[]) || []);
 
       // Fetch public posts for this company
       const { data: postsData } = await supabase
         .from("posts")
         .select("id, title, content, created_at, category, cover_image_path")
-        .eq("club_id", clubData.id)
+        .eq("club_id", club.id)
         .eq("owner_id", companyId)
         .eq("owner_type", "company")
         .eq("audience", "public")
@@ -162,56 +161,30 @@ const PublicCompanyProfile = () => {
         .order("created_at", { ascending: false })
         .limit(4);
 
-      setPosts(postsData || []);
+      setPosts((postsData as PublicPost[]) || []);
 
       // Get member count (public info)
       const { count } = await supabase
         .from("member_company_memberships")
-        .select("*", { count: "exact", head: true })
+        .select("*", { count: "exact" })
         .eq("company_id", companyId)
         .is("valid_to", null);
 
-      setMemberCount(count || 0);
+      setMemberCount((count as number) || 0);
 
       // Fetch leadership positions for this company
-      const today = new Date().toISOString().split('T')[0];
-      const { data: appointmentsData } = await supabase
-        .from("appointments")
-        .select(`
-          id,
-          role_id,
-          member_id,
-          roles!inner (
-            id,
-            name,
-            level
-          ),
-          members!inner (
-            id,
-            first_name,
-            last_name,
-            avatar_url,
-            title
-          )
-        `)
-        .eq("scope_type", "company")
-        .eq("scope_id", companyId)
-        .lte("valid_from", today)
-        .or(`valid_to.is.null,valid_to.gte.${today}`);
-
-      if (appointmentsData) {
-        const leadershipData: LeadershipPosition[] = appointmentsData.map((apt: any) => ({
-          id: apt.id,
-          role_name: apt.roles.name,
-          member: {
-            id: apt.members.id,
-            first_name: apt.members.first_name,
-            last_name: apt.members.last_name,
-            avatar_url: apt.members.avatar_url,
-            title: apt.members.title,
-          }
-        }));
-        setLeadership(leadershipData);
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const response = await fetch(
+          `/api/appointments/leadership?scope_type=company&scope_id=${companyId}&date=${today}`,
+          { headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` } }
+        );
+        if (response.ok) {
+          const leadershipData: LeadershipPosition[] = await response.json();
+          setLeadership(leadershipData);
+        }
+      } catch {
+        // Leadership nicht kritisch – Seite lädt trotzdem
       }
 
     } catch (error) {

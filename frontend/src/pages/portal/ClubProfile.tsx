@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import PortalLayout from "@/components/portal/PortalLayout";
 import { useAuth } from "@/lib/auth";
-import { supabase, getStorageUrl } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl, apiUpload } from "@/integrations/supabase/client";
 
 interface ClubProfile {
   id: string;
@@ -61,14 +61,14 @@ const ClubProfilePage = () => {
         .single();
 
       if (error) throw error;
-      setProfile(data);
+      setProfile(data as ClubProfile);
       
       // Set image previews
-      if (data.logo_path) {
-        { data: { publicUrl: getStorageUrl("club-assets", data.logo_path) || "" } };
+      if ((data as ClubProfile).logo_path) {
+        setLogoPreview(getStorageUrl("club-assets", (data as ClubProfile).logo_path!) || "");
       }
-      if (data.hero_image_path) {
-        { data: { publicUrl: getStorageUrl("club-assets", data.hero_image_path) || "" } };
+      if ((data as ClubProfile).hero_image_path) {
+        setHeroPreview(getStorageUrl("club-assets", (data as ClubProfile).hero_image_path!) || "");
       }
     } catch (error) {
       console.error("Error fetching profile:", error);
@@ -96,14 +96,7 @@ const ClubProfilePage = () => {
     const ext = file.name.split(".").pop();
     const fileName = `${profile.id}/${type}-${Date.now()}.${ext}`;
     
-    const { error } = await supabase.storage
-      .from("club-assets")
-      .upload(fileName, file, { upsert: true });
-
-    if (error) {
-      console.error("Upload error:", error);
-      throw error;
-    }
+    await apiUpload(`/api/upload`, file, { bucket: "club-assets", path: fileName });
     
     return fileName;
   };

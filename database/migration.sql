@@ -521,3 +521,37 @@ ALTER TABLE companies ADD COLUMN IF NOT EXISTS founded_year INTEGER;
 
 ALTER TABLE magazines ADD COLUMN IF NOT EXISTS title TEXT;
 ALTER TABLE magazines ADD COLUMN IF NOT EXISTS created_by_member_id UUID REFERENCES members(id) ON DELETE SET NULL;
+
+ALTER TABLE clubs
+  ADD COLUMN IF NOT EXISTS tagline TEXT,
+  ADD COLUMN IF NOT EXISTS location_city TEXT,
+  ADD COLUMN IF NOT EXISTS location_zip TEXT,
+  ADD COLUMN IF NOT EXISTS contact_email TEXT,
+  ADD COLUMN IF NOT EXISTS contact_phone TEXT,
+  ADD COLUMN IF NOT EXISTS website_url TEXT,
+  ADD COLUMN IF NOT EXISTS join_cta_text TEXT,
+  ADD COLUMN IF NOT EXISTS join_cta_url TEXT,
+  ADD COLUMN IF NOT EXISTS imprint_text TEXT,
+  ADD COLUMN IF NOT EXISTS privacy_text TEXT,
+  ADD COLUMN IF NOT EXISTS hero_image_path TEXT,
+  ADD COLUMN IF NOT EXISTS logo_path TEXT;
+
+  -- member_gallery_images auf erweitertes Schema migrieren
+DROP TABLE IF EXISTS member_gallery_images;
+
+CREATE TABLE member_gallery_images (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  club_id UUID NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+  member_id UUID REFERENCES members(id) ON DELETE SET NULL,
+  company_id UUID REFERENCES companies(id) ON DELETE SET NULL,
+  image_path TEXT NOT NULL,
+  title TEXT,
+  description TEXT,
+  visibility TEXT NOT NULL DEFAULT 'club',
+  usage_permission TEXT NOT NULL DEFAULT 'internal',
+  status TEXT NOT NULL DEFAULT 'pending',
+  rejection_reason TEXT,
+  reviewed_by_member_id UUID REFERENCES members(id) ON DELETE SET NULL,
+  reviewed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

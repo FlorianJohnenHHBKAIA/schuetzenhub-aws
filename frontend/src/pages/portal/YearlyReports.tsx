@@ -117,10 +117,10 @@ const YearlyReports = () => {
       .single();
     
     if (club) {
-      setClubInfo(club);
-      if (club.logo_path) {
-        const { data: urlData } = { data: { publicUrl: getStorageUrl("club-assets", club.logo_path) || "" } };
-        setClubLogoUrl(urlData?.publicUrl || null);
+      const clubInfo = club as ClubInfo;
+      setClubInfo(clubInfo);
+      if (clubInfo.logo_path) {
+        setClubLogoUrl(getStorageUrl("club-assets", clubInfo.logo_path) || null);
       }
     }
   };
@@ -138,19 +138,19 @@ const YearlyReports = () => {
       // Fetch member stats
       const { count: totalMembers } = await supabase
         .from("members")
-        .select("*", { count: "exact", head: true })
+        .select("*", { count: "exact" })
         .eq("club_id", member.club_id);
 
       const { count: activeMembers } = await supabase
         .from("members")
-        .select("*", { count: "exact", head: true })
+        .select("*", { count: "exact" })
         .eq("club_id", member.club_id)
         .eq("status", "active");
 
       // New entries this year (members created in selected year)
       const { count: newEntries } = await supabase
         .from("members")
-        .select("*", { count: "exact", head: true })
+        .select("*", { count: "exact" })
         .eq("club_id", member.club_id)
         .gte("created_at", yearStartTs)
         .lte("created_at", yearEndTs);
@@ -163,10 +163,10 @@ const YearlyReports = () => {
 
       const membersByCompany: { name: string; count: number }[] = [];
       if (companiesData) {
-        for (const company of companiesData) {
+        for (const company of (companiesData as {id:string;name:string}[])) {
           const { count } = await supabase
             .from("member_company_memberships")
-            .select("*", { count: "exact", head: true })
+            .select("*", { count: "exact" })
             .eq("company_id", company.id)
             .is("valid_to", null);
           membersByCompany.push({ name: company.name, count: count || 0 });
@@ -176,14 +176,14 @@ const YearlyReports = () => {
       // Events stats
       const { count: totalEvents } = await supabase
         .from("events")
-        .select("*", { count: "exact", head: true })
+        .select("*", { count: "exact" })
         .eq("club_id", member.club_id)
         .gte("start_at", yearStartTs)
         .lte("start_at", yearEndTs);
 
       const { count: publicEvents } = await supabase
         .from("events")
-        .select("*", { count: "exact", head: true })
+        .select("*", { count: "exact" })
         .eq("club_id", member.club_id)
         .eq("audience", "public")
         .eq("publication_status", "approved")
@@ -192,7 +192,7 @@ const YearlyReports = () => {
 
       const { count: internalEvents } = await supabase
         .from("events")
-        .select("*", { count: "exact", head: true })
+        .select("*", { count: "exact" })
         .eq("club_id", member.club_id)
         .eq("audience", "club_internal")
         .gte("start_at", yearStartTs)
@@ -200,7 +200,7 @@ const YearlyReports = () => {
 
       const { count: companyOnlyEvents } = await supabase
         .from("events")
-        .select("*", { count: "exact", head: true })
+        .select("*", { count: "exact" })
         .eq("club_id", member.club_id)
         .eq("audience", "company_only")
         .gte("start_at", yearStartTs)
@@ -214,8 +214,11 @@ const YearlyReports = () => {
         .gte("start_at", yearStartTs)
         .lte("start_at", yearEndTs);
 
-      const totalShifts = workShifts?.length || 0;
-      const requiredSlots = workShifts?.reduce((sum, s) => sum + (s.required_slots || 0), 0) || 0;
+      interface WorkShift { id: string; required_slots: number; start_at: string; end_at: string; }
+      interface Assignment { id: string; status: string; hours_override: number|null; work_shift_id: string; }
+      const shifts = (workShifts as WorkShift[]) || [];
+      const totalShifts = shifts.length;
+      const requiredSlots = shifts.reduce((sum, s) => sum + (s.required_slots || 0), 0);
 
       // Work shift assignments
       const { data: assignments } = await supabase
@@ -224,16 +227,16 @@ const YearlyReports = () => {
         .eq("club_id", member.club_id);
 
       // Filter assignments for shifts in this year
-      const shiftIds = workShifts?.map(s => s.id) || [];
-      const yearAssignments = assignments?.filter(a => shiftIds.includes(a.work_shift_id)) || [];
+      const shiftIds = shifts.map(s => s.id);
+      const yearAssignments = ((assignments as Assignment[]) || []).filter(a => shiftIds.includes(a.work_shift_id));
       
       const completedAssignments = yearAssignments.filter(a => a.status === "completed").length;
       const noShows = yearAssignments.filter(a => a.status === "no_show").length;
 
       // Calculate total hours
       let totalHours = 0;
-      if (workShifts && assignments) {
-        const shiftMap = new Map(workShifts.map(s => [s.id, s]));
+      if (shifts.length > 0) {
+        const shiftMap = new Map(shifts.map(s => [s.id, s]));
         for (const a of yearAssignments.filter(a => a.status === "completed")) {
           const shift = shiftMap.get(a.work_shift_id);
           if (shift) {
@@ -251,7 +254,7 @@ const YearlyReports = () => {
       // Content stats
       const { count: postsCount } = await supabase
         .from("posts")
-        .select("*", { count: "exact", head: true })
+        .select("*", { count: "exact" })
         .eq("club_id", member.club_id)
         .eq("publication_status", "approved")
         .gte("created_at", yearStartTs)
@@ -259,21 +262,21 @@ const YearlyReports = () => {
 
       const { count: commentsCount } = await supabase
         .from("post_comments")
-        .select("*", { count: "exact", head: true })
+        .select("*", { count: "exact" })
         .eq("club_id", member.club_id)
         .gte("created_at", yearStartTs)
         .lte("created_at", yearEndTs);
 
       const { count: documentsCount } = await supabase
         .from("documents")
-        .select("*", { count: "exact", head: true })
+        .select("*", { count: "exact" })
         .eq("club_id", member.club_id)
         .gte("created_at", yearStartTs)
         .lte("created_at", yearEndTs);
 
       const { count: galleryCount } = await supabase
         .from("gallery_images")
-        .select("*", { count: "exact", head: true })
+        .select("*", { count: "exact" })
         .eq("club_id", member.club_id)
         .gte("created_at", yearStartTs)
         .lte("created_at", yearEndTs);
@@ -281,7 +284,7 @@ const YearlyReports = () => {
       // Awards stats
       const { count: awardGiven } = await supabase
         .from("member_awards")
-        .select("*", { count: "exact", head: true })
+        .select("*", { count: "exact" })
         .eq("club_id", member.club_id)
         .eq("status", "approved")
         .gte("awarded_at", yearStart)
@@ -289,13 +292,13 @@ const YearlyReports = () => {
 
       const { count: awardPending } = await supabase
         .from("member_awards")
-        .select("*", { count: "exact", head: true })
+        .select("*", { count: "exact" })
         .eq("club_id", member.club_id)
         .eq("status", "pending");
 
       const { count: awardRejected } = await supabase
         .from("member_awards")
-        .select("*", { count: "exact", head: true })
+        .select("*", { count: "exact" })
         .eq("club_id", member.club_id)
         .eq("status", "rejected")
         .gte("created_at", yearStartTs)
@@ -311,24 +314,24 @@ const YearlyReports = () => {
         .lte("awarded_at", yearEnd);
 
       const awardTypeCounts = new Map<string, number>();
-      awardsByType?.forEach(a => {
+      ((awardsByType as {award_type:string|null}[]) || []).forEach(a => {
         const type = a.award_type || "Sonstige";
         awardTypeCounts.set(type, (awardTypeCounts.get(type) || 0) + 1);
       });
 
       setStats({
         members: {
-          total: totalMembers || 0,
-          active: activeMembers || 0,
-          newEntries: newEntries || 0,
+          total: ((totalMembers as number) || 0),
+          active: ((activeMembers as number) || 0),
+          newEntries: ((newEntries as number) || 0),
           exits: 0, // Would need exit date tracking
           byCompany: membersByCompany.sort((a, b) => b.count - a.count),
         },
         events: {
-          total: totalEvents || 0,
-          public: publicEvents || 0,
-          internal: internalEvents || 0,
-          companyOnly: companyOnlyEvents || 0,
+          total: ((totalEvents as number) || 0),
+          public: ((publicEvents as number) || 0),
+          internal: ((internalEvents as number) || 0),
+          companyOnly: ((companyOnlyEvents as number) || 0),
         },
         workShifts: {
           totalShifts,
@@ -338,15 +341,15 @@ const YearlyReports = () => {
           totalHours: Math.round(totalHours * 10) / 10,
         },
         content: {
-          posts: postsCount || 0,
-          comments: commentsCount || 0,
-          documents: documentsCount || 0,
-          galleryImages: galleryCount || 0,
+          posts: ((postsCount as number) || 0),
+          comments: ((commentsCount as number) || 0),
+          documents: ((documentsCount as number) || 0),
+          galleryImages: ((galleryCount as number) || 0),
         },
         awards: {
-          given: awardGiven || 0,
-          pending: awardPending || 0,
-          rejected: awardRejected || 0,
+          given: ((awardGiven as number) || 0),
+          pending: ((awardPending as number) || 0),
+          rejected: ((awardRejected as number) || 0),
           byType: Array.from(awardTypeCounts.entries())
             .map(([name, count]) => ({ name, count }))
             .sort((a, b) => b.count - a.count),

@@ -23,41 +23,37 @@ router.post("/get_user_permissions", requireAuth, async (req, res) => {
     if (!memberResult.rows[0]) return res.json([]);
     const memberId = memberResult.rows[0].id;
 
-    // Hole Rolle des Mitglieds
-    const appointmentResult = await pool.query(
-      `SELECT r.id as role_id, r.name as role_name, rp.permission_id, p.key as permission_key
-       FROM appointments a
-       JOIN roles r ON r.id = a.role_id
-       JOIN role_permissions rp ON rp.role_id = r.id
+    // Hole Permissions über member_role_assignments
+    const permResult = await pool.query(
+      `SELECT mra.scope_type, mra.scope_id, p.key as permission_key
+       FROM member_role_assignments mra
+       JOIN role_permissions rp ON rp.role_id = mra.role_id
        JOIN permissions p ON p.id = rp.permission_id
-       WHERE a.member_id = $1
-         AND (a.valid_to IS NULL OR a.valid_to > NOW())
-         AND a.club_id = $2`,
-      [memberId, clubId]
-    );
-
-    // Füge company-scope Permissions hinzu
-    const companyResult = await pool.query(
-      `SELECT mcm.company_id, rp.permission_id, p.key as permission_key
-       FROM member_company_memberships mcm
-       JOIN appointments a ON a.member_id = mcm.member_id
-       JOIN role_permissions rp ON rp.role_id = a.role_id
-       JOIN permissions p ON p.id = rp.permission_id
-       WHERE mcm.member_id = $1
-         AND mcm.valid_to IS NULL`,
+       WHERE mra.member_id = $1`,
       [memberId]
     );
 
-    const clubPerms = appointmentResult.rows.map(r => ({
-      permission_key: r.permission_key,
-      scope_type: "club",
-      scope_id: clubId,
-    }));
+    // Auch app_role aus user_roles holen (admin/member)
+    const userRoleResult = await pool.query(
+      `SELECT role FROM user_roles WHERE user_id = $1 AND club_id = $2 LIMIT 1`,
+      [req.userId, clubId]
+    );
+    const appRole = userRoleResult.rows[0]?.role || "member";
 
-    const companyPerms = companyResult.rows.map(r => ({
-      permission_key: r.permission_key,
-      scope_type: "company",
-      scope_id: r.company_id,
+    const clubPerms = permResult.rows
+      .filter(r => r.scope_type === "club" || !r.scope_type)
+      .map(r => ({
+        permission_key: r.permission_key,
+        scope_type: "club",
+        scope_id: clubId,
+      }));
+
+    const companyPerms = permResult.rows
+      .filter(r => r.scope_type === "company")
+      .map(r => ({
+        permission_key: r.permission_key,
+        scope_type: "company",
+        scope_id: r.scope_id,
     }));
 
     res.json([...clubPerms, ...companyPerms]);

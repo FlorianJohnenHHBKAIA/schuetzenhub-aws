@@ -148,66 +148,65 @@ const PublicClubProfile = () => {
         .single();
 
       if (clubError) throw clubError;
-      setClub(clubData);
+      const club = clubData as ClubData;
+      setClub(club);
 
-      if (clubData.logo_path) {
-        const urlData = { publicUrl: getStorageUrl("club-assets", clubData.logo_path) || "" };
-        setLogoUrl(urlData.publicUrl);
+      if (club.logo_path) {
+        setLogoUrl(getStorageUrl("club-assets", club.logo_path) || "");
       }
-      if (clubData.hero_image_path) {
-        const urlData = { publicUrl: getStorageUrl("club-assets", clubData.hero_image_path) || "" };
-        setHeroUrl(urlData.publicUrl);
+      if (club.hero_image_path) {
+        setHeroUrl(getStorageUrl("club-assets", club.hero_image_path) || "");
       }
 
       const { data: eventsData } = await supabase
         .from("events")
         .select("id, title, start_at, end_at, location, category, description")
-        .eq("club_id", clubData.id)
+        .eq("club_id", club.id)
         .eq("audience", "public")
         .eq("publication_status", "approved")
         .gte("start_at", new Date().toISOString())
         .order("start_at", { ascending: true })
         .limit(5);
 
-      setEvents(eventsData || []);
+      setEvents((eventsData as PublicEvent[]) || []);
 
       const { data: postsData } = await supabase
         .from("posts")
         .select("id, title, content, created_at, category, cover_image_path")
-        .eq("club_id", clubData.id)
+        .eq("club_id", club.id)
         .eq("audience", "public")
         .eq("publication_status", "approved")
         .order("created_at", { ascending: false })
         .limit(3);
 
-      setPosts(postsData || []);
+      setPosts((postsData as PublicPost[]) || []);
 
       const { data: companiesData } = await supabase
         .from("companies")
         .select("id, name, description, logo_url")
-        .eq("club_id", clubData.id)
+        .eq("club_id", club.id)
         .order("name");
 
-      setCompanies(companiesData || []);
+      setCompanies((companiesData as Company[]) || []);
 
       const { data: galleryData } = await supabase
         .from("gallery_images")
         .select("id, title, description, image_path")
-        .eq("club_id", clubData.id)
+        .eq("club_id", club.id)
         .eq("is_visible", true)
         .order("sort_order", { ascending: true })
         .limit(6);
 
-      setGalleryImages(galleryData || []);
+      setGalleryImages((galleryData as GalleryImage[]) || []);
 
       // Get member count
       const { count } = await supabase
         .from("members")
-        .select("*", { count: "exact", head: true })
-        .eq("club_id", clubData.id)
+        .select("*", { count: "exact" })
+        .eq("club_id", club.id)
         .in("status", ["active", "passive"]);
 
-      setMemberCount(count || 0);
+      setMemberCount((count as number) || 0);
 
     } catch (error) {
       console.error("Error fetching club data:", error);
@@ -811,7 +810,7 @@ const PublicClubProfile = () => {
               {posts.map((post, index) => {
                 const shareUrl = `/verein/${slug}/beitrag/${post.id}`;
                 const shareDescription = post.content
-                  ? post.content.replace(/<[^>]*>/g, "").substring(0, 100)
+                  ? post.content?.replace(/<[^>]*>/g, "").substring(0, 100) ?? ""
                   : "";
 
                 return (
@@ -841,7 +840,7 @@ const PublicClubProfile = () => {
                           {post.title}
                         </h3>
                         <p className="text-muted-foreground text-sm line-clamp-3 mb-4">
-                          {post.content.replace(/<[^>]*>/g, "").substring(0, 120)}...
+                          {post.content?.replace(/<[^>]*>/g, "").substring(0, 120) ?? ""}...
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {format(new Date(post.created_at), "dd. MMMM yyyy", { locale: de })}

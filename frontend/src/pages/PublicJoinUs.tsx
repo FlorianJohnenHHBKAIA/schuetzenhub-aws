@@ -95,21 +95,21 @@ const PublicJoinUs = () => {
         .single();
 
       if (error) throw error;
-      setClub(clubData);
+      const club = clubData as ClubData;
+      setClub(club);
 
-      if (clubData.logo_path) {
-        const urlData = { publicUrl: getStorageUrl("club-assets", clubData.logo_path) || "" };
-        setLogoUrl(urlData.publicUrl);
+      if (club.logo_path) {
+        setLogoUrl(getStorageUrl("club-assets", club.logo_path) || "");
       }
 
       // Get member count
       const { count } = await supabase
         .from("members")
-        .select("*", { count: "exact", head: true })
-        .eq("club_id", clubData.id)
+        .select("*", { count: "exact" })
+        .eq("club_id", club.id)
         .in("status", ["active", "passive"]);
 
-      setMemberCount(count || 0);
+      setMemberCount((count as number) || 0);
     } catch (error) {
       console.error("Error fetching club data:", error);
     } finally {

@@ -45,8 +45,9 @@ export function PhotoUploadDialog({
         .is("valid_to", null)
         .maybeSingle()
         .then(({ data }) => {
-          if (data?.company_id) {
-            setCompanyId(data.company_id);
+          const row = data as { company_id?: string } | null;
+          if (row?.company_id) {
+            setCompanyId(row.company_id);
           }
         });
     }
@@ -126,20 +127,25 @@ export function PhotoUploadDialog({
         const visibility = scope === "company" ? "company" : "club";
         let dbError = null;
         try {
-          await (supabase as any).json("/api/gallery/upload", {
+          const res = await fetch("/api/gallery/upload", {
             method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
+            },
             body: JSON.stringify({
-            member_id: member.id,
-            club_id: member.club_id,
-            company_id: scope === "company" ? companyId : null,
-            image_path: filePath,
-            visibility,
-            usage_permission: getUsagePermissionValue(),
-            description: description || null,
-            status: "pending",
-          })
+              member_id: member.id,
+              club_id: member.club_id,
+              company_id: scope === "company" ? companyId : null,
+              image_path: filePath,
+              visibility,
+              usage_permission: getUsagePermissionValue(),
+              description: description || null,
+              status: "pending",
+            }),
           });
-        } catch(e: any) { dbError = e; }
+          if (!res.ok) dbError = await res.json();
+        } catch(e: unknown) { dbError = e; }
 
         if (dbError) {
           console.error("DB error:", dbError);

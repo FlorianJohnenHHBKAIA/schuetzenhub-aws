@@ -53,22 +53,17 @@ const PublicGallery = () => {
         .single();
 
       if (clubError) throw clubError;
-      setClub(clubData);
+      const club = clubData as ClubData;
+      setClub(club);
 
-      if (clubData.logo_path) {
-        const urlData = { publicUrl: getStorageUrl("club-assets", clubData.logo_path) || "" };
-        setLogoUrl(urlData.publicUrl);
+      if (club.logo_path) {
+        setLogoUrl(getStorageUrl("club-assets", club.logo_path) || null);
       }
 
-      // Fetch all visible gallery images
-      const { data: galleryData } = await supabase
-        .from("gallery_images")
-        .select("id, title, description, image_path, created_at")
-        .eq("club_id", clubData.id)
-        .eq("is_visible", true)
-        .order("sort_order", { ascending: true });
-
-      setImages(galleryData || []);
+      // Fetch approved public gallery images
+      const galleryRes = await fetch(`/api/public/gallery/${slug}`);
+      const galleryData = galleryRes.ok ? await galleryRes.json() : [];
+      setImages((galleryData as GalleryImage[]) || []);
     } catch (error) {
       console.error("Error fetching data:", error);
     } finally {
