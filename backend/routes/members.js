@@ -11,6 +11,20 @@ const upload = multer({ dest: "tmp/" });
 // GET /api/members – alle Mitglieder des Vereins
 router.get("/", requireAuth, async (req, res) => {
   try {
+    // ?ids=uuid1,uuid2,... → nur diese Mitglieder zurückgeben (clubId-Check bleibt)
+    if (req.query.ids) {
+      const ids = req.query.ids.split(",").map((s) => s.trim()).filter(Boolean);
+      if (ids.length === 0) return res.json([]);
+      const placeholders = ids.map((_, i) => `$${i + 2}`).join(", ");
+      const result = await pool.query(
+        `SELECT id, first_name, last_name, email, status
+         FROM members
+         WHERE club_id = $1 AND id IN (${placeholders})`,
+        [req.clubId, ...ids]
+      );
+      return res.json(result.rows);
+    }
+
     const result = await pool.query(
       `SELECT m.*, 
         ARRAY_AGG(DISTINCT mcm.company_id) FILTER (WHERE mcm.company_id IS NOT NULL AND mcm.valid_to IS NULL) as company_ids

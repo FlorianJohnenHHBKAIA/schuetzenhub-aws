@@ -555,3 +555,16 @@ CREATE TABLE member_gallery_images (
   reviewed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- appointments: sicherstellen dass alle Felder vorhanden sind
+ALTER TABLE appointments
+  ADD COLUMN IF NOT EXISTS title TEXT,
+  ADD COLUMN IF NOT EXISTS scope_type TEXT DEFAULT 'club',
+  ADD COLUMN IF NOT EXISTS scope_id UUID;
+
+-- role_permissions: Unique-Constraint damit ON CONFLICT DO NOTHING funktioniert
+ALTER TABLE role_permissions
+  DROP CONSTRAINT IF EXISTS role_permissions_role_id_permission_id_key;
+ALTER TABLE role_permissions
+  ADD CONSTRAINT role_permissions_role_id_permission_id_key
+  UNIQUE (role_id, permission_id);

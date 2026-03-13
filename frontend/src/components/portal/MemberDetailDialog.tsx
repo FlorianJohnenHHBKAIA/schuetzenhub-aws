@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/integrations/api/client";
 
 interface MembershipHistory {
   id: string;
@@ -31,10 +31,10 @@ interface AppointmentInfo {
 
 interface DelegationInfo {
   id: string;
-  permission_key: string;
-  company_name: string;
-  granted_by_name: string | null;
+  title: string;
+  from_member_name: string | null;
   valid_from: string;
+  valid_to: string | null;
 }
 
 interface MemberDetailDialogProps {
@@ -56,16 +56,9 @@ interface MemberDetailDialogProps {
 
 const statusLabels: Record<string, { label: string; className: string }> = {
   prospect: { label: "Interessent", className: "bg-blue-500/10 text-blue-500" },
-  active: { label: "Aktiv", className: "bg-green-500/10 text-green-500" },
-  passive: { label: "Passiv", className: "bg-yellow-500/10 text-yellow-500" },
+  active:   { label: "Aktiv",       className: "bg-green-500/10 text-green-500" },
+  passive:  { label: "Passiv",      className: "bg-yellow-500/10 text-yellow-500" },
   resigned: { label: "Ausgetreten", className: "bg-red-500/10 text-red-500" },
-};
-
-const permissionLabels: Record<string, string> = {
-  "company.events.manage": "Termine verwalten",
-  "company.events.submit_publication": "Termine zur Veröffentlichung einreichen",
-  "company.documents.manage": "Dokumente verwalten",
-  "company.workshifts.manage": "Arbeitsdienste verwalten",
 };
 
 const MemberDetailDialog = ({
@@ -74,97 +67,115 @@ const MemberDetailDialog = ({
   member,
   clubId,
 }: MemberDetailDialogProps) => {
-  const [memberships, setMemberships] = useState<MembershipHistory[]>([]);
+  const [memberships,  setMemberships]  = useState<MembershipHistory[]>([]);
   const [appointments, setAppointments] = useState<AppointmentInfo[]>([]);
-  const [delegations, setDelegations] = useState<DelegationInfo[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [delegations,  setDelegations]  = useState<DelegationInfo[]>([]);
+  const [isLoading,    setIsLoading]    = useState(false);
 
   useEffect(() => {
-    if (open && member) {
-      fetchData();
-    }
+    if (open && member) fetchData();
   }, [open, member]);
 
   const fetchData = async () => {
     if (!member) return;
     setIsLoading(true);
 
-    // Fetch memberships, appointments, and delegations in parallel
-    const [membershipRes, appointmentRes, companiesRes, rolesRes, delegationsRes, permissionsRes] = await Promise.all([
-      supabase
-        .from("member_company_memberships")
-        .select("id, company_id, valid_from, valid_to")
-        .eq("member_id", member.id)
-        .order("valid_from", { ascending: false }),
-      supabase
-        .from("appointments")
-        .select("id, role_id, scope_type, scope_id, valid_from, valid_to")
-        .eq("member_id", member.id)
-        .order("valid_from", { ascending: false }),
-      supabase.from("companies").select("id, name").eq("club_id", clubId),
-      supabase.from("roles").select("id, name").eq("club_id", clubId),
-      supabase
-        .from("delegations")
-        .select("id, permission_id, company_id, granted_by_member_id, valid_from")
-        .eq("grantee_member_id", member.id)
-        .is("valid_to", null),
-      supabase.from("permissions").select("id, key"),
-    ]);
-
-    const companyMap = new Map((companiesRes.data || []).map((c) => [c.id, c.name]));
-    const roleMap = new Map((rolesRes.data || []).map((r) => [r.id, r.name]));
-    const permissionMap = new Map((permissionsRes.data || []).map((p) => [p.id, p.key]));
-
-    // Process memberships
-    if (membershipRes.data) {
-      const enrichedMemberships: MembershipHistory[] = membershipRes.data.map((m) => ({
-        ...m,
-        company_name: companyMap.get(m.company_id) || "Unbekannt",
-      }));
-      setMemberships(enrichedMemberships);
-    }
-
-    // Process appointments
-    if (appointmentRes.data) {
-      const enrichedAppointments: AppointmentInfo[] = appointmentRes.data.map((a) => ({
-        id: a.id,
-        role_name: roleMap.get(a.role_id) || "Unbekannt",
-        scope_type: a.scope_type,
-        scope_name: a.scope_type === "club" ? "Hauptverein" : companyMap.get(a.scope_id) || "Unbekannt",
-        valid_from: a.valid_from,
-        valid_to: a.valid_to,
-      }));
-      setAppointments(enrichedAppointments);
-    }
-
-    // Process delegations
-    if (delegationsRes.data && delegationsRes.data.length > 0) {
-      const grantedByIds = [...new Set(delegationsRes.data.map(d => d.granted_by_member_id).filter(Boolean))];
-      let grantedByNames: Record<string, string> = {};
-      
-      if (grantedByIds.length > 0) {
-        const { data: grantersData } = await supabase
-          .from("members")
-          .select("id, first_name, last_name")
-          .in("id", grantedByIds);
-        
-        grantedByNames = (grantersData || []).reduce((acc, m) => {
-          acc[m.id] = `${m.first_name} ${m.last_name}`;
-          return acc;
-        }, {} as Record<string, string>);
+    try {
+      interface ApiMembership {
+        id: string;
+        company_id: string;
+        valid_from: string;
+        valid_to: string | null;
       }
+      interface ApiAppointment {
+        id: string;
+        role_id: string;
+        scope_type: string;
+        scope_id: string;
+        valid_from: string;
+        valid_to: string | null;
+      }
+      interface ApiCompany   { id: string; name: string }
+      interface ApiRole      { id: string; name: string }
+      interface ApiDelegation {
+        id: string;
+        title: string;
+        from_member_id: string;
+        valid_from: string;
+        valid_to: string | null;
+      }
+      interface ApiMember    { id: string; first_name: string; last_name: string }
 
-      setDelegations(
-        delegationsRes.data.map((d) => ({
-          id: d.id,
-          permission_key: permissionMap.get(d.permission_id) || "",
-          company_name: companyMap.get(d.company_id) || "Unbekannt",
-          granted_by_name: d.granted_by_member_id ? grantedByNames[d.granted_by_member_id] || null : null,
-          valid_from: d.valid_from,
+      const [
+        membershipData,
+        appointmentData,
+        companies,
+        roles,
+        delegationData,
+      ] = await Promise.all([
+        api.json<ApiMembership[]>(`/api/memberships?member_id=${member.id}`).catch((): ApiMembership[] => []),
+        api.json<ApiAppointment[]>(`/api/appointments?member_id=${member.id}`).catch((): ApiAppointment[] => []),
+        api.json<ApiCompany[]>("/api/companies").catch((): ApiCompany[] => []),
+        api.json<ApiRole[]>("/api/roles").catch((): ApiRole[] => []),
+        api.json<ApiDelegation[]>(`/api/delegations?to_member_id=${member.id}`).catch((): ApiDelegation[] => []),
+      ]);
+
+      const companyMap = new Map<string, string>(companies.map((c): [string, string] => [c.id, c.name]));
+      const roleMap    = new Map<string, string>(roles.map((r): [string, string] => [r.id, r.name]));
+
+      // Memberships anreichern
+      setMemberships(
+        membershipData.map((m): MembershipHistory => ({
+          id:           m.id,
+          company_id:   m.company_id,
+          valid_from:   m.valid_from,
+          valid_to:     m.valid_to,
+          company_name: companyMap.get(m.company_id) ?? "Unbekannt",
         }))
       );
-    } else {
-      setDelegations([]);
+
+      // Appointments anreichern
+      setAppointments(
+        appointmentData.map((a): AppointmentInfo => ({
+          id:         a.id,
+          role_name:  roleMap.get(a.role_id) ?? "Unbekannt",
+          scope_type: (a.scope_type === "club" ? "club" : "company"),
+          scope_name:
+            a.scope_type === "club"
+              ? "Hauptverein"
+              : companyMap.get(a.scope_id) ?? "Unbekannt",
+          valid_from: a.valid_from,
+          valid_to:   a.valid_to,
+        }))
+      );
+
+      // Delegationen: Namen der delegierenden Mitglieder nachladen
+      if (delegationData.length > 0) {
+        const fromIds = [...new Set(delegationData.map((d) => d.from_member_id))];
+        const fromMembers = await api
+          .json<ApiMember[]>(`/api/members?ids=${fromIds.join(",")}`)
+          .catch((): ApiMember[] => []);
+
+        const fromMap = new Map<string, string>(
+          fromMembers.map((m): [string, string] => [m.id, `${m.first_name} ${m.last_name}`])
+        );
+
+        setDelegations(
+          delegationData
+            .filter((d) => !d.valid_to || new Date(d.valid_to) >= new Date())
+            .map((d): DelegationInfo => ({
+              id:               d.id,
+              title:            d.title,
+              from_member_name: fromMap.get(d.from_member_id) ?? null,
+              valid_from:       d.valid_from,
+              valid_to:         d.valid_to,
+            }))
+        );
+      } else {
+        setDelegations([]);
+      }
+    } catch (err) {
+      console.error("MemberDetailDialog fetchData error:", err);
     }
 
     setIsLoading(false);
@@ -172,15 +183,14 @@ const MemberDetailDialog = ({
 
   if (!member) return null;
 
-  const status = statusLabels[member.status] || statusLabels.prospect;
-  const currentMembership = memberships.find((m) => m.valid_to === null);
-  const pastMemberships = memberships.filter((m) => m.valid_to !== null);
+  const status             = statusLabels[member.status] || statusLabels.prospect;
+  const currentMembership  = memberships.find((m) => m.valid_to === null);
+  const pastMemberships    = memberships.filter((m) => m.valid_to !== null);
   const activeAppointments = appointments.filter((a) => a.valid_to === null);
-  const pastAppointments = appointments.filter((a) => a.valid_to !== null);
+  const pastAppointments   = appointments.filter((a) => a.valid_to !== null);
 
-  const formatDate = (dateStr: string) => {
-    return format(new Date(dateStr), "dd.MM.yyyy", { locale: de });
-  };
+  const formatDate = (dateStr: string) =>
+    format(new Date(dateStr), "dd.MM.yyyy", { locale: de });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -192,7 +202,8 @@ const MemberDetailDialog = ({
         </DialogHeader>
 
         <div className="space-y-6">
-          {/* Basic Info */}
+
+          {/* ── Basisdaten ── */}
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <Badge variant="secondary" className={status.className}>
@@ -217,9 +228,7 @@ const MemberDetailDialog = ({
                   <span className="text-right">
                     {member.street && <div>{member.street}</div>}
                     {(member.zip || member.city) && (
-                      <div>
-                        {member.zip} {member.city}
-                      </div>
+                      <div>{member.zip} {member.city}</div>
                     )}
                   </span>
                 </div>
@@ -227,7 +236,7 @@ const MemberDetailDialog = ({
             </div>
           </div>
 
-          {/* Current Company */}
+          {/* ── Aktuelle Kompanie ── */}
           <div className="space-y-3">
             <h3 className="font-medium flex items-center gap-2">
               <Building2 className="w-4 h-4" />
@@ -254,7 +263,7 @@ const MemberDetailDialog = ({
             )}
           </div>
 
-          {/* Active Appointments (Ämter) */}
+          {/* ── Aktive Ämter ── */}
           <div className="space-y-3">
             <h3 className="font-medium flex items-center gap-2">
               <Award className="w-4 h-4" />
@@ -292,12 +301,12 @@ const MemberDetailDialog = ({
             )}
           </div>
 
-          {/* Delegations */}
+          {/* ── Delegierte Aufgaben ── */}
           {delegations.length > 0 && (
             <div className="space-y-3">
               <h3 className="font-medium flex items-center gap-2">
                 <UserCog className="w-4 h-4" />
-                Delegierte Rechte
+                Delegierte Aufgaben
               </h3>
               <div className="space-y-2">
                 {delegations.map((d) => (
@@ -305,13 +314,11 @@ const MemberDetailDialog = ({
                     key={d.id}
                     className="p-3 bg-accent/50 border border-accent rounded-lg"
                   >
-                    <div className="font-medium text-sm">
-                      {permissionLabels[d.permission_key] || d.permission_key}
-                    </div>
+                    <div className="font-medium text-sm">{d.title}</div>
                     <div className="text-xs text-muted-foreground mt-1">
-                      {d.company_name}
-                      {d.granted_by_name && ` · von ${d.granted_by_name}`}
-                      {` · seit ${formatDate(d.valid_from)}`}
+                      {d.from_member_name && `von ${d.from_member_name} · `}
+                      seit {formatDate(d.valid_from)}
+                      {d.valid_to && ` bis ${formatDate(d.valid_to)}`}
                     </div>
                   </div>
                 ))}
@@ -319,7 +326,7 @@ const MemberDetailDialog = ({
             </div>
           )}
 
-          {/* Company History */}
+          {/* ── Kompanie-Historie ── */}
           {pastMemberships.length > 0 && (
             <div className="space-y-3">
               <h3 className="font-medium flex items-center gap-2">
@@ -328,10 +335,7 @@ const MemberDetailDialog = ({
               </h3>
               <div className="space-y-2">
                 {pastMemberships.map((m) => (
-                  <div
-                    key={m.id}
-                    className="p-3 bg-muted/50 rounded-lg text-sm"
-                  >
+                  <div key={m.id} className="p-3 bg-muted/50 rounded-lg text-sm">
                     <div className="font-medium">{m.company_name}</div>
                     <div className="text-muted-foreground">
                       {formatDate(m.valid_from)} – {formatDate(m.valid_to!)}
@@ -342,7 +346,7 @@ const MemberDetailDialog = ({
             </div>
           )}
 
-          {/* Appointment History */}
+          {/* ── Ämter-Historie ── */}
           {pastAppointments.length > 0 && (
             <div className="space-y-3">
               <h3 className="font-medium flex items-center gap-2">
@@ -351,10 +355,7 @@ const MemberDetailDialog = ({
               </h3>
               <div className="space-y-2">
                 {pastAppointments.map((a) => (
-                  <div
-                    key={a.id}
-                    className="p-3 bg-muted/50 rounded-lg text-sm"
-                  >
+                  <div key={a.id} className="p-3 bg-muted/50 rounded-lg text-sm">
                     <div className="flex items-center gap-2">
                       {a.scope_type === "club" ? (
                         <Shield className="w-3 h-3 text-muted-foreground" />
@@ -371,6 +372,7 @@ const MemberDetailDialog = ({
               </div>
             </div>
           )}
+
         </div>
 
         <div className="mt-4">

@@ -366,15 +366,16 @@ router.get("/gallery", requireAuth, async (req, res) => {
 
 router.post("/gallery", requireAuth, upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "Keine Datei" });
-  const { title, description } = req.body;
+  const { title, description, is_visible } = req.body;
   const ext = req.file.originalname.split(".").pop();
   const id = uuidv4();
   const destPath = `${req.clubId}/${id}.${ext}`;
   await saveFile(req.file, "gallery-images", destPath);
+  const visible = is_visible === "false" ? false : true; // default true
   const result = await pool.query(
-    `INSERT INTO gallery_images (id, club_id, file_path, title, description, uploaded_by_member_id)
-     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-    [id, req.clubId, destPath, title || null, description || null, req.member.id]
+    `INSERT INTO gallery_images (id, club_id, file_path, title, description, is_visible, uploaded_by_member_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    [id, req.clubId, destPath, title || null, description || null, visible, req.member.id]
   );
   res.status(201).json({ ...result.rows[0], url: getPublicUrl("gallery-images", destPath) });
 });
@@ -784,12 +785,42 @@ router.put("/notification-settings", requireAuth, async (req, res) => {
 
 router.get("/member-gallery", requireAuth, async (req, res) => {
   try {
-    const result = await pool.query(
-      "SELECT * FROM member_gallery_images WHERE club_id=$1 ORDER BY created_at DESC",
-      [req.clubId]
-    );
-    res.json(result.rows);
-  } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
+    const { visibility, member_id } = req.query;
+
+    let query = `
+      SELECT mgi.*,
+             m.first_name, m.last_name, m.avatar_url as member_avatar
+      FROM member_gallery_images mgi
+      LEFT JOIN members m ON m.id = mgi.member_id
+      WHERE mgi.club_id = $1`;
+    const params = [req.clubId];
+
+    if (visibility) {
+      params.push(visibility);
+      query += ` AND mgi.visibility = $${params.length}`;
+    }
+    if (member_id) {
+      params.push(member_id);
+      query += ` AND mgi.member_id = $${params.length}`;
+    }
+
+    query += ` ORDER BY mgi.created_at DESC`;
+
+    const result = await pool.query(query, params);
+    const rows = result.rows.map(img => ({
+      ...img,
+      image_url: getPublicUrl("gallery-images", img.image_path),
+      member: {
+        first_name: img.first_name,
+        last_name:  img.last_name,
+        avatar_url: img.member_avatar,
+      },
+    }));
+    res.json(rows);
+  } catch (err) {
+    console.error("member-gallery GET error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
 });
 
 // Öffentlicher Endpoint – kein Auth nötig
@@ -802,9 +833,9 @@ router.get("/public/gallery/:clubSlug", async (req, res) => {
     if (!clubResult.rows[0]) return res.json([]);
     const clubId = clubResult.rows[0].id;
     const result = await pool.query(
-      `SELECT id, title, description, image_path, created_at
-       FROM member_gallery_images
-       WHERE club_id=$1 AND status='approved' AND visibility IN ('public','club')
+      `SELECT id, title, description, file_path AS image_path, created_at
+       FROM gallery_images
+       WHERE club_id=$1 AND is_visible=true
        ORDER BY created_at DESC`,
       [clubId]
     );
@@ -1000,7 +1031,6 @@ router.get("/storage-url", (req, res) => {
   res.json({ url: getPublicUrl(bucket, filePath) });
 });
 
-module.exports = router;
 // ─── Generischer Upload-Endpoint ─────────────────────────────────────────────
 // POST /api/upload - universeller File-Upload (ersetzt supabase.storage.from(bucket).upload())
 router.post("/upload", requireAuth, upload.single("file"), async (req, res) => {
@@ -1122,3 +1152,241 @@ router.get("/appointments/leadership", requireAuth, async (req, res) => {
     res.json([]);
   }
 });
+// ─── Appointments (CRUD) ───────────────────────────────────────────────────────
+
+// GET /api/appointments – alle Appointments des Clubs
+router.get("/appointments", requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT a.*,
+              r.name as role_name,
+              c.name as company_name,
+              m.first_name,
+              m.last_name
+       FROM appointments a
+       LEFT JOIN roles r ON r.id = a.role_id
+       LEFT JOIN companies c ON c.id = a.scope_id AND a.scope_type = 'company'
+       LEFT JOIN members m ON m.id = a.member_id
+       WHERE a.club_id = $1
+       ORDER BY a.valid_from DESC NULLS LAST`,
+      [req.clubId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("appointments GET error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// POST /api/appointments
+router.post("/appointments", requireAuth, async (req, res) => {
+  try {
+    const { member_id, role_id, title, scope_type, scope_id, valid_from, valid_to } = req.body;
+    const id = require("crypto").randomUUID();
+    const result = await pool.query(
+      `INSERT INTO appointments (id, club_id, member_id, role_id, title, scope_type, scope_id, valid_from, valid_to, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now()) RETURNING *`,
+      [id, req.clubId, member_id, role_id, title || null, scope_type || "club", scope_id, valid_from || null, valid_to || null]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("appointments POST error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// PUT /api/appointments/:id
+router.put("/appointments/:id", requireAuth, async (req, res) => {
+  try {
+    const { member_id, role_id, title, scope_type, scope_id, valid_from, valid_to } = req.body;
+    const result = await pool.query(
+      `UPDATE appointments SET
+         member_id   = COALESCE($1, member_id),
+         role_id     = COALESCE($2, role_id),
+         title       = COALESCE($3, title),
+         scope_type  = COALESCE($4, scope_type),
+         scope_id    = COALESCE($5, scope_id),
+         valid_from  = $6,
+         valid_to    = $7
+       WHERE id = $8 AND club_id = $9
+       RETURNING *`,
+      [member_id || null, role_id || null, title || null, scope_type || null, scope_id || null,
+       valid_from || null, valid_to || null, req.params.id, req.clubId]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("appointments PUT error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// DELETE /api/appointments/:id
+router.delete("/appointments/:id", requireAuth, async (req, res) => {
+  try {
+    await pool.query(
+      "DELETE FROM appointments WHERE id = $1 AND club_id = $2",
+      [req.params.id, req.clubId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("appointments DELETE error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// ─── Role Permissions ──────────────────────────────────────────────────────────
+
+// GET /api/role-permissions – alle role_permissions des Clubs
+router.get("/role-permissions", requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT rp.role_id, rp.permission_id
+       FROM role_permissions rp
+       JOIN roles r ON r.id = rp.role_id
+       WHERE r.club_id = $1`,
+      [req.clubId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("role-permissions GET error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// POST /api/role-permissions – einzeln oder als Array
+router.post("/role-permissions", requireAuth, async (req, res) => {
+  try {
+    const records = Array.isArray(req.body) ? req.body : [req.body];
+    for (const { role_id, permission_id } of records) {
+      await pool.query(
+        `INSERT INTO role_permissions (role_id, permission_id)
+         VALUES ($1, $2) ON CONFLICT (role_id, permission_id) DO NOTHING`,
+        [role_id, permission_id]
+      );
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error("role-permissions POST error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// DELETE /api/role-permissions – löscht eine spezifische Zuweisung per Body
+router.delete("/role-permissions", requireAuth, async (req, res) => {
+  try {
+    const { role_id, permission_id } = req.body;
+    await pool.query(
+      "DELETE FROM role_permissions WHERE role_id = $1 AND permission_id = $2",
+      [role_id, permission_id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("role-permissions DELETE error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// ─── Notifications (Bulk Insert) ───────────────────────────────────────────────
+
+// POST /api/notifications – einzelne oder mehrere Notifications anlegen
+router.post("/notifications", requireAuth, async (req, res) => {
+  try {
+    const records = Array.isArray(req.body) ? req.body : [req.body];
+    for (const n of records) {
+      const id = require("crypto").randomUUID();
+      await pool.query(
+        `INSERT INTO notifications
+           (id, club_id, recipient_member_id, type, reference_id, reference_type, payload, is_read, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, false, now())`,
+        [id, n.club_id, n.recipient_member_id, n.type,
+         n.reference_id || null, n.reference_type || null,
+         JSON.stringify(n.payload || {})]
+      );
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error("notifications POST error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// ─── Delegations ──────────────────────────────────────────────────────────────
+
+// GET /api/delegations?to_member_id=... oder ?from_member_id=...
+router.get("/delegations", requireAuth, async (req, res) => {
+  try {
+    const { to_member_id, from_member_id } = req.query;
+    let query = `SELECT * FROM delegations WHERE club_id = $1`;
+    const params = [req.clubId];
+
+    if (to_member_id) {
+      params.push(to_member_id);
+      query += ` AND to_member_id = $${params.length}`;
+    }
+    if (from_member_id) {
+      params.push(from_member_id);
+      query += ` AND from_member_id = $${params.length}`;
+    }
+
+    query += ` ORDER BY valid_from DESC`;
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error("delegations GET error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// POST /api/delegations
+router.post("/delegations", requireAuth, async (req, res) => {
+  try {
+    const { from_member_id, to_member_id, title, valid_from, valid_to } = req.body;
+    const id = require("crypto").randomUUID();
+    const result = await pool.query(
+      `INSERT INTO delegations (id, club_id, from_member_id, to_member_id, title, valid_from, valid_to, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, now()) RETURNING *`,
+      [id, req.clubId, from_member_id, to_member_id, title, valid_from || null, valid_to || null]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("delegations POST error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// PUT /api/delegations/:id
+router.put("/delegations/:id", requireAuth, async (req, res) => {
+  try {
+    const { title, valid_from, valid_to } = req.body;
+    const result = await pool.query(
+      `UPDATE delegations SET
+         title      = COALESCE($1, title),
+         valid_from = COALESCE($2, valid_from),
+         valid_to   = $3
+       WHERE id = $4 AND club_id = $5 RETURNING *`,
+      [title || null, valid_from || null, valid_to || null, req.params.id, req.clubId]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("delegations PUT error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// DELETE /api/delegations/:id
+router.delete("/delegations/:id", requireAuth, async (req, res) => {
+  try {
+    await pool.query(
+      "DELETE FROM delegations WHERE id = $1 AND club_id = $2",
+      [req.params.id, req.clubId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("delegations DELETE error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+module.exports = router;
