@@ -1,11 +1,21 @@
 import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 
 interface WorkShiftStats {
   totalHours: number;
   completedShifts: number;
   upcomingShifts: number;
   signedUpShifts: number;
+}
+
+interface WorkShiftAssignment {
+  id: string;
+  status: string;
+  hours_override?: number | null;
+  work_shift?: {
+    start_at: string;
+    end_at?: string;
+  } | null;
 }
 
 export const useWorkShiftStats = (memberId: string | null, year: number = new Date().getFullYear()) => {
@@ -26,7 +36,6 @@ export const useWorkShiftStats = (memberId: string | null, year: number = new Da
       const endOfYear = new Date(year, 11, 31, 23, 59, 59).toISOString();
       const now = new Date().toISOString();
 
-      // Fetch completed shifts with hours
       const { data: completedAssignments } = await supabase
         .from('work_shift_assignments')
         .select(`
@@ -43,7 +52,6 @@ export const useWorkShiftStats = (memberId: string | null, year: number = new Da
         .gte('work_shift.start_at', startOfYear)
         .lte('work_shift.start_at', endOfYear);
 
-      // Fetch upcoming/signed up shifts
       const { data: upcomingAssignments } = await supabase
         .from('work_shift_assignments')
         .select(`
@@ -57,12 +65,11 @@ export const useWorkShiftStats = (memberId: string | null, year: number = new Da
         .eq('status', 'signed_up')
         .gte('work_shift.start_at', now);
 
-      // Calculate total hours for completed shifts
       let totalHours = 0;
-      (completedAssignments || []).forEach((assignment: any) => {
+      ((completedAssignments as WorkShiftAssignment[]) || []).forEach((assignment) => {
         if (assignment.hours_override) {
           totalHours += Number(assignment.hours_override);
-        } else if (assignment.work_shift) {
+        } else if (assignment.work_shift?.start_at && assignment.work_shift?.end_at) {
           const start = new Date(assignment.work_shift.start_at);
           const end = new Date(assignment.work_shift.end_at);
           const hours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
@@ -70,13 +77,16 @@ export const useWorkShiftStats = (memberId: string | null, year: number = new Da
         }
       });
 
+      const completedCount = (completedAssignments as WorkShiftAssignment[] | null)?.length || 0;
+      const upcomingCount = (upcomingAssignments as WorkShiftAssignment[] | null)?.length || 0;
+
       setStats({
-        totalHours: Math.round(totalHours * 10) / 10, // Round to 1 decimal
-        completedShifts: completedAssignments?.length || 0,
-        upcomingShifts: upcomingAssignments?.length || 0,
-        signedUpShifts: upcomingAssignments?.length || 0,
+        totalHours: Math.round(totalHours * 10) / 10,
+        completedShifts: completedCount,
+        upcomingShifts: upcomingCount,
+        signedUpShifts: upcomingCount,
       });
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error fetching work shift stats:', error);
     } finally {
       setLoading(false);

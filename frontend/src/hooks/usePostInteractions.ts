@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 
@@ -45,8 +45,8 @@ export const usePostComments = (postId: string | null) => {
         .order('created_at', { ascending: true });
 
       if (error) throw error;
-      setComments(data || []);
-    } catch (error) {
+      setComments((data as Comment[]) || []);
+    } catch (error: unknown) {
       console.error('Error fetching comments:', error);
     } finally {
       setLoading(false);
@@ -73,8 +73,12 @@ export const usePostComments = (postId: string | null) => {
       if (error) throw error;
       toast({ title: 'Kommentar hinzugefügt' });
       fetchComments();
-    } catch (error: any) {
-      toast({ title: 'Fehler', description: error.message, variant: 'destructive' });
+    } catch (error: unknown) {
+      toast({
+        title: 'Fehler',
+        description: error instanceof Error ? error.message : undefined,
+        variant: 'destructive',
+      });
     } finally {
       setSubmitting(false);
     }
@@ -90,8 +94,12 @@ export const usePostComments = (postId: string | null) => {
       if (error) throw error;
       toast({ title: 'Kommentar entfernt' });
       fetchComments();
-    } catch (error: any) {
-      toast({ title: 'Fehler', description: error.message, variant: 'destructive' });
+    } catch (error: unknown) {
+      toast({
+        title: 'Fehler',
+        description: error instanceof Error ? error.message : undefined,
+        variant: 'destructive',
+      });
     }
   };
 
@@ -121,8 +129,8 @@ export const usePostReactions = (postId: string | null) => {
         .eq('post_id', postId);
 
       if (error) throw error;
-      setReactions(data || []);
-    } catch (error) {
+      setReactions((data as Reaction[]) || []);
+    } catch (error: unknown) {
       console.error('Error fetching reactions:', error);
     } finally {
       setLoading(false);
@@ -161,8 +169,12 @@ export const usePostReactions = (postId: string | null) => {
         if (error) throw error;
       }
       fetchReactions();
-    } catch (error: any) {
-      toast({ title: 'Fehler', description: error.message, variant: 'destructive' });
+    } catch (error: unknown) {
+      toast({
+        title: 'Fehler',
+        description: error instanceof Error ? error.message : undefined,
+        variant: 'destructive',
+      });
     }
   };
 

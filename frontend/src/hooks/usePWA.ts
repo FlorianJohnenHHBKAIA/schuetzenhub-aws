@@ -5,6 +5,10 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
 
+interface NavigatorWithStandalone extends Navigator {
+  standalone?: boolean;
+}
+
 export function usePWA() {
   const [isInstalled, setIsInstalled] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -13,22 +17,19 @@ export function usePWA() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
 
   useEffect(() => {
-    // Check if running in standalone mode (installed)
-    const isStandaloneMode = 
+    const isStandaloneMode =
       window.matchMedia("(display-mode: standalone)").matches ||
-      (window.navigator as any).standalone === true;
-    
+      (window.navigator as NavigatorWithStandalone).standalone === true;
+
     setIsStandalone(isStandaloneMode);
     setIsInstalled(isStandaloneMode);
 
-    // Online/Offline detection
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
 
-    // Install prompt detection
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
@@ -37,7 +38,6 @@ export function usePWA() {
 
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
 
-    // App installed event
     const handleAppInstalled = () => {
       setIsInstalled(true);
       setCanInstall(false);
@@ -69,7 +69,10 @@ export function usePWA() {
   };
 
   const isIOS = () => {
-    return /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+    return (
+      /iPad|iPhone|iPod/.test(navigator.userAgent) &&
+      !("MSStream" in window)
+    );
   };
 
   return {
