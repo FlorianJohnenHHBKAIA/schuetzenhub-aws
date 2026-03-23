@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,17 @@ import { CalendarIcon, Loader2, Award, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getIconConfig } from "@/pages/portal/AwardTypesManagement";
 
-type AwardType = Tables<"award_types">;
+interface AwardType {
+  id: string;
+  name: string;
+  description: string | null;
+  icon: string;
+  badge_color: string;
+  scope_type: "club" | "company";
+  scope_id: string | null;
+  is_active: boolean;
+  club_id: string;
+}
 
 interface AwardRequestDialogProps {
   open: boolean;
@@ -42,7 +52,6 @@ export default function AwardRequestDialog({
   const [description, setDescription] = useState("");
   const [awardedAt, setAwardedAt] = useState<Date>(new Date());
 
-  // Fetch available award types
   const { data: awardTypes, isLoading } = useQuery({
     queryKey: ["available-award-types", clubId],
     queryFn: async () => {
@@ -58,7 +67,6 @@ export default function AwardRequestDialog({
     enabled: open && !!clubId,
   });
 
-  // Submit request mutation
   const submitMutation = useMutation({
     mutationFn: async () => {
       if (!selectedType || !member) throw new Error("Missing data");
@@ -89,7 +97,7 @@ export default function AwardRequestDialog({
       onSuccess();
       handleClose();
     },
-    onError: (error) => {
+    onError: (error: unknown) => {
       console.error("Error submitting award request:", error);
       toast({ title: "Fehler beim Einreichen", variant: "destructive" });
     },
@@ -111,7 +119,6 @@ export default function AwardRequestDialog({
     submitMutation.mutate();
   };
 
-  // Group award types by scope
   const clubTypes = awardTypes?.filter(t => t.scope_type === "club") || [];
   const companyTypes = awardTypes?.filter(t => t.scope_type === "company") || [];
 
@@ -138,7 +145,6 @@ export default function AwardRequestDialog({
             </div>
           ) : (
             <div className="space-y-4">
-              {/* Club-level types */}
               {clubTypes.length > 0 && (
                 <div className="space-y-2">
                   <Label className="flex items-center gap-2 text-muted-foreground">
@@ -158,7 +164,6 @@ export default function AwardRequestDialog({
                 </div>
               )}
 
-              {/* Company-level types */}
               {companyTypes.length > 0 && (
                 <div className="space-y-2">
                   <Label className="flex items-center gap-2 text-muted-foreground">

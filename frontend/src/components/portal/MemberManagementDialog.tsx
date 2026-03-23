@@ -34,7 +34,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, apiJson } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
 import AwardDialog, { getAwardTypeConfig } from "./AwardDialog";
 
@@ -162,7 +162,6 @@ const MemberManagementDialog = ({
   useEffect(() => {
     if (open && member) {
       fetchAllData();
-      // Check if member has account
       setMemberHasAccount(!!member.user_id);
     }
   }, [open, member]);
@@ -204,21 +203,38 @@ const MemberManagementDialog = ({
         .order("name", { ascending: true }),
     ]);
 
-    const companyMap = new Map((companiesRes.data || []).map((c) => [c.id, c.name]));
-    const roleMap = new Map((rolesRes.data || []).map((r) => [r.id, r.name]));
+    const companiesData = (companiesRes.data as Company[]) || [];
+    const rolesData = (rolesRes.data as Role[]) || [];
 
-    setCompanies(companiesRes.data || []);
-    setRoles(rolesRes.data || []);
+    const companyMap = new Map<string, string>(companiesData.map((c) => [c.id, c.name]));
+    const roleMap = new Map<string, string>(rolesData.map((r) => [r.id, r.name]));
+
+    setCompanies(companiesData);
+    setRoles(rolesData);
 
     if (membershipRes.data) {
-      setMemberships(membershipRes.data.map((m) => ({
+      const membershipData = membershipRes.data as Array<{
+        id: string;
+        company_id: string;
+        valid_from: string;
+        valid_to: string | null;
+      }>;
+      setMemberships(membershipData.map((m) => ({
         ...m,
         company_name: companyMap.get(m.company_id) || "Unbekannt",
       })));
     }
 
     if (appointmentRes.data) {
-      setAppointments(appointmentRes.data.map((a) => ({
+      const appointmentData = appointmentRes.data as Array<{
+        id: string;
+        role_id: string;
+        scope_type: "club" | "company";
+        scope_id: string;
+        valid_from: string;
+        valid_to: string | null;
+      }>;
+      setAppointments(appointmentData.map((a) => ({
         id: a.id,
         role_id: a.role_id,
         role_name: roleMap.get(a.role_id) || "Unbekannt",
@@ -230,12 +246,11 @@ const MemberManagementDialog = ({
       })));
     }
 
-    setAwards(awardsRes.data || []);
-    setAwardTypes(awardTypesRes.data || []);
+    setAwards((awardsRes.data as MemberAward[]) || []);
+    setAwardTypes((awardTypesRes.data as AwardType[]) || []);
     setIsLoading(false);
   };
 
-  // Get icon component for award type
   const getAwardTypeIcon = (iconName: string) => {
     const icons: Record<string, typeof Medal> = {
       medal: Medal,
@@ -249,7 +264,6 @@ const MemberManagementDialog = ({
     return icons[iconName.toLowerCase()] || Medal;
   };
 
-  // Get badge color classes
   const getBadgeColorClasses = (color: string) => {
     const colors: Record<string, { bg: string; text: string }> = {
       gold: { bg: "bg-amber-500/10", text: "text-amber-500" },
@@ -263,7 +277,6 @@ const MemberManagementDialog = ({
     return colors[color.toLowerCase()] || colors.gold;
   };
 
-  // Grant predefined award to member
   const handleGrantAwardType = async (awardType: AwardType) => {
     if (!member) return;
     
@@ -283,9 +296,9 @@ const MemberManagementDialog = ({
       if (error) throw error;
       toast({ title: "Auszeichnung vergeben", description: `${awardType.name} wurde ${member.first_name} verliehen.` });
       fetchAllData();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error granting award:", error);
-      toast({ title: "Fehler beim Vergeben", description: error.message, variant: "destructive" });
+      toast({ title: "Fehler beim Vergeben", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
     } finally {
       setGrantingAwardTypeId(null);
     }
@@ -318,14 +331,12 @@ const MemberManagementDialog = ({
       const currentMembership = memberships.find(m => m.valid_to === null);
       
       if (currentMembership) {
-        // End current membership
         await supabase
           .from("member_company_memberships")
           .update({ valid_to: companyValidFrom })
           .eq("id", currentMembership.id);
       }
 
-      // Create new membership
       const { error } = await supabase.from("member_company_memberships").insert({
         member_id: member.id,
         company_id: selectedCompanyId,
@@ -339,8 +350,8 @@ const MemberManagementDialog = ({
       setSelectedCompanyId("");
       fetchAllData();
       onRefresh?.();
-    } catch (error: any) {
-      toast({ title: "Fehler", description: error.message, variant: "destructive" });
+    } catch (error: unknown) {
+      toast({ title: "Fehler", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
     }
   };
 
@@ -395,8 +406,8 @@ const MemberManagementDialog = ({
       });
       fetchAllData();
       onRefresh?.();
-    } catch (error: any) {
-      toast({ title: "Fehler", description: error.message, variant: "destructive" });
+    } catch (error: unknown) {
+      toast({ title: "Fehler", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
     }
   };
 
@@ -445,12 +456,10 @@ const MemberManagementDialog = ({
 
     setIsCreatingAccount(true);
     try {
-      const { data, error } = await supabase.functions.invoke("create-member-account", {
-        body: { memberId: member.id, password: accountPassword },
+      await apiJson("/api/auth/create-member-account", {
+        method: "POST",
+        body: JSON.stringify({ memberId: member.id, password: accountPassword }),
       });
-
-      if (error) throw error;
-      if (data.error) throw new Error(data.error);
 
       toast({ 
         title: "Login-Account erstellt", 
@@ -462,11 +471,11 @@ const MemberManagementDialog = ({
       setAccountPasswordConfirm("");
       setMemberHasAccount(true);
       onRefresh?.();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Create account error:", error);
       toast({ 
         title: "Fehler beim Erstellen des Accounts", 
-        description: error.message || "Ein unerwarteter Fehler ist aufgetreten",
+        description: (error instanceof Error ? error.message : undefined) || "Ein unerwarteter Fehler ist aufgetreten",
         variant: "destructive" 
       });
     } finally {
@@ -532,7 +541,6 @@ const MemberManagementDialog = ({
 
               {/* === AUSZEICHNUNGEN TAB === */}
               <TabsContent value="awards" className="space-y-6 mt-4">
-                {/* Predefined Award Types Section */}
                 {awardTypes.length > 0 && (
                   <div className="space-y-3">
                     <h3 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">
@@ -543,7 +551,6 @@ const MemberManagementDialog = ({
                         const IconComponent = getAwardTypeIcon(awardType.icon);
                         const colorClasses = getBadgeColorClasses(awardType.badge_color);
                         const isGranting = grantingAwardTypeId === awardType.id;
-                        // Check if this award type was already granted
                         const alreadyGranted = awards.some(a => a.award_type_id === awardType.id);
                         
                         return (
@@ -580,7 +587,6 @@ const MemberManagementDialog = ({
                   </div>
                 )}
 
-                {/* Divider if both sections have content */}
                 {awardTypes.length > 0 && (
                   <div className="border-t pt-4">
                     <div className="flex justify-between items-center mb-3">
@@ -593,7 +599,6 @@ const MemberManagementDialog = ({
                   </div>
                 )}
 
-                {/* No award types - show simple header */}
                 {awardTypes.length === 0 && (
                   <div className="flex justify-between items-center">
                     <h3 className="font-medium">Auszeichnungen</h3>
@@ -604,7 +609,6 @@ const MemberManagementDialog = ({
                   </div>
                 )}
 
-                {/* Existing Awards List */}
                 {awards.length === 0 ? (
                   <p className="text-muted-foreground text-sm italic py-4 text-center">
                     Keine Auszeichnungen vorhanden
@@ -782,7 +786,6 @@ const MemberManagementDialog = ({
 
               {/* === HISTORIE TAB === */}
               <TabsContent value="history" className="space-y-6 mt-4">
-                {/* Kompanie Historie */}
                 <div>
                   <h3 className="font-medium flex items-center gap-2 mb-3">
                     <Building2 className="w-4 h-4" />
@@ -804,7 +807,6 @@ const MemberManagementDialog = ({
                   )}
                 </div>
 
-                {/* Ämter Historie */}
                 <div>
                   <h3 className="font-medium flex items-center gap-2 mb-3">
                     <Award className="w-4 h-4" />

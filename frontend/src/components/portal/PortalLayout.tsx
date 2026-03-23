@@ -2,7 +2,7 @@ import { ReactNode, useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { OfflineBanner } from "@/components/pwa/OfflineBanner";
 import { motion, AnimatePresence } from "framer-motion";
-import { supabase, getStorageUrl } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/api/client";
 import {
   LogOut,
   Menu,
@@ -50,7 +50,6 @@ const PortalLayout = ({ children }: PortalLayoutProps) => {
     restartOnboarding,
   } = useOnboarding();
 
-  // Fetch club info for logo and name
   useEffect(() => {
     const fetchClubInfo = async () => {
       if (!member?.club_id) return;
@@ -61,13 +60,14 @@ const PortalLayout = ({ children }: PortalLayoutProps) => {
         .eq("id", member.club_id)
         .single();
       
-      if (club) {
-        setClubInfo(club);
+      const clubData = club as ClubInfo | null;
+
+      if (clubData) {
+        setClubInfo(clubData);
         
-        // Get logo URL if exists
-        if (club.logo_path) {
-          const { data: urlData } = { data: { publicUrl: getStorageUrl("club-assets", club.logo_path) || "" } };
-          setClubLogoUrl(urlData?.publicUrl || null);
+        if (clubData.logo_path) {
+          const publicUrl = getStorageUrl("club-assets", clubData.logo_path) || "";
+          setClubLogoUrl(publicUrl || null);
         }
       }
     };
@@ -89,11 +89,10 @@ const PortalLayout = ({ children }: PortalLayoutProps) => {
         <OfflineBanner />
       </div>
       
-      {/* Mobile Header - with safe area support */}
+      {/* Mobile Header */}
       <header className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-card border-b border-border px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            {/* Club Logo - Links to public page in new tab */}
             <a 
               href={clubInfo?.slug ? `/verein/${clubInfo.slug}` : "/"} 
               target="_blank"
@@ -114,7 +113,6 @@ const PortalLayout = ({ children }: PortalLayoutProps) => {
             <span className="font-display font-bold text-foreground truncate max-w-[100px]">
               {clubInfo?.name || "Portal"}
             </span>
-            {/* Mode indicator badge */}
             {isAdminMode && (
               <span className="px-2 py-0.5 ml-1 rounded bg-amber-500/20 text-amber-700 dark:text-amber-400 text-xs font-medium">
                 Admin
@@ -144,7 +142,7 @@ const PortalLayout = ({ children }: PortalLayoutProps) => {
         } lg:translate-x-0`}
       >
         <div className="flex flex-col h-full">
-          {/* Club Logo - Links to public club page in new tab */}
+          {/* Club Logo */}
           <div className="p-4 border-b border-sidebar-border">
             <a 
               href={clubInfo?.slug ? `/verein/${clubInfo.slug}` : "/"} 
@@ -176,7 +174,7 @@ const PortalLayout = ({ children }: PortalLayoutProps) => {
             </a>
           </div>
 
-          {/* User Info - Clickable Profile */}
+          {/* User Info */}
           <div className="p-3 border-b border-sidebar-border">
             <button
               onClick={() => {
@@ -209,7 +207,6 @@ const PortalLayout = ({ children }: PortalLayoutProps) => {
           {/* Desktop Notification Bell & Install Prompt */}
           <div className="hidden lg:flex flex-col gap-2 px-3 py-2 border-b border-sidebar-border">
             <div className="flex items-center justify-between">
-              {/* Mode indicator */}
               {isAdminMode ? (
                 <span className="px-2 py-1 rounded bg-amber-500/20 text-amber-700 dark:text-amber-400 text-xs font-medium">
                   Admin-Modus
@@ -219,7 +216,6 @@ const PortalLayout = ({ children }: PortalLayoutProps) => {
               )}
               <NotificationBell />
             </div>
-            {/* PWA Install Prompt */}
             <div className="flex justify-center">
               <InstallPrompt />
             </div>

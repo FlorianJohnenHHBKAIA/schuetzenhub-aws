@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { supabase, apiUpload, getStorageUrl } from "@/integrations/supabase/client";
+import { supabase, apiUpload, getStorageUrl } from "@/integrations/api/client";
 import {
   Dialog,
   DialogContent,
@@ -44,13 +44,17 @@ const CompanyEditDialog = ({ open, onOpenChange, company, onSave }: CompanyEditD
 
   const handleUpload = async (file: File, type: "logo" | "cover") => {
     const isLogo = type === "logo";
-    isLogo ? setIsUploadingLogo(true) : setIsUploadingCover(true);
+    if (isLogo) {
+      setIsUploadingLogo(true);
+    } else {
+      setIsUploadingCover(true);
+    }
 
     try {
       const fileExt = file.name.split(".").pop();
       const fileName = `${company.id}/${type}-${Date.now()}.${fileExt}`;
       
-      const uploadResult = await apiUpload(`/api/upload`, file, { bucket: "company-assets", path: fileName });
+      await apiUpload(`/api/upload`, file, { bucket: "company-assets", path: fileName });
       const publicUrl = getStorageUrl("company-assets", fileName) || "";
 
       if (isLogo) {
@@ -60,11 +64,15 @@ const CompanyEditDialog = ({ open, onOpenChange, company, onSave }: CompanyEditD
       }
 
       toast({ title: `${isLogo ? "Logo" : "Titelbild"} hochgeladen` });
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Upload error:", error);
       toast({ title: "Upload fehlgeschlagen", variant: "destructive" });
     } finally {
-      isLogo ? setIsUploadingLogo(false) : setIsUploadingCover(false);
+      if (isLogo) {
+        setIsUploadingLogo(false);
+      } else {
+        setIsUploadingCover(false);
+      }
     }
   };
 
@@ -87,7 +95,7 @@ const CompanyEditDialog = ({ open, onOpenChange, company, onSave }: CompanyEditD
       
       toast({ title: "Kompanie aktualisiert" });
       onSave();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Save error:", error);
       toast({ title: "Speichern fehlgeschlagen", variant: "destructive" });
     } finally {

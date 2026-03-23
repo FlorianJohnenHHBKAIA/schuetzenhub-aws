@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
 
 interface Company {
@@ -102,13 +102,12 @@ const MemberDialog = ({ open, onOpenChange, member, clubId, onSave }: MemberDial
       .select("id, name")
       .eq("club_id", clubId)
       .order("name");
-    setCompanies(data || []);
+    setCompanies((data as Company[]) || []);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // For new members, company is required
     if (!member && !formData.company_id) {
       toast({
         title: "Kompanie erforderlich",
@@ -122,7 +121,6 @@ const MemberDialog = ({ open, onOpenChange, member, clubId, onSave }: MemberDial
 
     try {
       if (member) {
-        // Update existing member
         const { error } = await supabase
           .from("members")
           .update({
@@ -144,7 +142,6 @@ const MemberDialog = ({ open, onOpenChange, member, clubId, onSave }: MemberDial
           description: `${formData.first_name} ${formData.last_name} wurde aktualisiert.`,
         });
       } else {
-        // Create new member
         const { data: newMember, error: memberError } = await supabase
           .from("members")
           .insert({
@@ -163,11 +160,12 @@ const MemberDialog = ({ open, onOpenChange, member, clubId, onSave }: MemberDial
 
         if (memberError) throw memberError;
 
-        // Create initial company membership
+        const newMemberData = newMember as { id: string };
+
         const { error: membershipError } = await supabase
           .from("member_company_memberships")
           .insert({
-            member_id: newMember.id,
+            member_id: newMemberData.id,
             company_id: formData.company_id,
             valid_from: formData.valid_from,
             valid_to: null,
@@ -182,11 +180,11 @@ const MemberDialog = ({ open, onOpenChange, member, clubId, onSave }: MemberDial
       }
 
       onSave();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error saving member:", error);
       toast({
         title: "Fehler",
-        description: error.message || "Mitglied konnte nicht gespeichert werden.",
+        description: error instanceof Error ? error.message : "Mitglied konnte nicht gespeichert werden.",
         variant: "destructive",
       });
     } finally {
@@ -293,7 +291,6 @@ const MemberDialog = ({ open, onOpenChange, member, clubId, onSave }: MemberDial
             </Select>
           </div>
 
-          {/* Company selection - only for new members */}
           {isNewMember && (
             <>
               <div>

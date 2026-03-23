@@ -14,7 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/lib/auth";
 import { usePostComments, usePostReactions } from "@/hooks/usePostInteractions";
 import { createNotification } from "@/hooks/useNotifications";
-import { supabase, getStorageUrl } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/api/client";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import {
@@ -56,6 +56,12 @@ interface Post {
   created_at: string;
   creator?: { first_name: string; last_name: string } | null;
   approver?: { first_name: string; last_name: string } | null;
+}
+
+interface Permission {
+  permission_key: string;
+  scope_type?: string;
+  scope_id?: string;
 }
 
 interface PostDetailDialogProps {
@@ -101,19 +107,18 @@ const PostDetailDialog = ({ open, onOpenChange, post }: PostDetailDialogProps) =
         _club_id: member.club_id
       });
 
-      const permissions = permData || [];
-      const hasFullAdmin = permissions.some((p: any) => p.permission_key === 'club.admin.full');
-      const hasModerate = permissions.some((p: any) => p.permission_key === 'club.posts.moderate');
+      const permissions = (permData as Permission[]) || [];
+      const hasFullAdmin = permissions.some((p) => p.permission_key === 'club.admin.full');
+      const hasModerate = permissions.some((p) => p.permission_key === 'club.posts.moderate');
       
       setCanModerate(hasFullAdmin || hasModerate);
 
-      // Can comment only on non-public posts
       if (post.audience !== 'public') {
         if (post.audience === 'club_internal') {
-          const hasClubComment = permissions.some((p: any) => p.permission_key === 'club.posts.comment');
+          const hasClubComment = permissions.some((p) => p.permission_key === 'club.posts.comment');
           setCanComment(hasClubComment || hasFullAdmin);
         } else if (post.audience === 'company_only') {
-          const hasCompanyComment = permissions.some((p: any) => 
+          const hasCompanyComment = permissions.some((p) => 
             p.permission_key === 'company.posts.comment' && 
             p.scope_type === 'company' && 
             p.scope_id === post.owner_id
@@ -121,7 +126,6 @@ const PostDetailDialog = ({ open, onOpenChange, post }: PostDetailDialogProps) =
           setCanComment(hasCompanyComment || hasFullAdmin);
         }
       } else {
-        // For public posts, allow internal comments for club members
         setCanComment(true);
       }
     };
@@ -134,7 +138,6 @@ const PostDetailDialog = ({ open, onOpenChange, post }: PostDetailDialogProps) =
     await addComment(newComment, post.club_id);
     setNewComment('');
 
-    // Create notification for post author
     if (post.created_by_member_id && post.created_by_member_id !== member?.id) {
       await createNotification(
         post.club_id,
@@ -261,7 +264,7 @@ const PostDetailDialog = ({ open, onOpenChange, post }: PostDetailDialogProps) =
               </div>
             )}
 
-            {/* Comments section - only for internal posts */}
+            {/* Comments section */}
             {isInternal && (
               <>
                 <Separator />

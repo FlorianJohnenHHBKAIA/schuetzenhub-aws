@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import {
   Dialog,
   DialogContent,
@@ -72,7 +72,6 @@ const AssignmentDialog = ({
 
     setIsSubmitting(true);
     try {
-      // If there's an existing active membership, close it first
       if (currentCompanyId) {
         const { error: updateError } = await supabase
           .from("member_company_memberships")
@@ -83,7 +82,6 @@ const AssignmentDialog = ({
         if (updateError) throw updateError;
       }
 
-      // Create new membership
       const { error: insertError } = await supabase
         .from("member_company_memberships")
         .insert({
@@ -94,8 +92,7 @@ const AssignmentDialog = ({
         });
 
       if (insertError) {
-        // Handle unique constraint violation
-        if (insertError.code === "23505") {
+        if ((insertError as { code?: string }).code === "23505") {
           toast({
             title: "Fehler: Aktive Zuordnung existiert",
             description: "Es gibt bereits eine aktive Kompanie-Zuordnung. Bitte beenden Sie diese zuerst.",
@@ -109,11 +106,11 @@ const AssignmentDialog = ({
       toast({ title: currentCompanyId ? "Kompanie gewechselt" : "Kompanie zugeordnet" });
       onSave();
       onOpenChange(false);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Assignment error:", error);
       toast({
         title: "Fehler bei der Zuordnung",
-        description: error.message,
+        description: error instanceof Error ? error.message : undefined,
         variant: "destructive",
       });
     } finally {

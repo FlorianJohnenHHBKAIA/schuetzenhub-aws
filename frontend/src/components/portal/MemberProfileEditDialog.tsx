@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { supabase, apiUpload, getStorageUrl } from "@/integrations/supabase/client";
+import { supabase, apiUpload, getStorageUrl } from "@/integrations/api/client";
 import {
   Dialog,
   DialogContent,
@@ -56,14 +56,18 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
 
   const handleUpload = async (file: File, type: "avatar" | "cover") => {
     const isAvatar = type === "avatar";
-    isAvatar ? setIsUploadingAvatar(true) : setIsUploadingCover(true);
+    if (isAvatar) {
+      setIsUploadingAvatar(true);
+    } else {
+      setIsUploadingCover(true);
+    }
 
     try {
       const fileExt = file.name.split(".").pop();
       const bucket = isAvatar ? "avatars" : "covers";
       const fileName = `${member.id}/${type}-${Date.now()}.${fileExt}`;
       
-      const uploadResult = await apiUpload(`/api/upload`, file, { bucket, path: fileName });
+      await apiUpload(`/api/upload`, file, { bucket, path: fileName });
       const publicUrl = getStorageUrl(bucket, fileName) || "";
 
       if (isAvatar) {
@@ -73,11 +77,15 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
       }
 
       toast({ title: `${isAvatar ? "Profilbild" : "Titelbild"} hochgeladen` });
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Upload error:", error);
       toast({ title: "Upload fehlgeschlagen", variant: "destructive" });
     } finally {
-      isAvatar ? setIsUploadingAvatar(false) : setIsUploadingCover(false);
+      if (isAvatar) {
+        setIsUploadingAvatar(false);
+      } else {
+        setIsUploadingCover(false);
+      }
     }
   };
 
@@ -103,7 +111,7 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
       
       toast({ title: "Profil aktualisiert" });
       onSave();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Save error:", error);
       toast({ title: "Speichern fehlgeschlagen", variant: "destructive" });
     } finally {
@@ -240,7 +248,6 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
             <Label className="text-base font-semibold mb-4 block">Kontaktdaten</Label>
             
             <div className="space-y-4">
-              {/* Phone */}
               <div>
                 <Label>Telefon</Label>
                 <Input
@@ -251,7 +258,6 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
                 />
               </div>
 
-              {/* Street */}
               <div>
                 <Label>Straße & Hausnummer</Label>
                 <Input
@@ -261,7 +267,6 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
                 />
               </div>
 
-              {/* ZIP & City */}
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <Label>PLZ</Label>

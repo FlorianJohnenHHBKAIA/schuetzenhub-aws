@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -89,14 +89,14 @@ const EventPostsSection = ({ eventId, clubId, canManage }: EventPostsSectionProp
 
       if (error) throw error;
 
-      const formattedPosts = (postsData || []).map((p) => ({
+      const rawPosts = (postsData as Post[] | null) || [];
+      const formattedPosts = rawPosts.map((p) => ({
         ...p,
         creator: Array.isArray(p.creator) ? p.creator[0] : p.creator,
       }));
 
       setPosts(formattedPosts);
 
-      // Fetch reaction and comment counts
       if (formattedPosts.length > 0) {
         const postIds = formattedPosts.map((p) => p.id);
 
@@ -106,7 +106,7 @@ const EventPostsSection = ({ eventId, clubId, canManage }: EventPostsSectionProp
           .in("post_id", postIds);
 
         const reactionCounts: Record<string, number> = {};
-        (reactionsData || []).forEach((r) => {
+        ((reactionsData as Array<{ post_id: string }>) || []).forEach((r) => {
           reactionCounts[r.post_id] = (reactionCounts[r.post_id] || 0) + 1;
         });
         setReactions(reactionCounts);
@@ -118,12 +118,12 @@ const EventPostsSection = ({ eventId, clubId, canManage }: EventPostsSectionProp
           .is("deleted_at", null);
 
         const commentCounts: Record<string, number> = {};
-        (commentsData || []).forEach((c) => {
+        ((commentsData as Array<{ post_id: string }>) || []).forEach((c) => {
           commentCounts[c.post_id] = (commentCounts[c.post_id] || 0) + 1;
         });
         setComments(commentCounts);
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error fetching event posts:", error);
     } finally {
       setLoading(false);
