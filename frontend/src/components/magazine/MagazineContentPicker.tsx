@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 
 interface MagazineContentPickerProps {
   open: boolean;
@@ -60,7 +60,6 @@ const MagazineContentPicker = ({
   useEffect(() => {
     if (open) {
       fetchContent();
-      // Set default tab based on section type
       if (sectionType === "greeting" || sectionType === "custom") {
         setActiveTab("text");
       } else if (sectionType === "events") {
@@ -76,7 +75,6 @@ const MagazineContentPicker = ({
   const fetchContent = async () => {
     setIsLoading(true);
 
-    // Fetch approved posts
     const { data: postsData } = await supabase
       .from("posts")
       .select("id, title, created_at, category")
@@ -85,9 +83,8 @@ const MagazineContentPicker = ({
       .order("created_at", { ascending: false })
       .limit(50);
 
-    setPosts(postsData || []);
+    setPosts((postsData as Post[]) || []);
 
-    // Fetch approved events
     const { data: eventsData } = await supabase
       .from("events")
       .select("id, title, start_at, category")
@@ -96,16 +93,15 @@ const MagazineContentPicker = ({
       .order("start_at", { ascending: false })
       .limit(50);
 
-    setEvents(eventsData || []);
+    setEvents((eventsData as Event[]) || []);
 
-    // Fetch companies
     const { data: companiesData } = await supabase
       .from("companies")
       .select("id, name")
       .eq("club_id", clubId)
       .order("name");
 
-    setCompanies(companiesData || []);
+    setCompanies((companiesData as Company[]) || []);
 
     setIsLoading(false);
   };

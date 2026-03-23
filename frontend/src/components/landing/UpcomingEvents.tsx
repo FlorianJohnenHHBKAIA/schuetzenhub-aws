@@ -6,7 +6,7 @@ import { Calendar, MapPin, ArrowRight, Clock } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 
 type EventCategory = "training" | "meeting" | "fest" | "work" | "other";
 
@@ -46,8 +46,8 @@ const UpcomingEvents = () => {
         .limit(4);
 
       if (error) throw error;
-      setEvents(data || []);
-    } catch (error) {
+      setEvents((data as PublicEvent[]) || []);
+    } catch (error: unknown) {
       console.error("Error fetching public events:", error);
     } finally {
       setIsLoading(false);

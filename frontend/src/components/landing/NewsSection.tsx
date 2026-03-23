@@ -1,13 +1,14 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { supabase, getStorageUrl } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/api/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { ArrowRight, Bell, Info, Calendar, AlertTriangle, Megaphone, Loader2, Newspaper } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 interface Post {
   id: string;
@@ -18,7 +19,7 @@ interface Post {
   created_at: string;
 }
 
-const CATEGORIES: Record<string, { label: string; icon: any; color: string }> = {
+const CATEGORIES: Record<string, { label: string; icon: LucideIcon; color: string }> = {
   announcement: { label: 'Ankündigung', icon: Bell, color: 'bg-blue-500/10 text-blue-600' },
   info: { label: 'Information', icon: Info, color: 'bg-emerald-500/10 text-emerald-600' },
   event: { label: 'Veranstaltung', icon: Calendar, color: 'bg-purple-500/10 text-purple-600' },
@@ -43,8 +44,8 @@ const NewsSection = () => {
         .eq('publication_status', 'approved')
         .order('created_at', { ascending: false })
         .limit(3);
-      setPosts(data || []);
-    } catch (error) {
+      setPosts((data as Post[]) || []);
+    } catch (error: unknown) {
       console.error('Error:', error);
     } finally {
       setLoading(false);

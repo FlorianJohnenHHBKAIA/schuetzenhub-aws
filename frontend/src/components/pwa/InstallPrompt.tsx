@@ -21,13 +21,11 @@ export function InstallPrompt() {
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
-    // Check if already installed
     if (window.matchMedia("(display-mode: standalone)").matches) {
       setIsInstalled(true);
       return;
     }
 
-    // Check if dismissed recently
     const dismissedAt = localStorage.getItem("pwa-install-dismissed");
     if (dismissedAt) {
       const dismissedDate = new Date(dismissedAt);
@@ -37,7 +35,6 @@ export function InstallPrompt() {
       }
     }
 
-    // Listen for the beforeinstallprompt event
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
@@ -45,7 +42,6 @@ export function InstallPrompt() {
 
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
 
-    // Listen for app installed event
     window.addEventListener("appinstalled", () => {
       setIsInstalled(true);
       setDeferredPrompt(null);
@@ -57,7 +53,10 @@ export function InstallPrompt() {
   }, []);
 
   const isIOS = () => {
-    return /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+    return (
+      /iPad|iPhone|iPod/.test(navigator.userAgent) &&
+      !("MSStream" in window)
+    );
   };
 
   const handleInstallClick = async () => {
@@ -80,7 +79,6 @@ export function InstallPrompt() {
     localStorage.setItem("pwa-install-dismissed", new Date().toISOString());
   };
 
-  // Don't show if already installed, dismissed, or no prompt available (and not iOS)
   if (isInstalled || dismissed) {
     return null;
   }
