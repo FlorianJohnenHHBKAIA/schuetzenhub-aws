@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 import PortalLayout from "@/components/portal/PortalLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,7 +35,23 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type AwardType = Tables<"award_types">;
+interface AwardType {
+  id: string;
+  club_id: string;
+  name: string;
+  description: string | null;
+  icon: string;
+  badge_color: string;
+  scope_type: string;
+  scope_id: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+interface Company {
+  id: string;
+  name: string;
+}
 
 const ICONS = [
   { value: "medal", label: "Medaille", icon: Medal, color: "text-amber-500", bgColor: "bg-amber-500/10" },
@@ -95,7 +111,6 @@ export default function AwardTypesManagement() {
     is_active: true,
   });
 
-  // Fetch award types
   const { data: awardTypes, isLoading: typesLoading } = useQuery({
     queryKey: ["award-types", clubId],
     queryFn: async () => {
@@ -111,7 +126,6 @@ export default function AwardTypesManagement() {
     enabled: !!clubId && isAdmin,
   });
 
-  // Fetch companies for company-level awards
   const { data: companies } = useQuery({
     queryKey: ["companies", clubId],
     queryFn: async () => {
@@ -122,12 +136,11 @@ export default function AwardTypesManagement() {
         .eq("club_id", clubId)
         .order("name");
       if (error) throw error;
-      return data;
+      return data as Company[];
     },
     enabled: !!clubId,
   });
 
-  // Create/Update mutation
   const saveMutation = useMutation({
     mutationFn: async (data: AwardTypeFormData) => {
       if (!clubId) throw new Error("Club ID missing");
@@ -161,13 +174,12 @@ export default function AwardTypesManagement() {
       toast({ title: editingType ? "Auszeichnungstyp aktualisiert" : "Auszeichnungstyp erstellt" });
       closeDialog();
     },
-    onError: (error) => {
+    onError: (error: unknown) => {
       console.error("Error saving award type:", error);
       toast({ title: "Fehler beim Speichern", variant: "destructive" });
     },
   });
 
-  // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase
@@ -182,7 +194,7 @@ export default function AwardTypesManagement() {
       setDeleteDialogOpen(false);
       setTypeToDelete(null);
     },
-    onError: (error) => {
+    onError: (error: unknown) => {
       console.error("Error deleting award type:", error);
       toast({ title: "Fehler beim Löschen", variant: "destructive" });
     },
@@ -371,7 +383,6 @@ export default function AwardTypesManagement() {
         </Tabs>
       </div>
 
-      {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
@@ -502,7 +513,6 @@ export default function AwardTypesManagement() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -528,7 +538,6 @@ export default function AwardTypesManagement() {
   );
 }
 
-// Card component for displaying an award type
 function AwardTypeCard({ 
   awardType, 
   onEdit, 
