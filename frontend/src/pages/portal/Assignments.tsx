@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import {
   Table,
   TableBody,
@@ -27,6 +27,19 @@ import {
 interface Company {
   id: string;
   name: string;
+}
+
+interface RawMember {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  status: string;
+}
+
+interface RawMembership {
+  member_id: string;
+  company_id: string;
 }
 
 interface MemberWithAssignment {
@@ -65,38 +78,40 @@ const Assignments = () => {
   const fetchData = async () => {
     setIsLoading(true);
 
-    // Fetch companies
     const { data: companiesData } = await supabase
       .from("companies")
       .select("id, name")
       .eq("club_id", member!.club_id)
       .order("name");
 
-    setCompanies(companiesData || []);
+    const companiesList = (companiesData as Company[]) || [];
+    setCompanies(companiesList);
 
-    // Fetch members with their active company assignment
     const { data: membersData } = await supabase
       .from("members")
       .select("id, first_name, last_name, email, status")
       .eq("club_id", member!.club_id)
       .order("last_name");
 
-    if (membersData) {
-      // Fetch active memberships
-      const { data: memberships } = await supabase
+    const membersList = (membersData as RawMember[]) || [];
+
+    if (membersList.length > 0) {
+      const { data: membershipsData } = await supabase
         .from("member_company_memberships")
         .select("member_id, company_id")
         .is("valid_to", null);
 
-      const membershipMap = new Map(
-        memberships?.map((m) => [m.member_id, m.company_id]) || []
+      const memberships = (membershipsData as RawMembership[]) || [];
+
+      const membershipMap = new Map<string, string>(
+        memberships.map((m) => [m.member_id, m.company_id])
       );
 
-      const companyMap = new Map(
-        companiesData?.map((c) => [c.id, c.name]) || []
+      const companyMap = new Map<string, string>(
+        companiesList.map((c) => [c.id, c.name])
       );
 
-      const enrichedMembers: MemberWithAssignment[] = membersData.map((m) => {
+      const enrichedMembers: MemberWithAssignment[] = membersList.map((m) => {
         const companyId = membershipMap.get(m.id) || null;
         return {
           ...m,
@@ -155,7 +170,6 @@ const Assignments = () => {
           </p>
         </motion.div>
 
-        {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-4 mb-6">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -182,7 +196,6 @@ const Assignments = () => {
           </Select>
         </div>
 
-        {/* Table */}
         {isLoading ? (
           <div className="flex justify-center py-12">
             <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />

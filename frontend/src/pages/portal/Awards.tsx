@@ -29,7 +29,7 @@ const getAwardTypeConfig = (type: string) => {
   return AWARD_TYPES.find(t => t.value === type) || AWARD_TYPES[AWARD_TYPES.length - 1];
 };
 
-interface AwardsPageProps {}
+
 
 interface MemberAward {
   id: string;

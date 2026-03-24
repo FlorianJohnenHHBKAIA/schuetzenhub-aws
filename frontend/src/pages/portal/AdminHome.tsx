@@ -28,7 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import PortalLayout from "@/components/portal/PortalLayout";
 import { useAuth } from "@/lib/auth";
 import { useUIMode } from "@/hooks/useUIMode";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { differenceInDays } from "date-fns";
 
 interface CriticalShift {
@@ -52,6 +52,33 @@ interface SectionTile {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   permission?: string;
+}
+
+// API response types
+interface UpcomingEvent {
+  id: string;
+  title: string;
+  start_at: string;
+}
+
+interface ShiftData {
+  id: string;
+  event_id: string;
+  required_slots: number | null;
+}
+
+interface AssignmentData {
+  work_shift_id: string;
+}
+
+interface AdData {
+  status: string;
+}
+
+interface MagazineData {
+  id: string;
+  year: number;
+  status: string;
 }
 
 const AdminHome = () => {
@@ -79,7 +106,6 @@ const AdminHome = () => {
       const now = new Date();
       const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-      // Parallel queries for attention items
       const [
         pendingEventsRes,
         pendingPostsRes,
@@ -109,7 +135,6 @@ const AdminHome = () => {
           .gte("start_at", now.toISOString())
           .lte("start_at", sevenDaysFromNow.toISOString())
           .order("start_at"),
-        // Get current year's magazine
         supabase
           .from("magazines")
           .select("id, year, status")
@@ -123,26 +148,30 @@ const AdminHome = () => {
       setPendingPostApprovals(pendingPostsRes.count || 0);
       setPendingAwardRequests(pendingAwardsRes.count || 0);
 
-      // Calculate critical shifts
-      const upcomingEvents = upcomingEventsWithShiftsRes.data || [];
+      const upcomingEvents = (upcomingEventsWithShiftsRes.data as UpcomingEvent[]) || [];
+
       if (upcomingEvents.length > 0) {
         const eventIds = upcomingEvents.map((e) => e.id);
 
-        const { data: shiftsData } = await supabase
+        const { data: shiftsRaw } = await supabase
           .from("work_shifts")
           .select("id, event_id, required_slots")
           .in("event_id", eventIds);
 
-        if (shiftsData && shiftsData.length > 0) {
+        const shiftsData = (shiftsRaw as ShiftData[]) || [];
+
+        if (shiftsData.length > 0) {
           const shiftIds = shiftsData.map((s) => s.id);
 
-          const { data: assignmentsData } = await supabase
+          const { data: assignmentsRaw } = await supabase
             .from("work_shift_assignments")
             .select("work_shift_id")
             .in("work_shift_id", shiftIds)
             .in("status", ["signed_up", "completed"]);
 
-          const assignmentCounts = (assignmentsData || []).reduce(
+          const assignmentsData = (assignmentsRaw as AssignmentData[]) || [];
+
+          const assignmentCounts = assignmentsData.reduce(
             (acc, a) => {
               acc[a.work_shift_id] = (acc[a.work_shift_id] || 0) + 1;
               return acc;
@@ -169,31 +198,31 @@ const AdminHome = () => {
         }
       }
 
-      // Magazine ad progress
-      if (currentMagazineRes.data) {
-        const { data: adsData } = await supabase
+      const magazineData = currentMagazineRes.data as MagazineData | null;
+      if (magazineData) {
+        const { data: adsRaw } = await supabase
           .from("magazine_ads")
           .select("status")
-          .eq("magazine_id", currentMagazineRes.data.id);
+          .eq("magazine_id", magazineData.id);
 
-        if (adsData && adsData.length > 0) {
+        const adsData = (adsRaw as AdData[]) || [];
+
+        if (adsData.length > 0) {
           const placedCount = adsData.filter((ad) => ad.status === "placed").length;
           const progress = Math.round((placedCount / adsData.length) * 100);
-          setMagazineStats({ year: currentMagazineRes.data.year, progress });
+          setMagazineStats({ year: magazineData.year, progress });
         }
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error fetching admin home data:", error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Build attention items (max 5)
   const attentionItems = useMemo((): AttentionItem[] => {
     const items: AttentionItem[] = [];
 
-    // Pending event approvals
     if (pendingEventApprovals > 0 && hasPermission("club.events.approve_publication")) {
       items.push({
         id: "event-approvals",
@@ -205,7 +234,6 @@ const AdminHome = () => {
       });
     }
 
-    // Pending post approvals
     if (pendingPostApprovals > 0 && hasPermission("club.posts.approve_publication")) {
       items.push({
         id: "post-approvals",
@@ -217,7 +245,6 @@ const AdminHome = () => {
       });
     }
 
-    // Pending award requests
     if (pendingAwardRequests > 0 && hasPermission("club.admin.full")) {
       items.push({
         id: "award-requests",
@@ -229,7 +256,6 @@ const AdminHome = () => {
       });
     }
 
-    // Critical shifts (understaffed events in next 7 days)
     criticalShifts.forEach((shift) => {
       items.push({
         id: `shift-${shift.eventId}`,
@@ -241,7 +267,6 @@ const AdminHome = () => {
       });
     });
 
-    // Magazine missing ads (if many ads are not placed)
     if (magazineStats && magazineStats.progress < 50 && hasPermission("club.magazine.ads.manage")) {
       items.push({
         id: "magazine-ads",
@@ -256,7 +281,6 @@ const AdminHome = () => {
     return items.slice(0, 5);
   }, [pendingEventApprovals, pendingPostApprovals, pendingAwardRequests, criticalShifts, magazineStats, hasPermission]);
 
-  // Section tiles - filtered by permission
   const membersOrgTiles: SectionTile[] = useMemo(
     () =>
       [
@@ -269,22 +293,20 @@ const AdminHome = () => {
   );
 
   const eventsShiftsTiles: SectionTile[] = useMemo(
-    () =>
-      [
-        { label: "Termine", href: "/portal/events", icon: Calendar },
-        { label: "Arbeitsdienste", href: "/portal/workshifts", icon: ClipboardList },
-      ],
+    () => [
+      { label: "Termine", href: "/portal/events", icon: Calendar },
+      { label: "Arbeitsdienste", href: "/portal/workshifts", icon: ClipboardList },
+    ],
     []
   );
 
   const contentTiles: SectionTile[] = useMemo(
-    () =>
-      [
-        { label: "Aushang / Beiträge", href: "/portal/posts", icon: Megaphone },
-        { label: "Galerie", href: "/portal/gallery", icon: Image },
-        { label: "Vereinsprofil", href: "/portal/club-profile", icon: Shield },
-        { label: "Dokumente", href: "/portal/documents", icon: FileText },
-      ],
+    () => [
+      { label: "Aushang / Beiträge", href: "/portal/posts", icon: Megaphone },
+      { label: "Galerie", href: "/portal/gallery", icon: Image },
+      { label: "Vereinsprofil", href: "/portal/club-profile", icon: Shield },
+      { label: "Dokumente", href: "/portal/documents", icon: FileText },
+    ],
     []
   );
 
@@ -298,12 +320,10 @@ const AdminHome = () => {
     [hasPermission]
   );
 
-  // Guard: redirect non-admin mode users
   if (!authLoading && uiModeLoaded && !isAdminMode) {
     return <Navigate to="/portal" replace />;
   }
 
-  // Loading state
   if (authLoading || !uiModeLoaded) {
     return (
       <PortalLayout>
@@ -317,7 +337,6 @@ const AdminHome = () => {
   return (
     <PortalLayout>
       <div className="space-y-8">
-        {/* Admin Mode Indicator */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Wrench className="w-4 h-4" />
@@ -331,7 +350,6 @@ const AdminHome = () => {
           </div>
         </div>
 
-        {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -342,7 +360,6 @@ const AdminHome = () => {
           </p>
         </motion.div>
 
-        {/* SECTION A: Aktuell wichtig */}
         {attentionItems.length > 0 && (
           <motion.section
             initial={{ opacity: 0, y: 10 }}
@@ -398,7 +415,6 @@ const AdminHome = () => {
           </motion.section>
         )}
 
-        {/* SECTION B: Mitglieder & Organisation */}
         {membersOrgTiles.length > 0 && (
           <motion.section
             initial={{ opacity: 0, y: 10 }}
@@ -433,7 +449,6 @@ const AdminHome = () => {
           </motion.section>
         )}
 
-        {/* SECTION C: Termine & Einsätze */}
         <motion.section
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -470,7 +485,6 @@ const AdminHome = () => {
           )}
         </motion.section>
 
-        {/* SECTION D: Inhalte & Öffentlichkeit */}
         <motion.section
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -506,7 +520,6 @@ const AdminHome = () => {
           )}
         </motion.section>
 
-        {/* SECTION E: Schützenheft & Sponsoren (highlighted) */}
         {magazineTiles.length > 0 && (
           <motion.section
             initial={{ opacity: 0, y: 10 }}
@@ -544,7 +557,6 @@ const AdminHome = () => {
           </motion.section>
         )}
 
-        {/* Quick links to system settings */}
         <motion.section
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}

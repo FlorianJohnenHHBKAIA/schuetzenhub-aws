@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -75,6 +75,16 @@ interface Appointment {
   valid_to: string | null;
 }
 
+interface RawAppointment {
+  id: string;
+  member_id: string;
+  role_id: string;
+  scope_type: "club" | "company";
+  scope_id: string;
+  valid_from: string;
+  valid_to: string | null;
+}
+
 const Appointments = () => {
   const { member, hasPermission } = useAuth();
   const { toast } = useToast();
@@ -113,23 +123,24 @@ const Appointments = () => {
       supabase.from("appointments").select("*").order("valid_from", { ascending: false }),
     ]);
 
-    const roles = rolesRes.data || [];
+    const roles = (rolesRes.data as Role[]) || [];
     setClubRoles(roles.filter((r) => r.level === "club"));
     setCompanyRoles(roles.filter((r) => r.level === "company"));
-    setCompanies(companiesRes.data || []);
-    setMembers(membersRes.data || []);
+    setCompanies((companiesRes.data as Company[]) || []);
+    setMembers((membersRes.data as Member[]) || []);
 
-    // Enrich appointments
     if (appointmentsRes.data) {
-      const roleMap = new Map(roles.map((r) => [r.id, r]));
-      const companyMap = new Map((companiesRes.data || []).map((c) => [c.id, c.name]));
-      const memberMap = new Map(
-        (membersRes.data || []).map((m) => [m.id, `${m.first_name} ${m.last_name}`])
+      const rawAppointments = appointmentsRes.data as RawAppointment[];
+      const roleMap = new Map<string, Role>(roles.map((r) => [r.id, r]));
+      const companyMap = new Map<string, string>(
+        ((companiesRes.data as Company[]) || []).map((c) => [c.id, c.name])
+      );
+      const memberMap = new Map<string, string>(
+        ((membersRes.data as Member[]) || []).map((m) => [m.id, `${m.first_name} ${m.last_name}`])
       );
 
-      // Filter appointments to only those belonging to this club's roles
       const clubRoleIds = new Set(roles.map((r) => r.id));
-      const filteredAppointments = appointmentsRes.data.filter((a) => clubRoleIds.has(a.role_id));
+      const filteredAppointments = rawAppointments.filter((a) => clubRoleIds.has(a.role_id));
 
       const enriched: Appointment[] = filteredAppointments.map((a) => {
         const role = roleMap.get(a.role_id);
@@ -181,8 +192,12 @@ const Appointments = () => {
       fetchData();
       setIsDialogOpen(false);
       resetForm();
-    } catch (error: any) {
-      toast({ title: "Fehler", description: error.message, variant: "destructive" });
+    } catch (error: unknown) {
+      toast({
+        title: "Fehler",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive",
+      });
     }
 
     setIsSubmitting(false);
@@ -202,8 +217,12 @@ const Appointments = () => {
 
       toast({ title: "Besetzung beendet" });
       fetchData();
-    } catch (error: any) {
-      toast({ title: "Fehler", description: error.message, variant: "destructive" });
+    } catch (error: unknown) {
+      toast({
+        title: "Fehler",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive",
+      });
     }
 
     setEndingAppointment(null);
@@ -261,7 +280,6 @@ const Appointments = () => {
           <p className="text-muted-foreground">Ämter mit Mitgliedern besetzen</p>
         </motion.div>
 
-        {/* Actions */}
         <div className="flex flex-col sm:flex-row gap-4 mb-6">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -288,7 +306,6 @@ const Appointments = () => {
           </div>
         </div>
 
-        {/* Table */}
         {isLoading ? (
           <div className="flex justify-center py-12">
             <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -357,7 +374,6 @@ const Appointments = () => {
         )}
       </div>
 
-      {/* Create Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -457,7 +473,6 @@ const Appointments = () => {
         </DialogContent>
       </Dialog>
 
-      {/* End Confirmation */}
       <AlertDialog open={!!endingAppointment} onOpenChange={() => setEndingAppointment(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 import PortalLayout from "@/components/portal/PortalLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -88,7 +88,6 @@ export default function AwardRulesManagement() {
 
   const clubId = member?.club_id;
 
-  // Fetch rules
   const { data: rules, isLoading } = useQuery({
     queryKey: ["award-rules", clubId],
     queryFn: async () => {
@@ -109,7 +108,6 @@ export default function AwardRulesManagement() {
     enabled: !!clubId,
   });
 
-  // Fetch award types for selection
   const { data: awardTypes } = useQuery({
     queryKey: ["award-types-active", clubId],
     queryFn: async () => {
@@ -127,7 +125,6 @@ export default function AwardRulesManagement() {
     enabled: !!clubId,
   });
 
-  // Create/Update rule
   const saveMutation = useMutation({
     mutationFn: async (data: typeof formData & { id?: string }) => {
       if (data.id) {
@@ -161,18 +158,18 @@ export default function AwardRulesManagement() {
         description: "Die automatische Vergabe-Regel wurde gespeichert.",
       });
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
+      const message = error instanceof Error ? error.message : "";
       toast({
         title: "Fehler",
-        description: error.message?.includes("unique") 
-          ? "Diese Kombination existiert bereits." 
+        description: message.includes("unique")
+          ? "Diese Kombination existiert bereits."
           : "Die Regel konnte nicht gespeichert werden.",
         variant: "destructive",
       });
     },
   });
 
-  // Toggle active status
   const toggleMutation = useMutation({
     mutationFn: async ({ id, active }: { id: string; active: boolean }) => {
       const { error } = await supabase
@@ -186,7 +183,6 @@ export default function AwardRulesManagement() {
     },
   });
 
-  // Delete rule
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase
@@ -232,7 +228,6 @@ export default function AwardRulesManagement() {
     });
   };
 
-  // Group rules by trigger type
   const rulesByTrigger = rules?.reduce((acc, rule) => {
     if (!acc[rule.trigger_type]) acc[rule.trigger_type] = [];
     acc[rule.trigger_type].push(rule);
@@ -242,7 +237,6 @@ export default function AwardRulesManagement() {
   return (
     <PortalLayout>
       <div className="max-w-4xl mx-auto space-y-6">
-        {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -264,7 +258,6 @@ export default function AwardRulesManagement() {
           </div>
         </motion.div>
 
-        {/* Info Card */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -286,7 +279,6 @@ export default function AwardRulesManagement() {
           </Card>
         </motion.div>
 
-        {/* Rules List */}
         {isLoading ? (
           <div className="space-y-4">
             {[1, 2, 3].map(i => <Skeleton key={i} className="h-24" />)}
@@ -392,7 +384,6 @@ export default function AwardRulesManagement() {
         )}
       </div>
 
-      {/* Create/Edit Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent>
           <DialogHeader>
