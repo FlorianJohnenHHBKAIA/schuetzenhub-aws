@@ -19,7 +19,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -91,7 +91,9 @@ const EventApprovals = () => {
         .from("companies")
         .select("id, name")
         .eq("club_id", member.club_id);
-      setCompanies(companiesData || []);
+
+      const companiesList = (companiesData as Company[]) || [];
+      setCompanies(companiesList);
 
       const { data: eventsData, error } = await supabase
         .from("events")
@@ -102,14 +104,14 @@ const EventApprovals = () => {
 
       if (error) throw error;
 
-      const companyMap = new Map((companiesData || []).map((c) => [c.id, c.name]));
-      const enrichedEvents = (eventsData || []).map((e) => ({
+      const companyMap = new Map<string, string>(companiesList.map((c) => [c.id, c.name]));
+      const enrichedEvents = ((eventsData as Event[]) || []).map((e) => ({
         ...e,
         owner_name: companyMap.get(e.owner_id) || "Kompanie",
       }));
 
       setEvents(enrichedEvents);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error fetching data:", error);
       toast.error("Fehler beim Laden der Termine");
     } finally {
@@ -136,9 +138,9 @@ const EventApprovals = () => {
 
       toast.success("Termin freigegeben und öffentlich geschaltet");
       fetchData();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error approving event:", error);
-      toast.error(error.message || "Fehler beim Freigeben");
+      toast.error(error instanceof Error ? error.message : "Fehler beim Freigeben");
     } finally {
       setIsSubmitting(false);
     }
@@ -167,9 +169,9 @@ const EventApprovals = () => {
       setRejectingEvent(null);
       setRejectionReason("");
       fetchData();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error rejecting event:", error);
-      toast.error(error.message || "Fehler beim Ablehnen");
+      toast.error(error instanceof Error ? error.message : "Fehler beim Ablehnen");
     } finally {
       setIsSubmitting(false);
     }
@@ -312,7 +314,6 @@ const EventApprovals = () => {
         )}
       </div>
 
-      {/* Rejection Dialog */}
       <Dialog open={!!rejectingEvent} onOpenChange={() => setRejectingEvent(null)}>
         <DialogContent>
           <DialogHeader>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import PortalLayout from "@/components/portal/PortalLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -35,7 +35,31 @@ interface Permission {
   description: string | null;
 }
 
-// Delegatable permissions (company.events.share_internal is NOT delegatable)
+interface RawMembership {
+  member_id: string;
+  members: CompanyMember | null;
+}
+
+interface RawDelegation {
+  id: string;
+  grantee_member_id: string;
+  permission_id: string;
+  valid_from: string;
+  granted_by_member_id: string | null;
+  permissions: { key: string } | null;
+}
+
+interface RawGranter {
+  id: string;
+  first_name: string;
+  last_name: string;
+}
+
+interface NewDelegationData {
+  id: string;
+  valid_from: string;
+}
+
 const DELEGATABLE_PERMISSIONS = [
   "company.events.manage",
   "company.events.submit_publication",
@@ -44,7 +68,7 @@ const DELEGATABLE_PERMISSIONS = [
 ];
 
 const Delegations = () => {
-  const { member, user, hasPermission, isLoading: authLoading } = useAuth();
+  const { member, hasPermission, isLoading: authLoading } = useAuth();
   const [companyMembers, setCompanyMembers] = useState<CompanyMember[]>([]);
   const [delegations, setDelegations] = useState<Delegation[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
@@ -52,7 +76,6 @@ const Delegations = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [togglingState, setTogglingState] = useState<Record<string, boolean>>({});
 
-  // Check if user has delegation management permission for any company
   const canManageDelegations = hasPermission("company.delegations.manage");
 
   useEffect(() => {
@@ -65,7 +88,6 @@ const Delegations = () => {
     if (!member) return;
 
     try {
-      // Get user's active company membership
       const { data: membershipData, error: membershipError } = await supabase
         .from("member_company_memberships")
         .select("company_id, companies(id, name)")
@@ -75,15 +97,16 @@ const Delegations = () => {
 
       if (membershipError) throw membershipError;
 
-      if (!membershipData?.companies) {
+      const rawMembership = membershipData as { company_id: string; companies: { id: string; name: string } | null } | null;
+
+      if (!rawMembership?.companies) {
         setIsLoading(false);
         return;
       }
 
-      const company = membershipData.companies as { id: string; name: string };
+      const company = rawMembership.companies;
       setUserCompany(company);
 
-      // Get all members of this company
       const { data: membershipsData, error: membershipsError } = await supabase
         .from("member_company_memberships")
         .select("member_id, members(id, first_name, last_name, email, status)")
@@ -92,22 +115,20 @@ const Delegations = () => {
 
       if (membershipsError) throw membershipsError;
 
-      const members = (membershipsData || [])
-        .map((m) => m.members as CompanyMember)
-        .filter((m): m is CompanyMember => m !== null && m.id !== member.id); // Exclude self
+      const members = ((membershipsData as RawMembership[]) || [])
+        .map((m) => m.members)
+        .filter((m): m is CompanyMember => m !== null && m.id !== member.id);
 
       setCompanyMembers(members);
 
-      // Get delegatable permissions
       const { data: permData, error: permError } = await supabase
         .from("permissions")
         .select("*")
         .in("key", DELEGATABLE_PERMISSIONS);
 
       if (permError) throw permError;
-      setPermissions(permData || []);
+      setPermissions((permData as Permission[]) || []);
 
-      // Get existing delegations for this company
       const { data: delegationsData, error: delegationsError } = await supabase
         .from("delegations")
         .select(`
@@ -123,8 +144,8 @@ const Delegations = () => {
 
       if (delegationsError) throw delegationsError;
 
-      // Get granted_by names
-      const grantedByIds = [...new Set((delegationsData || []).map(d => d.granted_by_member_id).filter(Boolean))];
+      const rawDelegations = (delegationsData as RawDelegation[]) || [];
+      const grantedByIds = [...new Set(rawDelegations.map(d => d.granted_by_member_id).filter((id): id is string => id !== null))];
       let grantedByNames: Record<string, string> = {};
       
       if (grantedByIds.length > 0) {
@@ -133,23 +154,23 @@ const Delegations = () => {
           .select("id, first_name, last_name")
           .in("id", grantedByIds);
         
-        grantedByNames = (grantersData || []).reduce((acc, m) => {
+        grantedByNames = ((grantersData as RawGranter[]) || []).reduce((acc, m) => {
           acc[m.id] = `${m.first_name} ${m.last_name}`;
           return acc;
         }, {} as Record<string, string>);
       }
 
       setDelegations(
-        (delegationsData || []).map((d) => ({
+        rawDelegations.map((d) => ({
           id: d.id,
           grantee_member_id: d.grantee_member_id,
           permission_id: d.permission_id,
-          permission_key: (d.permissions as { key: string })?.key || "",
+          permission_key: d.permissions?.key || "",
           granted_by_name: d.granted_by_member_id ? grantedByNames[d.granted_by_member_id] || null : null,
           valid_from: d.valid_from,
         }))
       );
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error fetching data:", error);
       toast.error("Fehler beim Laden der Daten");
     } finally {
@@ -184,7 +205,6 @@ const Delegations = () => {
       }
 
       if (existingDelegation) {
-        // End delegation
         const { error } = await supabase
           .from("delegations")
           .update({ valid_to: new Date().toISOString().split("T")[0] })
@@ -195,7 +215,8 @@ const Delegations = () => {
         setDelegations((prev) => prev.filter((d) => d.id !== existingDelegation.id));
         toast.success("Delegation beendet");
       } else {
-        // Create delegation
+        if (!member.club_id) throw new Error("Club ID fehlt");
+
         const { data, error } = await supabase
           .from("delegations")
           .insert({
@@ -205,27 +226,28 @@ const Delegations = () => {
             granted_by_member_id: member.id,
             permission_id: permission.id,
           })
-          .select()
-          .single();
+          .select("*");
 
         if (error) throw error;
+
+        const newData = (Array.isArray(data) ? data[0] : data) as NewDelegationData;
 
         setDelegations((prev) => [
           ...prev,
           {
-            id: data.id,
+            id: newData.id,
             grantee_member_id: memberId,
             permission_id: permission.id,
             permission_key: permissionKey,
             granted_by_name: `${member.first_name} ${member.last_name}`,
-            valid_from: data.valid_from,
+            valid_from: newData.valid_from,
           },
         ]);
         toast.success("Delegation erteilt");
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error toggling delegation:", error);
-      toast.error(error.message || "Fehler beim Ändern der Delegation");
+      toast.error(error instanceof Error ? error.message : "Fehler beim Ändern der Delegation");
     } finally {
       setTogglingState((prev) => ({ ...prev, [toggleKey]: false }));
     }

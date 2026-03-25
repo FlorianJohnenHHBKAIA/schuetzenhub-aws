@@ -6,7 +6,7 @@ import PortalLayout from "@/components/portal/PortalLayout";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
 import CompanyEditDialog from "@/components/portal/CompanyEditDialog";
 
@@ -35,6 +35,24 @@ interface CompanyRole {
   member_last_name: string;
 }
 
+interface RawMembership {
+  member_id: string;
+}
+
+interface RawAppointment {
+  member_id: string;
+  role_id: string;
+  roles: {
+    name: string;
+    level: string;
+  };
+}
+
+interface RawMemberName {
+  first_name: string;
+  last_name: string;
+}
+
 const CompanyProfile = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -54,7 +72,6 @@ const CompanyProfile = () => {
   const fetchCompanyData = async () => {
     setIsLoading(true);
     try {
-      // Fetch company
       const { data: companyData, error: companyError } = await supabase
         .from("companies")
         .select("*")
@@ -62,16 +79,17 @@ const CompanyProfile = () => {
         .single();
 
       if (companyError) throw companyError;
-      setCompany(companyData);
+      setCompany(companyData as Company);
 
-      // Fetch active company members
-      const { data: memberships } = await supabase
+      const { data: membershipsData } = await supabase
         .from("member_company_memberships")
         .select("member_id")
         .eq("company_id", id)
         .is("valid_to", null);
 
-      if (memberships && memberships.length > 0) {
+      const memberships = (membershipsData as RawMembership[]) || [];
+
+      if (memberships.length > 0) {
         const memberIds = memberships.map(m => m.member_id);
         const { data: membersData } = await supabase
           .from("members")
@@ -79,11 +97,10 @@ const CompanyProfile = () => {
           .in("id", memberIds)
           .order("last_name");
         
-        setMembers(membersData || []);
+        setMembers((membersData as CompanyMember[]) || []);
       }
 
-      // Fetch company-level appointments (Hauptmann, etc.)
-      const { data: appointments } = await supabase
+      const { data: appointmentsData } = await supabase
         .from("appointments")
         .select(`
           member_id,
@@ -94,7 +111,9 @@ const CompanyProfile = () => {
         .eq("scope_id", id)
         .is("valid_to", null);
 
-      if (appointments) {
+      const appointments = (appointmentsData as RawAppointment[]) || [];
+
+      if (appointments.length > 0) {
         const rolesWithMembers: CompanyRole[] = [];
         for (const apt of appointments) {
           const { data: memberData } = await supabase
@@ -104,17 +123,18 @@ const CompanyProfile = () => {
             .single();
           
           if (memberData) {
+            const md = memberData as RawMemberName;
             rolesWithMembers.push({
               member_id: apt.member_id,
-              role_name: (apt.roles as any).name,
-              member_first_name: memberData.first_name,
-              member_last_name: memberData.last_name,
+              role_name: apt.roles.name,
+              member_first_name: md.first_name,
+              member_last_name: md.last_name,
             });
           }
         }
         setRoles(rolesWithMembers);
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error fetching company:", error);
       toast({ title: "Fehler beim Laden", variant: "destructive" });
     } finally {
@@ -123,7 +143,6 @@ const CompanyProfile = () => {
   };
 
   const canEdit = hasPermission("club.companies.manage");
-  const isClubMember = !!member;
 
   if (isLoading) {
     return (
@@ -151,13 +170,11 @@ const CompanyProfile = () => {
   return (
     <PortalLayout>
       <div className="max-w-5xl mx-auto">
-        {/* Back Button */}
         <Button variant="ghost" onClick={() => navigate("/portal/companies")} className="mb-4">
           <ArrowLeft className="w-4 h-4 mr-2" />
           Zurück
         </Button>
 
-        {/* Cover Image */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -171,7 +188,6 @@ const CompanyProfile = () => {
             </div>
           )}
           
-          {/* Logo/Wappen */}
           <div className="absolute -bottom-12 left-8">
             <div className="w-24 h-24 md:w-32 md:h-32 rounded-xl border-4 border-background bg-card flex items-center justify-center shadow-lg overflow-visible">
               {company.logo_url ? (
@@ -195,7 +211,6 @@ const CompanyProfile = () => {
           )}
         </motion.div>
 
-        {/* Company Info */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -208,7 +223,6 @@ const CompanyProfile = () => {
           )}
         </motion.div>
 
-        {/* Leadership / Roles */}
         {roles.length > 0 && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -240,7 +254,6 @@ const CompanyProfile = () => {
           </motion.div>
         )}
 
-        {/* Members */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}

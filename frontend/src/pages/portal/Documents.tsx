@@ -31,7 +31,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import EventContextBanner from "@/components/portal/EventContextBanner";
@@ -90,6 +90,20 @@ interface Company {
   name: string;
 }
 
+interface RawPermission {
+  permission_key: string;
+  scope_type?: string;
+  scope_id?: string;
+}
+
+interface RawMembership {
+  company_id: string;
+}
+
+interface RawVersionData {
+  version: number;
+}
+
 const DEFAULT_FOLDERS = [
   'Allgemein',
   'Protokolle',
@@ -106,12 +120,13 @@ const DOCUMENT_TYPES = [
   { value: 'other', label: 'Sonstiges' },
 ];
 
+type DocumentType = 'document' | 'protocol' | 'form' | 'other';
+
 const Documents = () => {
   const { user, member, hasPermission, isAdmin } = useAuth();
   const { toast } = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Top-level section tab (documents vs protocols)
   const sectionTab = searchParams.get('section') || 'documents';
   const setSectionTab = (value: string) => {
     setSearchParams({ section: value });
@@ -122,18 +137,15 @@ const Documents = () => {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [userCompanyId, setUserCompanyId] = useState<string | null>(null);
 
-  // Filters
   const [activeTab, setActiveTab] = useState<'club' | 'company'>('club');
   const [searchQuery, setSearchQuery] = useState('');
   const [folderFilter, setFolderFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
 
-  // Permissions
   const [canManageClubDocs, setCanManageClubDocs] = useState(false);
   const [canViewRestricted, setCanViewRestricted] = useState(false);
   const [companyDocPermissions, setCompanyDocPermissions] = useState<string[]>([]);
 
-  // Dialog state
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingDocument, setEditingDocument] = useState<Document | null>(null);
@@ -142,12 +154,11 @@ const Documents = () => {
   const [newVersionDialogOpen, setNewVersionDialogOpen] = useState(false);
   const [versionTargetDoc, setVersionTargetDoc] = useState<Document | null>(null);
 
-  // Form state
   const [formTitle, setFormTitle] = useState('');
   const [formDescription, setFormDescription] = useState('');
   const [formFolder, setFormFolder] = useState('Allgemein');
   const [formCustomFolder, setFormCustomFolder] = useState('');
-  const [formType, setFormType] = useState<'document' | 'protocol' | 'form' | 'other'>('document');
+  const [formType, setFormType] = useState<DocumentType>('document');
   const [formVisibility, setFormVisibility] = useState<'internal' | 'restricted'>('internal');
   const [formScopeType, setFormScopeType] = useState<'club' | 'company'>('club');
   const [formScopeId, setFormScopeId] = useState('');
@@ -169,17 +180,18 @@ const Documents = () => {
       _club_id: member.club_id
     });
 
-    const permissions = permData || [];
-    const hasFullAdmin = permissions.some((p: any) => p.permission_key === 'club.admin.full');
-    const hasClubDocs = permissions.some((p: any) => p.permission_key === 'club.documents.manage');
-    const hasRestrictedView = permissions.some((p: any) => p.permission_key === 'club.documents.restricted.view');
+    const permissions = (permData as RawPermission[]) || [];
+    const hasFullAdmin = permissions.some((p) => p.permission_key === 'club.admin.full');
+    const hasClubDocs = permissions.some((p) => p.permission_key === 'club.documents.manage');
+    const hasRestrictedView = permissions.some((p) => p.permission_key === 'club.documents.restricted.view');
     
     setCanManageClubDocs(hasFullAdmin || hasClubDocs || isAdmin);
     setCanViewRestricted(hasFullAdmin || hasRestrictedView || isAdmin);
 
     const companyPerms = permissions
-      .filter((p: any) => p.permission_key === 'company.documents.manage' && p.scope_type === 'company')
-      .map((p: any) => p.scope_id);
+      .filter((p) => p.permission_key === 'company.documents.manage' && p.scope_type === 'company')
+      .map((p) => p.scope_id)
+      .filter((id): id is string => id !== undefined);
     setCompanyDocPermissions(companyPerms);
   };
 
@@ -188,15 +200,13 @@ const Documents = () => {
     setLoading(true);
 
     try {
-      // Fetch companies
       const { data: companiesData } = await supabase
         .from('companies')
         .select('id, name')
         .eq('club_id', member.club_id)
         .order('name');
-      setCompanies(companiesData || []);
+      setCompanies((companiesData as Company[]) || []);
 
-      // Get user's company membership
       const { data: membershipData } = await supabase
         .from('member_company_memberships')
         .select('company_id')
@@ -204,12 +214,12 @@ const Documents = () => {
         .is('valid_to', null)
         .maybeSingle();
       
-      if (membershipData) {
-        setUserCompanyId(membershipData.company_id);
-        setFormScopeId(membershipData.company_id);
+      const rawMembership = membershipData as RawMembership | null;
+      if (rawMembership) {
+        setUserCompanyId(rawMembership.company_id);
+        setFormScopeId(rawMembership.company_id);
       }
 
-      // Fetch documents - only current versions, exclude protocols
       const { data: docsData, error } = await supabase
         .from('documents')
         .select(`
@@ -224,9 +234,9 @@ const Documents = () => {
       if (error) {
         console.error('Error fetching documents:', error);
       } else {
-        setDocuments(docsData || []);
+        setDocuments((docsData as Document[]) || []);
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error:', error);
     } finally {
       setLoading(false);
@@ -238,9 +248,16 @@ const Documents = () => {
     const { data } = await supabase
       .from('documents')
       .select('*, uploader:members!uploaded_by_member_id(first_name, last_name)')
-      .or(`id.eq.${parentId},parent_document_id.eq.${parentId}`)
+      .eq('parent_document_id', parentId)
       .order('version', { ascending: false });
-    setVersions((data || []) as Document[]);
+    // Also fetch the parent itself
+    const { data: parentDoc } = await supabase
+      .from('documents')
+      .select('*, uploader:members!uploaded_by_member_id(first_name, last_name)')
+      .eq('id', parentId)
+      .limit(1);
+    const all = [...((parentDoc as Document[]) || []), ...((data as Document[]) || [])];
+    setVersions(all.sort((a, b) => b.version - a.version));
     setVersionsDialogOpen(true);
   };
 
@@ -251,33 +268,41 @@ const Documents = () => {
     try {
       const parentId = versionTargetDoc.parent_document_id || versionTargetDoc.id;
       
-      // Get max version
-      const { data: maxVersionData } = await supabase
+      const { data: maxVersionParent } = await supabase
         .from('documents')
         .select('version')
-        .or(`id.eq.${parentId},parent_document_id.eq.${parentId}`)
+        .eq('id', parentId)
+        .limit(1);
+      const { data: maxVersionChildren } = await supabase
+        .from('documents')
+        .select('version')
+        .eq('parent_document_id', parentId)
         .order('version', { ascending: false })
-        .limit(1)
-        .single();
-      
-      const newVersion = (maxVersionData?.version || 1) + 1;
+        .limit(1);
+      const allVersions = [
+        ...((maxVersionParent as RawVersionData[]) || []),
+        ...((maxVersionChildren as RawVersionData[]) || []),
+      ];
+      const maxVersion = allVersions.reduce((max, v) => Math.max(max, v.version), 0);
+      const newVersion = (maxVersion || 1) + 1;
       const documentId = crypto.randomUUID();
       const filePath = `${member.club_id}/${versionTargetDoc.scope_type}/${versionTargetDoc.scope_id}/documents/${documentId}/${formFile.name}`;
 
-      // Upload file
       const { error: uploadError } = await supabase.storage
         .from('documents')
         .upload(filePath, formFile);
 
       if (uploadError) throw uploadError;
 
-      // Set old versions to not current
       await supabase
         .from('documents')
         .update({ is_current_version: false })
-        .or(`id.eq.${parentId},parent_document_id.eq.${parentId}`);
+        .eq('id', parentId);
+      await supabase
+        .from('documents')
+        .update({ is_current_version: false })
+        .eq('parent_document_id', parentId);
 
-      // Create new version record
       const { error: insertError } = await supabase
         .from('documents')
         .insert({
@@ -310,11 +335,11 @@ const Documents = () => {
       setVersionTargetDoc(null);
       setFormFile(null);
       fetchData();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Version upload error:', error);
       toast({ 
         title: 'Fehler beim Hochladen', 
-        description: error.message,
+        description: error instanceof Error ? error.message : undefined,
         variant: 'destructive' 
       });
     } finally {
@@ -330,22 +355,15 @@ const Documents = () => {
       const folder = formFolder === 'custom' ? formCustomFolder : formFolder;
       const scopeId = formScopeType === 'club' ? member.club_id : formScopeId;
       
-      // Generate document ID first
       const documentId = crypto.randomUUID();
-      
-      // Build storage path
       const filePath = `${member.club_id}/${formScopeType}/${scopeId}/documents/${documentId}/${formFile.name}`;
 
-      // Upload file
       const { error: uploadError } = await supabase.storage
         .from('documents')
         .upload(filePath, formFile);
 
-      if (uploadError) {
-        throw uploadError;
-      }
+      if (uploadError) throw uploadError;
 
-      // Create document record
       const { error: insertError } = await supabase
         .from('documents')
         .insert({
@@ -365,7 +383,6 @@ const Documents = () => {
         });
 
       if (insertError) {
-        // Cleanup uploaded file on error
         await supabase.storage.from('documents').remove([filePath]);
         throw insertError;
       }
@@ -374,11 +391,11 @@ const Documents = () => {
       setUploadDialogOpen(false);
       resetForm();
       fetchData();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Upload error:', error);
       toast({ 
         title: 'Fehler beim Hochladen', 
-        description: error.message,
+        description: error instanceof Error ? error.message : undefined,
         variant: 'destructive' 
       });
     } finally {
@@ -410,10 +427,10 @@ const Documents = () => {
       setEditingDocument(null);
       resetForm();
       fetchData();
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({ 
         title: 'Fehler beim Aktualisieren', 
-        description: error.message,
+        description: error instanceof Error ? error.message : undefined,
         variant: 'destructive' 
       });
     } finally {
@@ -425,7 +442,6 @@ const Documents = () => {
     if (!confirm(`Dokument "${doc.title}" wirklich löschen?`)) return;
 
     try {
-      // Delete from storage
       const { error: storageError } = await supabase.storage
         .from('documents')
         .remove([doc.file_path]);
@@ -434,7 +450,6 @@ const Documents = () => {
         console.warn('Storage delete error:', storageError);
       }
 
-      // Delete record
       const { error } = await supabase
         .from('documents')
         .delete()
@@ -444,10 +459,10 @@ const Documents = () => {
 
       toast({ title: 'Dokument gelöscht' });
       fetchData();
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({ 
         title: 'Fehler beim Löschen', 
-        description: error.message,
+        description: error instanceof Error ? error.message : undefined,
         variant: 'destructive' 
       });
     }
@@ -467,10 +482,10 @@ const Documents = () => {
       a.download = doc.file_name;
       a.click();
       URL.revokeObjectURL(url);
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({ 
         title: 'Fehler beim Download', 
-        description: error.message,
+        description: error instanceof Error ? error.message : undefined,
         variant: 'destructive' 
       });
     }
@@ -505,7 +520,6 @@ const Documents = () => {
 
   const openUploadDialog = () => {
     resetForm();
-    // Set default scope based on permissions
     if (canManageClubDocs) {
       setFormScopeType('club');
     } else if (companyDocPermissions.length > 0) {
@@ -543,18 +557,14 @@ const Documents = () => {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  // Filter documents
   const filteredDocuments = useMemo(() => {
     return documents.filter(doc => {
-      // Tab filter
       if (activeTab === 'club' && doc.scope_type !== 'club') return false;
       if (activeTab === 'company') {
         if (doc.scope_type !== 'company') return false;
-        // Only show user's company documents
         if (doc.scope_id !== userCompanyId && !companyDocPermissions.includes(doc.scope_id)) return false;
       }
 
-      // Search
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         if (!doc.title.toLowerCase().includes(q) && !doc.file_name.toLowerCase().includes(q)) {
@@ -562,17 +572,13 @@ const Documents = () => {
         }
       }
 
-      // Folder filter
       if (folderFilter !== 'all' && doc.folder !== folderFilter) return false;
-
-      // Type filter
       if (typeFilter !== 'all' && doc.type !== typeFilter) return false;
 
       return true;
     });
   }, [documents, activeTab, searchQuery, folderFilter, typeFilter, userCompanyId, companyDocPermissions]);
 
-  // Get unique folders from documents
   const allFolders = useMemo(() => {
     const folders = new Set(documents.map(d => d.folder));
     DEFAULT_FOLDERS.forEach(f => folders.add(f));
@@ -584,10 +590,8 @@ const Documents = () => {
   return (
     <PortalLayout>
       <div className="max-w-6xl mx-auto space-y-6">
-        {/* Context banner for navigation from event */}
         <EventContextBanner />
         
-        {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -610,7 +614,6 @@ const Documents = () => {
           )}
         </motion.div>
 
-        {/* Section Tabs (Documents / Protocols) */}
         <Tabs value={sectionTab} onValueChange={setSectionTab}>
           <TabsList>
             <TabsTrigger value="documents" className="flex items-center gap-2">
@@ -624,99 +627,95 @@ const Documents = () => {
           </TabsList>
 
           <TabsContent value="documents" className="mt-4 space-y-4">
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'club' | 'company')}>
+              <TabsList>
+                <TabsTrigger value="club" className="flex items-center gap-2">
+                  <Shield className="w-4 h-4" />
+                  Hauptverein
+                </TabsTrigger>
+                {userCompanyId && (
+                  <TabsTrigger value="company" className="flex items-center gap-2">
+                    <Building2 className="w-4 h-4" />
+                    Meine Kompanie
+                  </TabsTrigger>
+                )}
+              </TabsList>
 
-        {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'club' | 'company')}>
-          <TabsList>
-            <TabsTrigger value="club" className="flex items-center gap-2">
-              <Shield className="w-4 h-4" />
-              Hauptverein
-            </TabsTrigger>
-            {userCompanyId && (
-              <TabsTrigger value="company" className="flex items-center gap-2">
-                <Building2 className="w-4 h-4" />
-                Meine Kompanie
-              </TabsTrigger>
-            )}
-          </TabsList>
-
-          {/* Filters */}
-          <Card className="mt-4">
-            <CardContent className="py-4">
-              <div className="flex flex-wrap gap-4 items-end">
-                <div className="flex-1 min-w-48">
-                  <Label className="text-xs">Suche</Label>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Titel oder Dateiname..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-9"
-                    />
+              <Card className="mt-4">
+                <CardContent className="py-4">
+                  <div className="flex flex-wrap gap-4 items-end">
+                    <div className="flex-1 min-w-48">
+                      <Label className="text-xs">Suche</Label>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Titel oder Dateiname..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="pl-9"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Ordner</Label>
+                      <Select value={folderFilter} onValueChange={setFolderFilter}>
+                        <SelectTrigger className="w-40">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Alle Ordner</SelectItem>
+                          {allFolders.map(f => (
+                            <SelectItem key={f} value={f}>{f}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Typ</Label>
+                      <Select value={typeFilter} onValueChange={setTypeFilter}>
+                        <SelectTrigger className="w-36">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Alle Typen</SelectItem>
+                          {DOCUMENT_TYPES.map(t => (
+                            <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <Label className="text-xs">Ordner</Label>
-                  <Select value={folderFilter} onValueChange={setFolderFilter}>
-                    <SelectTrigger className="w-40">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Alle Ordner</SelectItem>
-                      {allFolders.map(f => (
-                        <SelectItem key={f} value={f}>{f}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label className="text-xs">Typ</Label>
-                  <Select value={typeFilter} onValueChange={setTypeFilter}>
-                    <SelectTrigger className="w-36">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Alle Typen</SelectItem>
-                      {DOCUMENT_TYPES.map(t => (
-                        <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
 
-          {/* Document List */}
-          <TabsContent value="club" className="mt-4">
-            <DocumentTable
-              documents={filteredDocuments}
-              loading={loading}
-              onDownload={handleDownload}
-              onEdit={openEditDialog}
-              onDelete={handleDelete}
-              canManage={canManageDocument}
-              getFileIcon={getFileIcon}
-              formatFileSize={formatFileSize}
-              getCompanyName={getCompanyName}
-            />
-          </TabsContent>
+              <TabsContent value="club" className="mt-4">
+                <DocumentTable
+                  documents={filteredDocuments}
+                  loading={loading}
+                  onDownload={handleDownload}
+                  onEdit={openEditDialog}
+                  onDelete={handleDelete}
+                  canManage={canManageDocument}
+                  getFileIcon={getFileIcon}
+                  formatFileSize={formatFileSize}
+                  getCompanyName={getCompanyName}
+                />
+              </TabsContent>
 
-          <TabsContent value="company" className="mt-4">
-            <DocumentTable
-              documents={filteredDocuments}
-              loading={loading}
-              onDownload={handleDownload}
-              onEdit={openEditDialog}
-              onDelete={handleDelete}
-              canManage={canManageDocument}
-              getFileIcon={getFileIcon}
-              formatFileSize={formatFileSize}
-              getCompanyName={getCompanyName}
-            />
-          </TabsContent>
-        </Tabs>
+              <TabsContent value="company" className="mt-4">
+                <DocumentTable
+                  documents={filteredDocuments}
+                  loading={loading}
+                  onDownload={handleDownload}
+                  onEdit={openEditDialog}
+                  onDelete={handleDelete}
+                  canManage={canManageDocument}
+                  getFileIcon={getFileIcon}
+                  formatFileSize={formatFileSize}
+                  getCompanyName={getCompanyName}
+                />
+              </TabsContent>
+            </Tabs>
           </TabsContent>
 
           <TabsContent value="protocols" className="mt-4">
@@ -732,7 +731,6 @@ const Documents = () => {
             <DialogTitle>Dokument hochladen</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {/* Scope Selection */}
             <div>
               <Label>Bereich</Label>
               <Select 
@@ -755,7 +753,6 @@ const Documents = () => {
               </Select>
             </div>
 
-            {/* Company selection if multiple */}
             {formScopeType === 'company' && companyDocPermissions.length > 1 && (
               <div>
                 <Label>Kompanie</Label>
@@ -774,7 +771,6 @@ const Documents = () => {
               </div>
             )}
 
-            {/* Title */}
             <div>
               <Label>Titel *</Label>
               <Input
@@ -784,7 +780,6 @@ const Documents = () => {
               />
             </div>
 
-            {/* Description */}
             <div>
               <Label>Beschreibung</Label>
               <Textarea
@@ -795,7 +790,6 @@ const Documents = () => {
               />
             </div>
 
-            {/* Folder */}
             <div>
               <Label>Ordner</Label>
               <Select value={formFolder} onValueChange={setFormFolder}>
@@ -819,10 +813,9 @@ const Documents = () => {
               )}
             </div>
 
-            {/* Type */}
             <div>
               <Label>Typ</Label>
-              <Select value={formType} onValueChange={(v) => setFormType(v as any)}>
+              <Select value={formType} onValueChange={(v) => setFormType(v as DocumentType)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -834,7 +827,6 @@ const Documents = () => {
               </Select>
             </div>
 
-            {/* File */}
             <div>
               <Label>Datei *</Label>
               <Input
@@ -914,7 +906,7 @@ const Documents = () => {
 
             <div>
               <Label>Typ</Label>
-              <Select value={formType} onValueChange={(v) => setFormType(v as any)}>
+              <Select value={formType} onValueChange={(v) => setFormType(v as DocumentType)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -943,7 +935,6 @@ const Documents = () => {
   );
 };
 
-// Document Table Component
 interface DocumentTableProps {
   documents: Document[];
   loading: boolean;

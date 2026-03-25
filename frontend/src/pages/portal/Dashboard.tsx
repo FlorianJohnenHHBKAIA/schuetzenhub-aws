@@ -4,9 +4,8 @@ import PortalLayout from "@/components/portal/PortalLayout";
 import { useAuth } from "@/lib/auth";
 import { useUIMode } from "@/hooks/useUIMode";
 import { useWorkShiftStats } from "@/hooks/useWorkShiftStats";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 
-// Dashboard components
 import CompanyHero from "@/components/portal/dashboard/CompanyHero";
 import UpcomingEventsSection from "@/components/portal/dashboard/UpcomingEventsSection";
 import CompanyUpdatesSection from "@/components/portal/dashboard/CompanyUpdatesSection";
@@ -50,31 +49,33 @@ interface LatestAward {
   award_type: string;
 }
 
+interface RawMembership {
+  company_id: string;
+}
+
+interface RawShift {
+  id: string;
+  title: string;
+  start_at: string;
+  required_slots: number | null;
+  work_shift_assignments: Array<{ id: string; status: string }>;
+}
+
+
 const Dashboard = () => {
   const { member, isLoading: authLoading } = useAuth();
   const { isAdminMode, isLoaded: uiModeLoaded } = useUIMode();
   
-  // Company data
   const [companyInfo, setCompanyInfo] = useState<CompanyInfo | null>(null);
-  
-  // Events
   const [companyEvents, setCompanyEvents] = useState<Event[]>([]);
   const [clubEvents, setClubEvents] = useState<Event[]>([]);
-  
-  // Updates
   const [latestPost, setLatestPost] = useState<Post | null>(null);
   const [upcomingShifts, setUpcomingShifts] = useState<WorkShift[]>([]);
-  
-  // Engagement
   const [latestAward, setLatestAward] = useState<LatestAward | null>(null);
-  
-  // Personal
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [pendingAwardRequests, setPendingAwardRequests] = useState(0);
-  
   const [isLoading, setIsLoading] = useState(true);
 
-  // Work shift stats for current year
   const currentYear = new Date().getFullYear();
   const { stats: workStats, loading: workStatsLoading } = useWorkShiftStats(member?.id || null, currentYear);
 
@@ -91,7 +92,6 @@ const Dashboard = () => {
     try {
       const now = new Date().toISOString();
 
-      // 1. Fetch member's current company
       const { data: membership } = await supabase
         .from("member_company_memberships")
         .select("company_id")
@@ -102,27 +102,23 @@ const Dashboard = () => {
         .maybeSingle();
 
       let companyId: string | null = null;
+      const rawMembership = membership as RawMembership | null;
       
-      if (membership?.company_id) {
-        companyId = membership.company_id;
+      if (rawMembership?.company_id) {
+        companyId = rawMembership.company_id;
         const { data: company } = await supabase
           .from("companies")
           .select("id, name, logo_url")
-          .eq("id", membership.company_id)
+          .eq("id", rawMembership.company_id)
           .single();
         
         if (company) {
-          setCompanyInfo(company);
+          setCompanyInfo(company as CompanyInfo);
         }
       }
 
-      // 2. Fetch events - company events first, then club events
-      const eventPromises = [];
-      
-      // Company events (if member has a company)
-      if (companyId) {
-        eventPromises.push(
-          supabase
+      const companyEventsQuery = companyId
+        ? supabase
             .from("events")
             .select("id, title, start_at, location, owner_type, owner_id, audience")
             .eq("club_id", member.club_id)
@@ -132,26 +128,19 @@ const Dashboard = () => {
             .gte("start_at", now)
             .order("start_at", { ascending: true })
             .limit(5)
-        );
-      } else {
-        eventPromises.push(Promise.resolve({ data: [] }));
-      }
-      
-      // Club-wide events
-      eventPromises.push(
-        supabase
-          .from("events")
-          .select("id, title, start_at, location, owner_type, owner_id, audience")
-          .eq("club_id", member.club_id)
-          .eq("owner_type", "club")
-          .in("publication_status", ["approved"])
-          .in("audience", ["public", "club_internal"])
-          .gte("start_at", now)
-          .order("start_at", { ascending: true })
-          .limit(5)
-      );
+        : Promise.resolve({ data: null as null });
 
-      // 3. Fetch latest post (company or club)
+      const clubEventsQuery = supabase
+        .from("events")
+        .select("id, title, start_at, location, owner_type, owner_id, audience")
+        .eq("club_id", member.club_id)
+        .eq("owner_type", "club")
+        .in("publication_status", ["approved"])
+        .in("audience", ["public", "club_internal"])
+        .gte("start_at", now)
+        .order("start_at", { ascending: true })
+        .limit(5);
+
       const postQuery = supabase
         .from("posts")
         .select("id, title, created_at, cover_image_path")
@@ -160,17 +149,10 @@ const Dashboard = () => {
         .order("created_at", { ascending: false })
         .limit(1);
 
-      // 4. Fetch upcoming work shifts with open slots (company-specific if applicable)
       const shiftsQuery = companyId
         ? supabase
             .from("work_shifts")
-            .select(`
-              id, 
-              title, 
-              start_at, 
-              required_slots,
-              work_shift_assignments(id, status)
-            `)
+            .select(`id, title, start_at, required_slots, work_shift_assignments(id, status)`)
             .eq("club_id", member.club_id)
             .eq("owner_type", "company")
             .eq("owner_id", companyId)
@@ -179,19 +161,12 @@ const Dashboard = () => {
             .limit(5)
         : supabase
             .from("work_shifts")
-            .select(`
-              id, 
-              title, 
-              start_at, 
-              required_slots,
-              work_shift_assignments(id, status)
-            `)
+            .select(`id, title, start_at, required_slots, work_shift_assignments(id, status)`)
             .eq("club_id", member.club_id)
             .gte("start_at", now)
             .order("start_at", { ascending: true })
             .limit(5);
 
-      // 5. Fetch latest award
       const awardQuery = supabase
         .from("member_awards")
         .select("id, title, awarded_at, award_type")
@@ -200,21 +175,18 @@ const Dashboard = () => {
         .order("awarded_at", { ascending: false })
         .limit(1);
 
-      // 6. Fetch unread notifications
       const notificationsQuery = supabase
         .from("notifications")
         .select("id", { count: "exact" })
         .eq("recipient_member_id", member.id)
         .eq("is_read", false);
 
-      // 7. Fetch pending award requests
       const pendingAwardsQuery = supabase
         .from("member_awards")
         .select("id", { count: "exact" })
         .eq("member_id", member.id)
         .eq("status", "pending");
 
-      // Execute all queries in parallel
       const [
         companyEventsRes,
         clubEventsRes,
@@ -224,7 +196,8 @@ const Dashboard = () => {
         notificationsRes,
         pendingAwardsRes,
       ] = await Promise.all([
-        ...eventPromises,
+        companyEventsQuery,
+        clubEventsQuery,
         postQuery,
         shiftsQuery,
         awardQuery,
@@ -232,24 +205,21 @@ const Dashboard = () => {
         pendingAwardsQuery,
       ]);
 
-      // Process company events
-      setCompanyEvents((companyEventsRes as any).data || []);
-      
-      // Process club events (filter out duplicates if company events overlap)
-      const companyEventIds = new Set(((companyEventsRes as any).data || []).map((e: Event) => e.id));
-      const filteredClubEvents = ((clubEventsRes as any).data || []).filter(
-        (e: Event) => !companyEventIds.has(e.id)
-      );
-      setClubEvents(filteredClubEvents);
+      const companyEventsData = (companyEventsRes.data as Event[]) || [];
+      setCompanyEvents(companyEventsData);
 
-      // Process latest post
-      setLatestPost((postRes as any).data?.[0] || null);
+      const companyEventIds = new Set(companyEventsData.map((e) => e.id));
+      const allClubEvents = (clubEventsRes.data as Event[]) || [];
+      setClubEvents(allClubEvents.filter((e) => !companyEventIds.has(e.id)));
 
-      // Process work shifts with open slots
-      const shiftsWithOpenSlots = ((shiftsRes as any).data || [])
-        .map((shift: any) => {
+      const postData = (postRes.data as Post[]) || [];
+      setLatestPost(postData[0] || null);
+
+      const rawShifts = (shiftsRes.data as RawShift[]) || [];
+      const shiftsWithOpenSlots: WorkShift[] = rawShifts
+        .map((shift) => {
           const filledSlots = shift.work_shift_assignments?.filter(
-            (a: any) => a.status === 'signed_up' || a.status === 'completed'
+            (a) => a.status === "signed_up" || a.status === "completed"
           ).length || 0;
           const openSlots = (shift.required_slots || 0) - filledSlots;
           return {
@@ -259,27 +229,23 @@ const Dashboard = () => {
             open_slots: Math.max(0, openSlots),
           };
         })
-        .filter((shift: WorkShift) => shift.open_slots > 0)
+        .filter((shift) => shift.open_slots > 0)
         .slice(0, 3);
       setUpcomingShifts(shiftsWithOpenSlots);
 
-      // Process latest award
-      setLatestAward((awardRes as any).data?.[0] || null);
+      const awardData = (awardRes.data as LatestAward[]) || [];
+      setLatestAward(awardData[0] || null);
 
-      // Process notifications count
-      setUnreadNotifications((notificationsRes as any).count || 0);
+      setUnreadNotifications((notificationsRes as { count?: number }).count || 0);
+      setPendingAwardRequests((pendingAwardsRes as { count?: number }).count || 0);
 
-      // Process pending awards count
-      setPendingAwardRequests((pendingAwardsRes as any).count || 0);
-
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error fetching dashboard data:", error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Redirect admin mode users to the admin home
   if (!authLoading && uiModeLoaded && isAdminMode) {
     return <Navigate to="/portal/admin" replace />;
   }
@@ -287,7 +253,6 @@ const Dashboard = () => {
   return (
     <PortalLayout>
       <div className="max-w-4xl mx-auto space-y-8">
-        {/* 1) Hero Section - Company Focus */}
         <CompanyHero
           companyId={companyInfo?.id || null}
           companyName={companyInfo?.name || null}
@@ -295,7 +260,6 @@ const Dashboard = () => {
           memberFirstName={member?.first_name || ""}
         />
 
-        {/* 2) Upcoming Events - Company first, then Club */}
         <UpcomingEventsSection
           companyEvents={companyEvents}
           clubEvents={clubEvents}
@@ -303,7 +267,6 @@ const Dashboard = () => {
           companyName={companyInfo?.name || null}
         />
 
-        {/* 3) Company Updates - Latest post & work shifts */}
         <CompanyUpdatesSection
           latestPost={latestPost}
           upcomingShifts={upcomingShifts}
@@ -311,7 +274,6 @@ const Dashboard = () => {
           companyName={companyInfo?.name || null}
         />
 
-        {/* 4) Engagement & Recognition */}
         <EngagementSection
           latestAward={latestAward}
           workStats={workStats}
@@ -319,7 +281,6 @@ const Dashboard = () => {
           currentYear={currentYear}
         />
 
-        {/* 5) Personal Section */}
         <PersonalSection
           openShifts={workStats.upcomingShifts}
           unreadNotifications={unreadNotifications}
