@@ -47,7 +47,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { toast } from "sonner";
 import EventPostsSection from "@/components/portal/EventPostsSection";
 import EventQuickActions from "@/components/portal/EventQuickActions";
@@ -109,6 +109,15 @@ interface Company {
   name: string;
 }
 
+interface RawAssignment {
+  id: string;
+  work_shift_id: string;
+  member_id: string;
+  status: "signed_up" | "cancelled" | "completed" | "no_show";
+  hours_override?: number | null;
+  member: { id: string; first_name: string; last_name: string } | { id: string; first_name: string; last_name: string }[] | null;
+}
+
 const audienceLabels: Record<EventAudience, { label: string; icon: React.ElementType; color: string }> = {
   company_only: { label: "Kompanie-intern", icon: Building2, color: "bg-orange-500/10 text-orange-600" },
   club_internal: { label: "Schützen-intern", icon: Users, color: "bg-blue-500/10 text-blue-600" },
@@ -135,13 +144,11 @@ const EventOrganize = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Edit state
   const [internalNotes, setInternalNotes] = useState("");
   const [responsibleMemberId, setResponsibleMemberId] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const initialNotesRef = useRef<string>("");
 
-  // Shift dialog state
   const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<WorkShift | null>(null);
   const [formTitle, setFormTitle] = useState("");
@@ -155,21 +162,14 @@ const EventOrganize = () => {
 
   const canManageEvent = useCallback((evt: Event | null) => {
     if (!evt) return false;
-    if (evt.owner_type === "club") {
-      return canManageClubEvents;
-    }
+    if (evt.owner_type === "club") return canManageClubEvents;
     return permissions.some(
-      (p) =>
-        p.permission_key === "company.events.manage" &&
-        p.scope_type === "company" &&
-        p.scope_id === evt.owner_id
+      (p) => p.permission_key === "company.events.manage" && p.scope_type === "company" && p.scope_id === evt.owner_id
     ) || hasPermission("club.admin.full");
   }, [canManageClubEvents, permissions, hasPermission]);
 
   const canManageShift = useCallback((shift: WorkShift) => {
-    if (shift.owner_type === "club") {
-      return canManageClubEvents;
-    }
+    if (shift.owner_type === "club") return canManageClubEvents;
     return permissions.some(
       (p) =>
         (p.permission_key === "company.workshifts.manage" || p.permission_key === "company.events.manage") &&
@@ -179,9 +179,7 @@ const EventOrganize = () => {
   }, [canManageClubEvents, permissions, hasPermission]);
 
   useEffect(() => {
-    if (member?.club_id && id) {
-      fetchData();
-    }
+    if (member?.club_id && id) fetchData();
   }, [member?.club_id, id]);
 
   const fetchData = async () => {
@@ -189,7 +187,6 @@ const EventOrganize = () => {
     setIsLoading(true);
 
     try {
-      // Fetch event
       const { data: eventData, error: eventError } = await supabase
         .from("events")
         .select("*")
@@ -204,59 +201,50 @@ const EventOrganize = () => {
         return;
       }
 
-      setEvent(eventData);
-      setInternalNotes(eventData.internal_notes || "");
-      setResponsibleMemberId(eventData.responsible_member_id || null);
-      initialNotesRef.current = eventData.internal_notes || "";
+      const evt = eventData as Event;
+      setEvent(evt);
+      setInternalNotes(evt.internal_notes || "");
+      setResponsibleMemberId(evt.responsible_member_id || null);
+      initialNotesRef.current = evt.internal_notes || "";
 
-      // Fetch companies
       const { data: companiesData } = await supabase
         .from("companies")
         .select("id, name")
         .eq("club_id", member.club_id);
-      setCompanies(companiesData || []);
+      setCompanies((companiesData as Company[]) || []);
 
-      // Fetch members for responsible selection
       const { data: membersData } = await supabase
         .from("members")
         .select("id, first_name, last_name")
         .eq("club_id", member.club_id)
         .order("last_name");
-      setMembers(membersData || []);
+      setMembers((membersData as Member[]) || []);
 
-      // Fetch shifts
       const { data: shiftsData } = await supabase
         .from("work_shifts")
         .select("*")
         .eq("event_id", id)
         .order("start_at");
-      setShifts(shiftsData || []);
+      const shiftsList = (shiftsData as WorkShift[]) || [];
+      setShifts(shiftsList);
 
-      // Fetch assignments
-      if (shiftsData && shiftsData.length > 0) {
-        const shiftIds = shiftsData.map((s) => s.id);
+      if (shiftsList.length > 0) {
+        const shiftIds = shiftsList.map((s) => s.id);
         const { data: assignmentsData } = await supabase
           .from("work_shift_assignments")
-          .select(`
-            id,
-            work_shift_id,
-            member_id,
-            status,
-            hours_override,
-            member:members(id, first_name, last_name)
-          `)
+          .select(`id, work_shift_id, member_id, status, hours_override, member:members(id, first_name, last_name)`)
           .in("work_shift_id", shiftIds);
 
         setAssignments(
-          (assignmentsData || []).map((a) => ({
+          ((assignmentsData as RawAssignment[]) || []).map((a) => ({
             ...a,
-            member: Array.isArray(a.member) ? a.member[0] : a.member,
+            member: Array.isArray(a.member) ? a.member[0] : a.member ?? undefined,
           }))
         );
       } else {
         setAssignments([]);
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Error fetching data:", error);
       toast.error("Fehler beim Laden");
     } finally {
@@ -267,7 +255,6 @@ const EventOrganize = () => {
   const handleSaveDetails = async () => {
     if (!event || !member) return;
     setIsSaving(true);
-
     const notesChanged = internalNotes.trim() !== initialNotesRef.current;
 
     try {
@@ -281,28 +268,21 @@ const EventOrganize = () => {
 
       if (error) throw error;
       
-      // Notify helpers if notes changed
       if (notesChanged && internalNotes.trim()) {
-        await notifyEventNotesChanged(
-          member.club_id,
-          event.id,
-          event.title,
-          member.id
-        );
+        await notifyEventNotesChanged(member.club_id, event.id, event.title, member.id);
       }
       
       initialNotesRef.current = internalNotes.trim();
       toast.success("Änderungen gespeichert");
       setHasUnsavedChanges(false);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error saving:", error);
-      toast.error(error.message || "Fehler beim Speichern");
+      toast.error(error instanceof Error ? error.message : "Fehler beim Speichern");
     } finally {
       setIsSaving(false);
     }
   };
 
-  // Shift management
   const openNewShiftDialog = () => {
     if (!event) return;
     setEditingShift(null);
@@ -342,69 +322,48 @@ const EventOrganize = () => {
 
     try {
       if (editingShift) {
-        const { error } = await supabase
-          .from("work_shifts")
-          .update(shiftData)
-          .eq("id", editingShift.id);
+        const { error } = await supabase.from("work_shifts").update(shiftData).eq("id", editingShift.id);
         if (error) throw error;
         toast.success("Schicht aktualisiert");
       } else {
-        const { error } = await supabase
-          .from("work_shifts")
-          .insert({ ...shiftData, created_by_member_id: member.id });
+        const { error } = await supabase.from("work_shifts").insert({ ...shiftData, created_by_member_id: member.id });
         if (error) throw error;
-        
-        // Notify about new shift
-        await notifyNewShift(
-          member.club_id,
-          event.id,
-          formTitle,
-          event.title,
-          member.id
-        );
-        
+        await notifyNewShift(member.club_id, event.id, formTitle, event.title, member.id);
         toast.success("Schicht erstellt");
       }
       setShiftDialogOpen(false);
       fetchData();
-    } catch (error: any) {
-      toast.error(error.message || "Fehler beim Speichern");
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "Fehler beim Speichern");
     }
   };
 
   const handleDeleteShift = async (shift: WorkShift) => {
     if (!confirm(`Schicht "${shift.title}" wirklich löschen?`)) return;
-
     try {
-      const { error } = await supabase
-        .from("work_shifts")
-        .delete()
-        .eq("id", shift.id);
+      const { error } = await supabase.from("work_shifts").delete().eq("id", shift.id);
       if (error) throw error;
       toast.success("Schicht gelöscht");
       fetchData();
-    } catch (error: any) {
-      toast.error(error.message || "Fehler beim Löschen");
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "Fehler beim Löschen");
     }
   };
 
   const handleSignUp = async (shift: WorkShift) => {
     if (!member) return;
-
     try {
-      const { error } = await supabase
-        .from("work_shift_assignments")
-        .insert({
-          club_id: member.club_id,
-          work_shift_id: shift.id,
-          member_id: member.id,
-          status: "signed_up",
-        });
+      const { error } = await supabase.from("work_shift_assignments").insert({
+        club_id: member.club_id,
+        work_shift_id: shift.id,
+        member_id: member.id,
+        status: "signed_up",
+      });
       if (error) throw error;
       toast.success(`Für "${shift.title}" eingetragen`);
       fetchData();
-    } catch (error: any) {
-      toast.error(error.message || "Fehler beim Eintragen");
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "Fehler beim Eintragen");
     }
   };
 
@@ -414,79 +373,52 @@ const EventOrganize = () => {
       (a) => a.work_shift_id === shift.id && a.member_id === member.id && a.status === "signed_up"
     );
     if (!assignment) return;
-
     try {
-      const { error } = await supabase
-        .from("work_shift_assignments")
-        .update({ status: "cancelled" })
-        .eq("id", assignment.id);
+      const { error } = await supabase.from("work_shift_assignments").update({ status: "cancelled" }).eq("id", assignment.id);
       if (error) throw error;
       toast.success(`Von "${shift.title}" ausgetragen`);
       fetchData();
-    } catch (error: any) {
-      toast.error(error.message || "Fehler beim Austragen");
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "Fehler beim Austragen");
     }
   };
 
   const handleSetStatus = async (assignmentId: string, status: "completed" | "no_show") => {
     try {
-      const { error } = await supabase
-        .from("work_shift_assignments")
-        .update({ status })
-        .eq("id", assignmentId);
+      const { error } = await supabase.from("work_shift_assignments").update({ status }).eq("id", assignmentId);
       if (error) throw error;
       toast.success(status === "completed" ? "Als erledigt markiert" : "Als No-Show markiert");
       fetchData();
-    } catch (error: any) {
-      toast.error(error.message || "Fehler");
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "Fehler");
     }
   };
 
   const handleMarkAllCompleted = async (shiftId: string) => {
-    const shiftAssignments = assignments.filter(
-      (a) => a.work_shift_id === shiftId && a.status === "signed_up"
-    );
-    
-    if (shiftAssignments.length === 0) {
-      toast.info("Keine offenen Einsätze zum Markieren");
-      return;
-    }
-    
+    const shiftAssignments = assignments.filter((a) => a.work_shift_id === shiftId && a.status === "signed_up");
+    if (shiftAssignments.length === 0) { toast.info("Keine offenen Einsätze zum Markieren"); return; }
     try {
       for (const a of shiftAssignments) {
-        await supabase
-          .from("work_shift_assignments")
-          .update({ status: "completed" })
-          .eq("id", a.id);
+        await supabase.from("work_shift_assignments").update({ status: "completed" }).eq("id", a.id);
       }
-      
       toast.success(`${shiftAssignments.length} Einsätze als erledigt markiert`);
       fetchData();
-    } catch (error: any) {
-      toast.error(error.message || "Fehler beim Markieren");
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "Fehler beim Markieren");
     }
   };
 
   const handleMarkAllEventCompleted = async () => {
     const signedUpAssignments = assignments.filter((a) => a.status === "signed_up");
-    
-    if (signedUpAssignments.length === 0) {
-      toast.info("Keine offenen Einsätze zum Markieren");
-      return;
-    }
-    
+    if (signedUpAssignments.length === 0) { toast.info("Keine offenen Einsätze zum Markieren"); return; }
     try {
       for (const a of signedUpAssignments) {
-        await supabase
-          .from("work_shift_assignments")
-          .update({ status: "completed" })
-          .eq("id", a.id);
+        await supabase.from("work_shift_assignments").update({ status: "completed" }).eq("id", a.id);
       }
-      
       toast.success(`${signedUpAssignments.length} Einsätze als erledigt markiert`);
       fetchData();
-    } catch (error: any) {
-      toast.error(error.message || "Fehler beim Markieren");
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "Fehler beim Markieren");
     }
   };
 
@@ -495,48 +427,20 @@ const EventOrganize = () => {
     navigate(`/portal/posts?event=${event.id}`);
   };
 
-  // Computed values
-  const getShiftAssignments = (shiftId: string) => {
-    return assignments.filter(
-      (a) => a.work_shift_id === shiftId && (a.status === "signed_up" || a.status === "completed")
-    );
-  };
+  const getShiftAssignments = (shiftId: string) =>
+    assignments.filter((a) => a.work_shift_id === shiftId && (a.status === "signed_up" || a.status === "completed"));
 
-  const isSignedUp = (shiftId: string) => {
-    return member
-      ? assignments.some(
-          (a) =>
-            a.work_shift_id === shiftId &&
-            a.member_id === member.id &&
-            (a.status === "signed_up" || a.status === "completed")
-        )
-      : false;
-  };
+  const isSignedUp = (shiftId: string) =>
+    member ? assignments.some((a) => a.work_shift_id === shiftId && a.member_id === member.id && (a.status === "signed_up" || a.status === "completed")) : false;
 
-  const getMyAssignments = () => {
-    if (!member) return [];
-    return assignments.filter(
-      (a) => a.member_id === member.id && (a.status === "signed_up" || a.status === "completed")
-    );
-  };
+  const getMyAssignments = () =>
+    member ? assignments.filter((a) => a.member_id === member.id && (a.status === "signed_up" || a.status === "completed")) : [];
 
   const getTotalSlots = () => shifts.reduce((sum, s) => sum + s.required_slots, 0);
-
-  const getFilledSlots = () =>
-    shifts.reduce((sum, s) => {
-      return sum + getShiftAssignments(s.id).length;
-    }, 0);
-
+  const getFilledSlots = () => shifts.reduce((sum, s) => sum + getShiftAssignments(s.id).length, 0);
   const getOpenSlots = () => getTotalSlots() - getFilledSlots();
-
-  const getCompanyName = (companyId: string) => {
-    return companies.find((c) => c.id === companyId)?.name || "Kompanie";
-  };
-
-  const getResponsibleMember = () => {
-    if (!responsibleMemberId) return null;
-    return members.find((m) => m.id === responsibleMemberId);
-  };
+  const getCompanyName = (companyId: string) => companies.find((c) => c.id === companyId)?.name || "Kompanie";
+  const getResponsibleMember = () => responsibleMemberId ? members.find((m) => m.id === responsibleMemberId) : null;
 
   if (isLoading) {
     return (
@@ -572,7 +476,6 @@ const EventOrganize = () => {
   return (
     <PortalLayout>
       <div className="max-w-5xl mx-auto space-y-6">
-        {/* Header */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <div className="flex items-start gap-4 mb-6">
             <Button variant="ghost" size="sm" onClick={() => navigate("/portal/events")}>
@@ -611,9 +514,7 @@ const EventOrganize = () => {
                   </span>
                 )}
               </div>
-              {event.description && (
-                <p className="mt-3 text-muted-foreground">{event.description}</p>
-              )}
+              {event.description && <p className="mt-3 text-muted-foreground">{event.description}</p>}
             </div>
 
             {canEdit && (
@@ -627,71 +528,13 @@ const EventOrganize = () => {
           </div>
         </motion.div>
 
-        {/* Quick Stats */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="grid grid-cols-2 md:grid-cols-4 gap-4"
-        >
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <ClipboardList className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{shifts.length}</p>
-                  <p className="text-sm text-muted-foreground">Schichten</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-amber-500/10">
-                  <AlertCircle className="w-5 h-5 text-amber-600" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{getOpenSlots()}</p>
-                  <p className="text-sm text-muted-foreground">Offene Plätze</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-green-500/10">
-                  <UserCheck className="w-5 h-5 text-green-600" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{getFilledSlots()}</p>
-                  <p className="text-sm text-muted-foreground">Eingeteilt</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-blue-500/10">
-                  <Shield className="w-5 h-5 text-blue-600" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{myAssignments.length}</p>
-                  <p className="text-sm text-muted-foreground">Meine Einsätze</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card><CardContent className="p-4"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-primary/10"><ClipboardList className="w-5 h-5 text-primary" /></div><div><p className="text-2xl font-bold">{shifts.length}</p><p className="text-sm text-muted-foreground">Schichten</p></div></div></CardContent></Card>
+          <Card><CardContent className="p-4"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-amber-500/10"><AlertCircle className="w-5 h-5 text-amber-600" /></div><div><p className="text-2xl font-bold">{getOpenSlots()}</p><p className="text-sm text-muted-foreground">Offene Plätze</p></div></div></CardContent></Card>
+          <Card><CardContent className="p-4"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-green-500/10"><UserCheck className="w-5 h-5 text-green-600" /></div><div><p className="text-2xl font-bold">{getFilledSlots()}</p><p className="text-sm text-muted-foreground">Eingeteilt</p></div></div></CardContent></Card>
+          <Card><CardContent className="p-4"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-blue-500/10"><Shield className="w-5 h-5 text-blue-600" /></div><div><p className="text-2xl font-bold">{myAssignments.length}</p><p className="text-sm text-muted-foreground">Meine Einsätze</p></div></div></CardContent></Card>
         </motion.div>
 
-        {/* Quick Actions - Organization Hub */}
         <EventQuickActions
           eventId={event.id}
           eventTitle={event.title}
@@ -706,80 +549,34 @@ const EventOrganize = () => {
           onCreatePost={handleCreateEventPost}
         />
 
-        {/* Responsible & Notes Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="grid md:grid-cols-2 gap-6"
-        >
-          {/* Responsible Person */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="grid md:grid-cols-2 gap-6">
           <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <UserCheck className="w-5 h-5" />
-                Zuständigkeit
-              </CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle className="text-lg flex items-center gap-2"><UserCheck className="w-5 h-5" />Zuständigkeit</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               {canEdit ? (
-                <>
-                  <div className="space-y-2">
-                    <Label>Hauptverantwortlicher</Label>
-                    <Select
-                      value={responsibleMemberId || "none"}
-                      onValueChange={(val) => {
-                        setResponsibleMemberId(val === "none" ? null : val);
-                        setHasUnsavedChanges(true);
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Auswählen..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Nicht festgelegt</SelectItem>
-                        {members.map((m) => (
-                          <SelectItem key={m.id} value={m.id}>
-                            {m.first_name} {m.last_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </>
+                <div className="space-y-2">
+                  <Label>Hauptverantwortlicher</Label>
+                  <Select value={responsibleMemberId || "none"} onValueChange={(val) => { setResponsibleMemberId(val === "none" ? null : val); setHasUnsavedChanges(true); }}>
+                    <SelectTrigger><SelectValue placeholder="Auswählen..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Nicht festgelegt</SelectItem>
+                      {members.map((m) => <SelectItem key={m.id} value={m.id}>{m.first_name} {m.last_name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
               ) : (
                 <div>
-                  {responsibleMember ? (
-                    <p className="font-medium">
-                      {responsibleMember.first_name} {responsibleMember.last_name}
-                    </p>
-                  ) : (
-                    <p className="text-muted-foreground">Nicht festgelegt</p>
-                  )}
+                  {responsibleMember ? <p className="font-medium">{responsibleMember.first_name} {responsibleMember.last_name}</p> : <p className="text-muted-foreground">Nicht festgelegt</p>}
                 </div>
               )}
             </CardContent>
           </Card>
 
-          {/* Internal Notes */}
           <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <FileText className="w-5 h-5" />
-                Interne Hinweise
-              </CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle className="text-lg flex items-center gap-2"><FileText className="w-5 h-5" />Interne Hinweise</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               {canEdit ? (
-                <Textarea
-                  placeholder="Hinweise für Helfer (z.B. Treffpunkt, Kleidung, Aufbauzeit...)"
-                  value={internalNotes}
-                  onChange={(e) => {
-                    setInternalNotes(e.target.value);
-                    setHasUnsavedChanges(true);
-                  }}
-                  rows={4}
-                />
+                <Textarea placeholder="Hinweise für Helfer..." value={internalNotes} onChange={(e) => { setInternalNotes(e.target.value); setHasUnsavedChanges(true); }} rows={4} />
               ) : internalNotes ? (
                 <p className="whitespace-pre-wrap text-sm">{internalNotes}</p>
               ) : (
@@ -789,64 +586,30 @@ const EventOrganize = () => {
           </Card>
         </motion.div>
 
-        {/* Save Button for Notes */}
         {canEdit && hasUnsavedChanges && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <Button onClick={handleSaveDetails} disabled={isSaving}>
-              {isSaving ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <Save className="w-4 h-4 mr-2" />
-              )}
+              {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
               Änderungen speichern
             </Button>
           </motion.div>
         )}
 
-        {/* Event Posts Section - Announcements & Info */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.25 }}
-        >
-          <EventPostsSection
-            eventId={event.id}
-            clubId={event.club_id}
-            canManage={canEdit}
-          />
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
+          <EventPostsSection eventId={event.id} clubId={event.club_id} canManage={canEdit} />
         </motion.div>
 
-        {/* Work Shifts Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-        >
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-3">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <ClipboardList className="w-5 h-5" />
-                Arbeitsdienste ({shifts.length})
-              </CardTitle>
+              <CardTitle className="text-lg flex items-center gap-2"><ClipboardList className="w-5 h-5" />Arbeitsdienste ({shifts.length})</CardTitle>
               <div className="flex flex-wrap items-center gap-2">
-                {/* Bulk complete button - only show if there are signed_up assignments */}
                 {canEdit && assignments.some(a => a.status === "signed_up") && (
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    onClick={handleMarkAllEventCompleted}
-                    className="text-green-600 hover:text-green-700 hover:bg-green-50"
-                  >
-                    <CheckCheck className="w-4 h-4 mr-2" />
-                    Alle erledigt
+                  <Button size="sm" variant="outline" onClick={handleMarkAllEventCompleted} className="text-green-600 hover:text-green-700 hover:bg-green-50">
+                    <CheckCheck className="w-4 h-4 mr-2" />Alle erledigt
                   </Button>
                 )}
-                {canEdit && (
-                  <Button size="sm" onClick={openNewShiftDialog}>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Schicht anlegen
-                  </Button>
-                )}
+                {canEdit && <Button size="sm" onClick={openNewShiftDialog}><Plus className="w-4 h-4 mr-2" />Schicht anlegen</Button>}
               </div>
             </CardHeader>
             <CardContent>
@@ -854,12 +617,7 @@ const EventOrganize = () => {
                 <div className="text-center py-8 text-muted-foreground">
                   <ClipboardList className="w-12 h-12 mx-auto mb-4 opacity-50" />
                   <p>Noch keine Schichten angelegt</p>
-                  {canEdit && (
-                    <Button variant="outline" className="mt-4" onClick={openNewShiftDialog}>
-                      <Plus className="w-4 h-4 mr-2" />
-                      Erste Schicht anlegen
-                    </Button>
-                  )}
+                  {canEdit && <Button variant="outline" className="mt-4" onClick={openNewShiftDialog}><Plus className="w-4 h-4 mr-2" />Erste Schicht anlegen</Button>}
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -871,12 +629,9 @@ const EventOrganize = () => {
                     const isOverbooked = filledSlots > shift.required_slots;
                     const userSignedUp = isSignedUp(shift.id);
                     const canManage = canManageShift(shift);
-                    
-                    // Calculate if shift is critical (event < 7 days and open slots)
-                    const daysUntilEvent = event ? Math.ceil((new Date(event.start_at).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : 0;
+                    const daysUntilEvent = Math.ceil((new Date(event.start_at).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
                     const isCritical = hasOpenSlots && daysUntilEvent >= 0 && daysUntilEvent <= 7;
 
-                    // Status colors
                     const getShiftStatusColor = () => {
                       if (isOverbooked) return "bg-purple-500/10 text-purple-600 border-purple-500";
                       if (isFull) return "bg-green-500/10 text-green-600 border-green-500";
@@ -891,115 +646,53 @@ const EventOrganize = () => {
                     };
 
                     return (
-                      <div
-                        key={shift.id}
-                        className={`border rounded-lg p-4 hover:bg-muted/30 transition-colors ${getShiftBorderColor()}`}
-                      >
+                      <div key={shift.id} className={`border rounded-lg p-4 hover:bg-muted/30 transition-colors ${getShiftBorderColor()}`}>
                         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-1 flex-wrap">
                               <h4 className="font-medium">{shift.title}</h4>
-                              <Badge className={getShiftStatusColor()}>
-                                {filledSlots}/{shift.required_slots} Plätze
-                                {isOverbooked && " (überbelegt)"}
-                              </Badge>
-                              {isCritical && (
-                                <Badge variant="destructive" className="flex items-center gap-1">
-                                  <AlertCircle className="w-3 h-3" />
-                                  Kritisch
-                                </Badge>
-                              )}
-                              {isFull && !isOverbooked && (
-                                <Badge variant="secondary" className="bg-green-500/10 text-green-600">
-                                  <CheckCircle2 className="w-3 h-3 mr-1" />
-                                  Voll
-                                </Badge>
-                              )}
+                              <Badge className={getShiftStatusColor()}>{filledSlots}/{shift.required_slots} Plätze{isOverbooked && " (überbelegt)"}</Badge>
+                              {isCritical && <Badge variant="destructive" className="flex items-center gap-1"><AlertCircle className="w-3 h-3" />Kritisch</Badge>}
+                              {isFull && !isOverbooked && <Badge variant="secondary" className="bg-green-500/10 text-green-600"><CheckCircle2 className="w-3 h-3 mr-1" />Voll</Badge>}
                             </div>
                             <p className="text-sm text-muted-foreground">
                               <Clock className="w-3 h-3 inline mr-1" />
-                              {format(new Date(shift.start_at), "HH:mm", { locale: de })} –{" "}
-                              {format(new Date(shift.end_at), "HH:mm", { locale: de })}
+                              {format(new Date(shift.start_at), "HH:mm", { locale: de })} – {format(new Date(shift.end_at), "HH:mm", { locale: de })}
                             </p>
                           </div>
-
                           <div className="flex items-center gap-2">
                             {userSignedUp ? (
-                              <Button variant="outline" size="sm" onClick={() => handleSignOut(shift)}>
-                                <XCircle className="w-4 h-4 mr-1" />
-                                Austragen
-                              </Button>
+                              <Button variant="outline" size="sm" onClick={() => handleSignOut(shift)}><XCircle className="w-4 h-4 mr-1" />Austragen</Button>
                             ) : hasOpenSlots ? (
-                              <Button size="sm" onClick={() => handleSignUp(shift)}>
-                                <Plus className="w-4 h-4 mr-1" />
-                                Eintragen
-                              </Button>
+                              <Button size="sm" onClick={() => handleSignUp(shift)}><Plus className="w-4 h-4 mr-1" />Eintragen</Button>
                             ) : null}
-
                             {canManage && (
                               <>
-                                <Button variant="ghost" size="sm" onClick={() => openEditShiftDialog(shift)}>
-                                  <Edit className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-destructive"
-                                  onClick={() => handleDeleteShift(shift)}
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
+                                <Button variant="ghost" size="sm" onClick={() => openEditShiftDialog(shift)}><Edit className="w-4 h-4" /></Button>
+                                <Button variant="ghost" size="sm" className="text-destructive" onClick={() => handleDeleteShift(shift)}><Trash2 className="w-4 h-4" /></Button>
                               </>
                             )}
                           </div>
                         </div>
-
-                        {/* Participants */}
                         {shiftAssignments.length > 0 && (
                           <div className="mt-3 pt-3 border-t">
                             <div className="flex items-center justify-between mb-2">
                               <p className="text-xs text-muted-foreground">Eingetragen:</p>
-                              {/* Bulk complete for this shift */}
                               {canManage && shiftAssignments.some(a => a.status === "signed_up") && (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 text-xs text-green-600 hover:text-green-700 hover:bg-green-50"
-                                  onClick={() => handleMarkAllCompleted(shift.id)}
-                                >
-                                  <CheckCheck className="w-3 h-3 mr-1" />
-                                  Alle erledigt
+                                <Button size="sm" variant="ghost" className="h-6 text-xs text-green-600 hover:text-green-700 hover:bg-green-50" onClick={() => handleMarkAllCompleted(shift.id)}>
+                                  <CheckCheck className="w-3 h-3 mr-1" />Alle erledigt
                                 </Button>
                               )}
                             </div>
                             <div className="flex flex-wrap gap-2">
                               {shiftAssignments.map((a) => (
-                                <div
-                                  key={a.id}
-                                  className="flex items-center gap-1 text-sm bg-muted px-2 py-1 rounded"
-                                >
-                                  <span>
-                                    {a.member?.first_name} {a.member?.last_name}
-                                  </span>
-                                  {a.status === "completed" && (
-                                    <CheckCircle2 className="w-3 h-3 text-green-600" />
-                                  )}
+                                <div key={a.id} className="flex items-center gap-1 text-sm bg-muted px-2 py-1 rounded">
+                                  <span>{a.member?.first_name} {a.member?.last_name}</span>
+                                  {a.status === "completed" && <CheckCircle2 className="w-3 h-3 text-green-600" />}
                                   {canManage && a.status === "signed_up" && (
                                     <>
-                                      <button
-                                        className="ml-1 text-green-600 hover:text-green-700"
-                                        onClick={() => handleSetStatus(a.id, "completed")}
-                                        title="Als erledigt markieren"
-                                      >
-                                        <CheckCircle2 className="w-3 h-3" />
-                                      </button>
-                                      <button
-                                        className="text-destructive/60 hover:text-destructive"
-                                        onClick={() => handleSetStatus(a.id, "no_show")}
-                                        title="Als No-Show markieren"
-                                      >
-                                        <XCircle className="w-3 h-3" />
-                                      </button>
+                                      <button className="ml-1 text-green-600 hover:text-green-700" onClick={() => handleSetStatus(a.id, "completed")} title="Als erledigt markieren"><CheckCircle2 className="w-3 h-3" /></button>
+                                      <button className="text-destructive/60 hover:text-destructive" onClick={() => handleSetStatus(a.id, "no_show")} title="Als No-Show markieren"><XCircle className="w-3 h-3" /></button>
                                     </>
                                   )}
                                 </div>
@@ -1016,101 +709,45 @@ const EventOrganize = () => {
           </Card>
         </motion.div>
 
-        {/* Shift Dialog */}
         <Dialog open={shiftDialogOpen} onOpenChange={setShiftDialogOpen}>
           <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{editingShift ? "Schicht bearbeiten" : "Neue Schicht"}</DialogTitle>
-            </DialogHeader>
-
+            <DialogHeader><DialogTitle>{editingShift ? "Schicht bearbeiten" : "Neue Schicht"}</DialogTitle></DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label>Titel</Label>
-                <Input
-                  value={formTitle}
-                  onChange={(e) => setFormTitle(e.target.value)}
-                  placeholder="z.B. Aufbau, Theke, Abbau..."
-                />
+                <Input value={formTitle} onChange={(e) => setFormTitle(e.target.value)} placeholder="z.B. Aufbau, Theke, Abbau..." />
               </div>
-
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Beginn</Label>
-                  <Input
-                    type="datetime-local"
-                    value={formStartAt}
-                    onChange={(e) => setFormStartAt(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Ende</Label>
-                  <Input
-                    type="datetime-local"
-                    value={formEndAt}
-                    onChange={(e) => setFormEndAt(e.target.value)}
-                  />
-                </div>
+                <div className="space-y-2"><Label>Beginn</Label><Input type="datetime-local" value={formStartAt} onChange={(e) => setFormStartAt(e.target.value)} /></div>
+                <div className="space-y-2"><Label>Ende</Label><Input type="datetime-local" value={formEndAt} onChange={(e) => setFormEndAt(e.target.value)} /></div>
               </div>
-
               <div className="space-y-2">
                 <Label>Benötigte Helfer</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={formRequiredSlots}
-                  onChange={(e) => setFormRequiredSlots(parseInt(e.target.value) || 1)}
-                />
+                <Input type="number" min={1} value={formRequiredSlots} onChange={(e) => setFormRequiredSlots(parseInt(e.target.value) || 1)} />
               </div>
-
               <div className="space-y-2">
                 <Label>Zuständigkeit</Label>
-                <Select
-                  value={formOwnerType}
-                  onValueChange={(val: OwnerType) => {
-                    setFormOwnerType(val);
-                    if (val === "club" && member) {
-                      setFormOwnerId(member.club_id);
-                    } else if (val === "company" && companies.length > 0) {
-                      setFormOwnerId(companies[0].id);
-                    }
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+                <Select value={formOwnerType} onValueChange={(val: OwnerType) => { setFormOwnerType(val); if (val === "club" && member) setFormOwnerId(member.club_id); else if (val === "company" && companies.length > 0) setFormOwnerId(companies[0].id); }}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="club">Hauptverein</SelectItem>
                     <SelectItem value="company">Kompanie</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-
               {formOwnerType === "company" && (
                 <div className="space-y-2">
                   <Label>Kompanie</Label>
                   <Select value={formOwnerId} onValueChange={setFormOwnerId}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {companies.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{companies.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
               )}
             </div>
-
             <DialogFooter>
-              <Button variant="outline" onClick={() => setShiftDialogOpen(false)}>
-                Abbrechen
-              </Button>
-              <Button onClick={handleSaveShift} disabled={!formTitle.trim()}>
-                {editingShift ? "Speichern" : "Erstellen"}
-              </Button>
+              <Button variant="outline" onClick={() => setShiftDialogOpen(false)}>Abbrechen</Button>
+              <Button onClick={handleSaveShift} disabled={!formTitle.trim()}>{editingShift ? "Speichern" : "Erstellen"}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

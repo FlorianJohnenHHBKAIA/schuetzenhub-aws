@@ -710,7 +710,7 @@ const MagazineAds = () => {
               {/* Status */}
               <div className="space-y-2">
                 <Label>Status</Label>
-                <Select value={formStatus} onValueChange={(v) => setFormStatus(v as any)}>
+                <Select value={formStatus} onValueChange={(v) => setFormStatus(v as "requested" | "received" | "placed")}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
