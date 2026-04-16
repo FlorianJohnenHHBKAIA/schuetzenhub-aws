@@ -13,7 +13,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { supabase, getStorageUrl } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { createNotificationsForMembers } from "@/hooks/useNotifications";
@@ -28,7 +28,6 @@ import {
   Users,
   Building2,
   Eye,
-  Megaphone,
 } from "lucide-react";
 
 interface Post {
@@ -49,6 +48,35 @@ interface Post {
   company?: { name: string } | null;
 }
 
+interface RawPost {
+  id: string;
+  club_id: string;
+  owner_type: 'club' | 'company';
+  owner_id: string;
+  title: string;
+  content: string;
+  cover_image_path: string | null;
+  category: string;
+  audience: 'company_only' | 'club_internal' | 'public';
+  publication_status: string;
+  submitted_at: string | null;
+  created_at: string;
+  created_by_member_id: string | null;
+  creator?: { first_name: string; last_name: string } | null;
+}
+
+interface RawClubMember {
+  id: string;
+}
+
+interface RawCompanyMember {
+  member_id: string;
+}
+
+interface RawCompany {
+  name: string;
+}
+
 const PostApprovals = () => {
   const { user, member } = useAuth();
   const { toast } = useToast();
@@ -62,9 +90,7 @@ const PostApprovals = () => {
   const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
-    if (user && member) {
-      fetchSubmittedPosts();
-    }
+    if (user && member) fetchSubmittedPosts();
   }, [user, member]);
 
   const fetchSubmittedPosts = async () => {
@@ -74,10 +100,7 @@ const PostApprovals = () => {
     try {
       const { data, error } = await supabase
         .from('posts')
-        .select(`
-          *,
-          creator:members!created_by_member_id(first_name, last_name)
-        `)
+        .select(`*, creator:members!created_by_member_id(first_name, last_name)`)
         .eq('club_id', member.club_id)
         .eq('publication_status', 'submitted')
         .order('submitted_at', { ascending: true });
@@ -85,21 +108,21 @@ const PostApprovals = () => {
       if (error) {
         console.error('Error fetching posts:', error);
       } else {
-        // Fetch company names for company posts
-        const postsWithCompanies = await Promise.all((data || []).map(async (post: any) => {
+        const rawPosts = (data as RawPost[]) || [];
+        const postsWithCompanies = await Promise.all(rawPosts.map(async (post) => {
           if (post.owner_type === 'company') {
             const { data: companyData } = await supabase
               .from('companies')
               .select('name')
               .eq('id', post.owner_id)
               .single();
-            return { ...post, company: companyData };
+            return { ...post, company: (companyData as RawCompany | null) };
           }
-          return post;
+          return post as Post;
         }));
         setPosts(postsWithCompanies);
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error:', error);
     } finally {
       setLoading(false);
@@ -123,9 +146,7 @@ const PostApprovals = () => {
 
       if (error) throw error;
 
-      // Create notifications for relevant members
       if (post.audience === 'club_internal') {
-        // Notify all club members
         const { data: clubMembers } = await supabase
           .from('members')
           .select('id')
@@ -135,14 +156,13 @@ const PostApprovals = () => {
         if (clubMembers) {
           await createNotificationsForMembers(
             post.club_id,
-            clubMembers.map(m => m.id),
+            (clubMembers as RawClubMember[]).map(m => m.id),
             'new_post',
             post.id,
             post.created_by_member_id || undefined
           );
         }
       } else if (post.audience === 'company_only' && post.owner_type === 'company') {
-        // Notify company members
         const { data: companyMembers } = await supabase
           .from('member_company_memberships')
           .select('member_id')
@@ -152,7 +172,7 @@ const PostApprovals = () => {
         if (companyMembers) {
           await createNotificationsForMembers(
             post.club_id,
-            companyMembers.map(m => m.member_id),
+            (companyMembers as RawCompanyMember[]).map(m => m.member_id),
             'new_post',
             post.id,
             post.created_by_member_id || undefined
@@ -163,8 +183,8 @@ const PostApprovals = () => {
       toast({ title: 'Beitrag freigegeben' });
       setDetailDialogOpen(false);
       fetchSubmittedPosts();
-    } catch (error: any) {
-      toast({ title: 'Fehler', description: error.message, variant: 'destructive' });
+    } catch (error: unknown) {
+      toast({ title: 'Fehler', description: error instanceof Error ? error.message : undefined, variant: 'destructive' });
     } finally {
       setProcessing(false);
     }
@@ -177,10 +197,7 @@ const PostApprovals = () => {
     try {
       const { error } = await supabase
         .from('posts')
-        .update({
-          publication_status: 'rejected',
-          rejection_reason: rejectionReason.trim(),
-        })
+        .update({ publication_status: 'rejected', rejection_reason: rejectionReason.trim() })
         .eq('id', selectedPost.id);
 
       if (error) throw error;
@@ -189,8 +206,8 @@ const PostApprovals = () => {
       setDetailDialogOpen(false);
       setRejectionReason('');
       fetchSubmittedPosts();
-    } catch (error: any) {
-      toast({ title: 'Fehler', description: error.message, variant: 'destructive' });
+    } catch (error: unknown) {
+      toast({ title: 'Fehler', description: error instanceof Error ? error.message : undefined, variant: 'destructive' });
     } finally {
       setProcessing(false);
     }
@@ -212,25 +229,15 @@ const PostApprovals = () => {
   return (
     <PortalLayout>
       <div className="max-w-4xl mx-auto space-y-6">
-        {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="font-display text-3xl font-bold flex items-center gap-3">
-            <Send className="w-8 h-8" />
-            Beitrags-Freigaben
+            <Send className="w-8 h-8" />Beitrags-Freigaben
           </h1>
-          <p className="text-muted-foreground mt-1">
-            Eingereichte Beiträge zur Freigabe
-          </p>
+          <p className="text-muted-foreground mt-1">Eingereichte Beiträge zur Freigabe</p>
         </motion.div>
 
-        {/* Posts List */}
         {loading ? (
-          <div className="flex justify-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
-          </div>
+          <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
         ) : posts.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
@@ -247,34 +254,20 @@ const PostApprovals = () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap gap-2 mb-2">
                         {getAudienceBadge(post.audience)}
-                        {post.owner_type === 'company' && post.company && (
-                          <Badge variant="secondary">{post.company.name}</Badge>
-                        )}
-                        {post.owner_type === 'club' && (
-                          <Badge variant="secondary">Hauptverein</Badge>
-                        )}
+                        {post.owner_type === 'company' && post.company && <Badge variant="secondary">{post.company.name}</Badge>}
+                        {post.owner_type === 'club' && <Badge variant="secondary">Hauptverein</Badge>}
                       </div>
                       <h3 className="font-semibold text-lg">{post.title}</h3>
                       <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{post.content}</p>
                       <div className="text-xs text-muted-foreground mt-2">
-                        {post.creator && (
-                          <span>Eingereicht von {post.creator.first_name} {post.creator.last_name}</span>
-                        )}
-                        {post.submitted_at && (
-                          <span> am {format(new Date(post.submitted_at), 'dd.MM.yyyy HH:mm', { locale: de })}</span>
-                        )}
+                        {post.creator && <span>Eingereicht von {post.creator.first_name} {post.creator.last_name}</span>}
+                        {post.submitted_at && <span> am {format(new Date(post.submitted_at), 'dd.MM.yyyy HH:mm', { locale: de })}</span>}
                       </div>
                     </div>
                     <div className="flex gap-2 shrink-0">
-                      <Button variant="outline" size="sm" onClick={() => { setSelectedPost(post); setDetailDialogOpen(true); }}>
-                        <Eye className="w-4 h-4" />
-                      </Button>
-                      <Button variant="default" size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApprove(post)} disabled={processing}>
-                        <CheckCircle2 className="w-4 h-4" />
-                      </Button>
-                      <Button variant="destructive" size="sm" onClick={() => { setSelectedPost(post); setRejectDialogOpen(true); }} disabled={processing}>
-                        <XCircle className="w-4 h-4" />
-                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => { setSelectedPost(post); setDetailDialogOpen(true); }}><Eye className="w-4 h-4" /></Button>
+                      <Button variant="default" size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApprove(post)} disabled={processing}><CheckCircle2 className="w-4 h-4" /></Button>
+                      <Button variant="destructive" size="sm" onClick={() => { setSelectedPost(post); setRejectDialogOpen(true); }} disabled={processing}><XCircle className="w-4 h-4" /></Button>
                     </div>
                   </div>
                 </CardContent>
@@ -284,44 +277,25 @@ const PostApprovals = () => {
         )}
       </div>
 
-      {/* Detail Dialog */}
       <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
         <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Beitrag Vorschau</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Beitrag Vorschau</DialogTitle></DialogHeader>
           {selectedPost && (
             <div className="space-y-4">
-              <div className="flex flex-wrap gap-2">
-                {getAudienceBadge(selectedPost.audience)}
-              </div>
-
+              <div className="flex flex-wrap gap-2">{getAudienceBadge(selectedPost.audience)}</div>
               {selectedPost.cover_image_path && (
-                <img
-                  src={`${getStorageUrl("post-images", selectedPost.cover_image_path) || ""}`}
-                  alt={selectedPost.title}
-                  className="w-full h-48 object-cover rounded-lg"
-                />
+                <img src={`${getStorageUrl("post-images", selectedPost.cover_image_path) || ""}`} alt={selectedPost.title} className="w-full h-48 object-cover rounded-lg" />
               )}
-
               <h2 className="text-xl font-bold">{selectedPost.title}</h2>
-              
-              <div className="prose prose-sm max-w-none">
-                <p className="whitespace-pre-wrap">{selectedPost.content}</p>
-              </div>
-
+              <div className="prose prose-sm max-w-none"><p className="whitespace-pre-wrap">{selectedPost.content}</p></div>
               <div className="text-sm text-muted-foreground">
-                {selectedPost.creator && (
-                  <p>Erstellt von {selectedPost.creator.first_name} {selectedPost.creator.last_name}</p>
-                )}
+                {selectedPost.creator && <p>Erstellt von {selectedPost.creator.first_name} {selectedPost.creator.last_name}</p>}
               </div>
             </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDetailDialogOpen(false)}>Schließen</Button>
-            <Button variant="destructive" onClick={() => setRejectDialogOpen(true)} disabled={processing}>
-              <XCircle className="w-4 h-4 mr-2" />Ablehnen
-            </Button>
+            <Button variant="destructive" onClick={() => setRejectDialogOpen(true)} disabled={processing}><XCircle className="w-4 h-4 mr-2" />Ablehnen</Button>
             <Button className="bg-green-600 hover:bg-green-700" onClick={() => selectedPost && handleApprove(selectedPost)} disabled={processing}>
               {processing ? <Loader2 className="w-4 h-4 animate-spin" /> : <><CheckCircle2 className="w-4 h-4 mr-2" />Freigeben</>}
             </Button>
@@ -329,21 +303,13 @@ const PostApprovals = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Reject Dialog */}
       <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Beitrag ablehnen</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Beitrag ablehnen</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div>
               <Label>Ablehnungsgrund *</Label>
-              <Textarea
-                value={rejectionReason}
-                onChange={(e) => setRejectionReason(e.target.value)}
-                placeholder="Bitte geben Sie einen Grund an..."
-                rows={3}
-              />
+              <Textarea value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} placeholder="Bitte geben Sie einen Grund an..." rows={3} />
             </div>
           </div>
           <DialogFooter>
