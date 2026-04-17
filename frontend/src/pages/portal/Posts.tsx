@@ -17,7 +17,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { supabase, getStorageUrl, apiUpload } from "@/integrations/supabase/client";
+import { supabase, getStorageUrl } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { createNotificationsForMembers } from "@/hooks/useNotifications";
@@ -85,6 +85,20 @@ interface Event {
   start_at: string;
 }
 
+interface RawPermission {
+  permission_key: string;
+  scope_type?: string;
+  scope_id?: string;
+}
+
+interface RawMembership {
+  company_id: string;
+}
+
+interface RawClub {
+  slug: string;
+}
+
 const CATEGORIES = [
   { value: 'announcement', label: 'Ankündigung', icon: Bell },
   { value: 'info', label: 'Information', icon: Info },
@@ -98,7 +112,6 @@ const Posts = () => {
   const { toast } = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // URL params for event linking and viewing
   const linkedEventId = searchParams.get('event');
   const viewPostId = searchParams.get('view');
 
@@ -134,55 +147,30 @@ const Posts = () => {
   const [formCoverImage, setFormCoverImage] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Fetch linked event if event param is present
   useEffect(() => {
     const fetchLinkedEvent = async () => {
       if (!linkedEventId || !member) return;
-      
-      const { data } = await supabase
-        .from('events')
-        .select('id, title, start_at')
-        .eq('id', linkedEventId)
-        .single();
-      
-      if (data) {
-        setLinkedEvent(data);
-        setFormEventId(data.id);
-      }
+      const { data } = await supabase.from('events').select('id, title, start_at').eq('id', linkedEventId).single();
+      if (data) { setLinkedEvent(data as Event); setFormEventId((data as Event).id); }
     };
-    
     fetchLinkedEvent();
   }, [linkedEventId, member]);
 
-  // Handle view post from URL
   useEffect(() => {
     const loadViewPost = async () => {
       if (!viewPostId || !member) return;
-      
       const { data } = await supabase
         .from('posts')
-        .select(`
-          *,
-          creator:members!created_by_member_id(first_name, last_name),
-          approver:members!approved_by_member_id(first_name, last_name)
-        `)
+        .select(`*, creator:members!created_by_member_id(first_name, last_name), approver:members!approved_by_member_id(first_name, last_name)`)
         .eq('id', viewPostId)
         .single();
-      
-      if (data) {
-        setSelectedPost(data as Post);
-        setDetailDialogOpen(true);
-      }
+      if (data) { setSelectedPost(data as Post); setDetailDialogOpen(true); }
     };
-    
     loadViewPost();
   }, [viewPostId, member]);
 
   useEffect(() => {
-    if (user && member) {
-      fetchData();
-      checkPermissions();
-    }
+    if (user && member) { fetchData(); checkPermissions(); }
   }, [user, member]);
 
   const checkPermissions = async () => {
@@ -193,20 +181,21 @@ const Posts = () => {
       _club_id: member.club_id
     });
 
-    const permissions = permData || [];
-    const hasFullAdmin = permissions.some((p: any) => p.permission_key === 'club.admin.full');
-    const hasClubPosts = permissions.some((p: any) => p.permission_key === 'club.posts.manage');
-    
+    const permissions = (permData as RawPermission[]) || [];
+    const hasFullAdmin = permissions.some((p) => p.permission_key === 'club.admin.full');
+    const hasClubPosts = permissions.some((p) => p.permission_key === 'club.posts.manage');
     setCanManageClubPosts(hasFullAdmin || hasClubPosts || isAdmin);
 
     const companyPostPerms = permissions
-      .filter((p: any) => p.permission_key === 'company.posts.manage' && p.scope_type === 'company')
-      .map((p: any) => p.scope_id);
+      .filter((p) => p.permission_key === 'company.posts.manage' && p.scope_type === 'company')
+      .map((p) => p.scope_id)
+      .filter((id): id is string => id !== undefined);
     setCompanyPostPermissions(companyPostPerms);
 
     const companySubmitPerms = permissions
-      .filter((p: any) => p.permission_key === 'company.posts.submit_publication' && p.scope_type === 'company')
-      .map((p: any) => p.scope_id);
+      .filter((p) => p.permission_key === 'company.posts.submit_publication' && p.scope_type === 'company')
+      .map((p) => p.scope_id)
+      .filter((id): id is string => id !== undefined);
     setCompanySubmitPermissions(companySubmitPerms);
   };
 
@@ -215,49 +204,29 @@ const Posts = () => {
     setLoading(true);
 
     try {
-      // Fetch club slug for share links
-      const { data: clubData } = await supabase
-        .from("clubs")
-        .select("slug")
-        .eq("id", member.club_id)
-        .single();
-      setClubSlug(clubData?.slug || "");
+      const { data: clubData } = await supabase.from("clubs").select("slug").eq("id", member.club_id).single();
+      setClubSlug((clubData as RawClub | null)?.slug || "");
 
-      const { data: companiesData } = await supabase
-        .from('companies')
-        .select('id, name')
-        .eq('club_id', member.club_id)
-        .order('name');
-      setCompanies(companiesData || []);
+      const { data: companiesData } = await supabase.from('companies').select('id, name').eq('club_id', member.club_id).order('name');
+      setCompanies((companiesData as Company[]) || []);
 
       const { data: membershipData } = await supabase
-        .from('member_company_memberships')
-        .select('company_id')
-        .eq('member_id', member.id)
-        .is('valid_to', null)
-        .maybeSingle();
-      
+        .from('member_company_memberships').select('company_id').eq('member_id', member.id).is('valid_to', null).maybeSingle();
       if (membershipData) {
-        setUserCompanyId(membershipData.company_id);
-        setFormOwnerId(membershipData.company_id);
+        const raw = membershipData as RawMembership;
+        setUserCompanyId(raw.company_id);
+        setFormOwnerId(raw.company_id);
       }
 
       const { data: postsData, error } = await supabase
         .from('posts')
-        .select(`
-          *,
-          creator:members!created_by_member_id(first_name, last_name),
-          approver:members!approved_by_member_id(first_name, last_name)
-        `)
+        .select(`*, creator:members!created_by_member_id(first_name, last_name), approver:members!approved_by_member_id(first_name, last_name)`)
         .eq('club_id', member.club_id)
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Error fetching posts:', error);
-      } else {
-        setPosts(postsData || []);
-      }
-    } catch (error) {
+      if (error) { console.error('Error fetching posts:', error); }
+      else { setPosts((postsData as Post[]) || []); }
+    } catch (error: unknown) {
       console.error('Error:', error);
     } finally {
       setLoading(false);
@@ -274,11 +243,7 @@ const Posts = () => {
       if (formCoverImage) {
         const fileExt = formCoverImage.name.split('.').pop();
         const fileName = `${member.club_id}/${crypto.randomUUID()}.${fileExt}`;
-        
-        const { error: uploadError } = await supabase.storage
-          .from('post-images')
-          .upload(fileName, formCoverImage);
-
+        const { error: uploadError } = await supabase.storage.from('post-images').upload(fileName, formCoverImage);
         if (uploadError) throw uploadError;
         coverPath = fileName;
       }
@@ -289,37 +254,21 @@ const Posts = () => {
       const statusTyped = (asDraft ? 'draft' : 'submitted') as 'draft' | 'submitted' | 'approved' | 'rejected';
 
       if (editingPost) {
-        const { error } = await supabase
-          .from('posts')
-          .update({
-            title: formTitle.trim(),
-            content: formContent.trim(),
-            cover_image_path: coverPath,
-            category: categoryTyped,
-            audience: audienceTyped,
-            publication_status: statusTyped,
-            submitted_at: asDraft ? null : new Date().toISOString(),
-          })
-          .eq('id', editingPost.id);
+        const { error } = await supabase.from('posts').update({
+          title: formTitle.trim(), content: formContent.trim(), cover_image_path: coverPath,
+          category: categoryTyped, audience: audienceTyped, publication_status: statusTyped,
+          submitted_at: asDraft ? null : new Date().toISOString(),
+        }).eq('id', editingPost.id);
         if (error) throw error;
         toast({ title: 'Beitrag aktualisiert' });
       } else {
-        const { error } = await supabase
-          .from('posts')
-          .insert({
-            club_id: member.club_id,
-            owner_type: formOwnerType,
-            owner_id: ownerId,
-            title: formTitle.trim(),
-            content: formContent.trim(),
-            cover_image_path: coverPath,
-            category: categoryTyped,
-            audience: audienceTyped,
-            publication_status: statusTyped,
-            submitted_at: asDraft ? null : new Date().toISOString(),
-            created_by_member_id: member.id,
-            event_id: formEventId,
-          });
+        const { error } = await supabase.from('posts').insert({
+          club_id: member.club_id, owner_type: formOwnerType, owner_id: ownerId,
+          title: formTitle.trim(), content: formContent.trim(), cover_image_path: coverPath,
+          category: categoryTyped, audience: audienceTyped, publication_status: statusTyped,
+          submitted_at: asDraft ? null : new Date().toISOString(),
+          created_by_member_id: member.id, event_id: formEventId,
+        });
         if (error) throw error;
         toast({ title: asDraft ? 'Entwurf gespeichert' : 'Beitrag eingereicht' });
       }
@@ -327,8 +276,8 @@ const Posts = () => {
       setDialogOpen(false);
       resetForm();
       fetchData();
-    } catch (error: any) {
-      toast({ title: 'Fehler', description: error.message, variant: 'destructive' });
+    } catch (error: unknown) {
+      toast({ title: 'Fehler', description: error instanceof Error ? error.message : undefined, variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -336,115 +285,72 @@ const Posts = () => {
 
   const handleSubmit = async (post: Post) => {
     try {
-      const { error } = await supabase
-        .from('posts')
-        .update({
-          publication_status: 'submitted',
-          submitted_at: new Date().toISOString(),
-        })
-        .eq('id', post.id);
-
+      const { error } = await supabase.from('posts').update({ publication_status: 'submitted', submitted_at: new Date().toISOString() }).eq('id', post.id);
       if (error) throw error;
       toast({ title: 'Beitrag eingereicht' });
       fetchData();
-    } catch (error: any) {
-      toast({ title: 'Fehler', description: error.message, variant: 'destructive' });
+    } catch (error: unknown) {
+      toast({ title: 'Fehler', description: error instanceof Error ? error.message : undefined, variant: 'destructive' });
     }
   };
 
   const handleDelete = async (post: Post) => {
     if (!confirm(`Beitrag "${post.title}" wirklich löschen?`)) return;
-
     try {
-      if (post.cover_image_path) {
-        await supabase.storage.from('post-images').remove([post.cover_image_path]);
-      }
+      if (post.cover_image_path) await supabase.storage.from('post-images').remove([post.cover_image_path]);
       const { error } = await supabase.from('posts').delete().eq('id', post.id);
       if (error) throw error;
       toast({ title: 'Beitrag gelöscht' });
       fetchData();
-    } catch (error: any) {
-      toast({ title: 'Fehler', description: error.message, variant: 'destructive' });
+    } catch (error: unknown) {
+      toast({ title: 'Fehler', description: error instanceof Error ? error.message : undefined, variant: 'destructive' });
     }
   };
 
   const resetForm = () => {
-    setFormTitle('');
-    setFormContent('');
-    setFormCategory('info');
-    setFormAudience('club_internal');
-    setFormOwnerType('club');
-    setFormCoverImage(null);
-    setEditingPost(null);
+    setFormTitle(''); setFormContent(''); setFormCategory('info'); setFormAudience('club_internal');
+    setFormOwnerType('club'); setFormCoverImage(null); setEditingPost(null);
   };
 
   const openCreateDialog = () => {
     resetForm();
-    if (canManageClubPosts) {
-      setFormOwnerType('club');
-    } else if (companyPostPermissions.length > 0) {
-      setFormOwnerType('company');
-      setFormOwnerId(companyPostPermissions[0]);
-    }
+    if (canManageClubPosts) { setFormOwnerType('club'); }
+    else if (companyPostPermissions.length > 0) { setFormOwnerType('company'); setFormOwnerId(companyPostPermissions[0]); }
     setDialogOpen(true);
   };
 
   const openEditDialog = (post: Post) => {
-    setEditingPost(post);
-    setFormTitle(post.title);
-    setFormContent(post.content);
-    setFormCategory(post.category);
-    setFormAudience(post.audience);
-    setFormOwnerType(post.owner_type);
-    setFormOwnerId(post.owner_id);
+    setEditingPost(post); setFormTitle(post.title); setFormContent(post.content);
+    setFormCategory(post.category); setFormAudience(post.audience);
+    setFormOwnerType(post.owner_type); setFormOwnerId(post.owner_id);
     setDialogOpen(true);
   };
 
-  const canManagePost = (post: Post): boolean => {
-    if (post.owner_type === 'club') {
-      return canManageClubPosts;
-    } else {
-      return companyPostPermissions.includes(post.owner_id);
-    }
-  };
+  const canManagePost = (post: Post): boolean =>
+    post.owner_type === 'club' ? canManageClubPosts : companyPostPermissions.includes(post.owner_id);
 
-  const canSubmitPost = (post: Post): boolean => {
-    if (post.owner_type === 'club') {
-      return canManageClubPosts;
-    } else {
-      return companySubmitPermissions.includes(post.owner_id) || companyPostPermissions.includes(post.owner_id);
-    }
-  };
+  const canSubmitPost = (post: Post): boolean =>
+    post.owner_type === 'club' ? canManageClubPosts : companySubmitPermissions.includes(post.owner_id) || companyPostPermissions.includes(post.owner_id);
 
-  const getCompanyName = (companyId: string): string => {
-    return companies.find(c => c.id === companyId)?.name || 'Unbekannt';
-  };
+  const getCompanyName = (companyId: string): string =>
+    companies.find(c => c.id === companyId)?.name || 'Unbekannt';
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'draft':
-        return <Badge variant="secondary" className="gap-1"><Clock className="w-3 h-3" />Entwurf</Badge>;
-      case 'submitted':
-        return <Badge variant="outline" className="gap-1 border-yellow-500 text-yellow-600"><Send className="w-3 h-3" />Eingereicht</Badge>;
-      case 'approved':
-        return <Badge variant="default" className="gap-1 bg-green-600"><CheckCircle className="w-3 h-3" />Freigegeben</Badge>;
-      case 'rejected':
-        return <Badge variant="destructive" className="gap-1"><XCircle className="w-3 h-3" />Abgelehnt</Badge>;
-      default:
-        return <Badge variant="secondary">{status}</Badge>;
+      case 'draft': return <Badge variant="secondary" className="gap-1"><Clock className="w-3 h-3" />Entwurf</Badge>;
+      case 'submitted': return <Badge variant="outline" className="gap-1 border-yellow-500 text-yellow-600"><Send className="w-3 h-3" />Eingereicht</Badge>;
+      case 'approved': return <Badge variant="default" className="gap-1 bg-green-600"><CheckCircle className="w-3 h-3" />Freigegeben</Badge>;
+      case 'rejected': return <Badge variant="destructive" className="gap-1"><XCircle className="w-3 h-3" />Abgelehnt</Badge>;
+      default: return <Badge variant="secondary">{status}</Badge>;
     }
   };
 
   const getAudienceBadge = (audience: string) => {
     switch (audience) {
-      case 'company_only':
-        return <Badge variant="outline" className="gap-1"><Building2 className="w-3 h-3" />Kompanie</Badge>;
-      case 'club_internal':
-        return <Badge variant="outline" className="gap-1"><Users className="w-3 h-3" />Verein</Badge>;
-      case 'public':
-        return <Badge variant="outline" className="gap-1"><Globe className="w-3 h-3" />Öffentlich</Badge>;
-      default:
-        return <Badge variant="outline">{audience}</Badge>;
+      case 'company_only': return <Badge variant="outline" className="gap-1"><Building2 className="w-3 h-3" />Kompanie</Badge>;
+      case 'club_internal': return <Badge variant="outline" className="gap-1"><Users className="w-3 h-3" />Verein</Badge>;
+      case 'public': return <Badge variant="outline" className="gap-1"><Globe className="w-3 h-3" />Öffentlich</Badge>;
+      default: return <Badge variant="outline">{audience}</Badge>;
     }
   };
 
@@ -462,9 +368,7 @@ const Posts = () => {
       }
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
-        if (!p.title.toLowerCase().includes(q) && !p.content.toLowerCase().includes(q)) {
-          return false;
-        }
+        if (!p.title.toLowerCase().includes(q) && !p.content.toLowerCase().includes(q)) return false;
       }
       if (categoryFilter !== 'all' && p.category !== categoryFilter) return false;
       if (statusFilter !== 'all' && p.publication_status !== statusFilter) return false;
@@ -477,48 +381,22 @@ const Posts = () => {
   return (
     <PortalLayout>
       <div className="max-w-6xl mx-auto space-y-6">
-        {/* Context banner for navigation from event */}
         <EventContextBanner />
-        
-        {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex justify-between items-start"
-        >
+
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex justify-between items-start">
           <div>
-            <h1 className="font-display text-3xl font-bold flex items-center gap-3">
-              <Megaphone className="w-8 h-8" />
-              Aushang
-            </h1>
-            <p className="text-muted-foreground mt-1">
-              Mitteilungen und Ankündigungen
-            </p>
+            <h1 className="font-display text-3xl font-bold flex items-center gap-3"><Megaphone className="w-8 h-8" />Aushang</h1>
+            <p className="text-muted-foreground mt-1">Mitteilungen und Ankündigungen</p>
           </div>
-          {canCreate && (
-            <Button onClick={openCreateDialog}>
-              <Plus className="w-4 h-4 mr-2" />
-              Beitrag erstellen
-            </Button>
-          )}
+          {canCreate && <Button onClick={openCreateDialog}><Plus className="w-4 h-4 mr-2" />Beitrag erstellen</Button>}
         </motion.div>
 
-        {/* Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'club' | 'company')}>
           <TabsList>
-            <TabsTrigger value="club" className="flex items-center gap-2">
-              <Shield className="w-4 h-4" />
-              Verein
-            </TabsTrigger>
-            {userCompanyId && (
-              <TabsTrigger value="company" className="flex items-center gap-2">
-                <Building2 className="w-4 h-4" />
-                Meine Kompanie
-              </TabsTrigger>
-            )}
+            <TabsTrigger value="club" className="flex items-center gap-2"><Shield className="w-4 h-4" />Verein</TabsTrigger>
+            {userCompanyId && <TabsTrigger value="company" className="flex items-center gap-2"><Building2 className="w-4 h-4" />Meine Kompanie</TabsTrigger>}
           </TabsList>
 
-          {/* Filters */}
           <Card className="mt-4">
             <CardContent className="py-4">
               <div className="flex flex-wrap gap-4 items-end">
@@ -526,34 +404,23 @@ const Posts = () => {
                   <Label className="text-xs">Suche</Label>
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Titel oder Inhalt..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-9"
-                    />
+                    <Input placeholder="Titel oder Inhalt..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-9" />
                   </div>
                 </div>
                 <div>
                   <Label className="text-xs">Kategorie</Label>
                   <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                    <SelectTrigger className="w-36">
-                      <SelectValue />
-                    </SelectTrigger>
+                    <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Alle</SelectItem>
-                      {CATEGORIES.map(c => (
-                        <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
-                      ))}
+                      {CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
                   <Label className="text-xs">Status</Label>
                   <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="w-36">
-                      <SelectValue />
-                    </SelectTrigger>
+                    <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Alle</SelectItem>
                       <SelectItem value="draft">Entwurf</SelectItem>
@@ -568,146 +435,56 @@ const Posts = () => {
           </Card>
 
           <TabsContent value="club" className="mt-4">
-            <PostGrid
-              posts={filteredPosts}
-              loading={loading}
-              onView={(p) => { setSelectedPost(p); setDetailDialogOpen(true); }}
-              onEdit={openEditDialog}
-              onDelete={handleDelete}
-              onSubmit={handleSubmit}
-              canManage={canManagePost}
-              canSubmit={canSubmitPost}
-              getStatusBadge={getStatusBadge}
-              getAudienceBadge={getAudienceBadge}
-              getCategoryIcon={getCategoryIcon}
-              getCompanyName={getCompanyName}
-            />
+            <PostGrid posts={filteredPosts} loading={loading} onView={(p) => { setSelectedPost(p); setDetailDialogOpen(true); }} onEdit={openEditDialog} onDelete={handleDelete} onSubmit={handleSubmit} canManage={canManagePost} canSubmit={canSubmitPost} getStatusBadge={getStatusBadge} getAudienceBadge={getAudienceBadge} getCategoryIcon={getCategoryIcon} getCompanyName={getCompanyName} />
           </TabsContent>
-
           <TabsContent value="company" className="mt-4">
-            <PostGrid
-              posts={filteredPosts}
-              loading={loading}
-              onView={(p) => { setSelectedPost(p); setDetailDialogOpen(true); }}
-              onEdit={openEditDialog}
-              onDelete={handleDelete}
-              onSubmit={handleSubmit}
-              canManage={canManagePost}
-              canSubmit={canSubmitPost}
-              getStatusBadge={getStatusBadge}
-              getAudienceBadge={getAudienceBadge}
-              getCategoryIcon={getCategoryIcon}
-              getCompanyName={getCompanyName}
-            />
+            <PostGrid posts={filteredPosts} loading={loading} onView={(p) => { setSelectedPost(p); setDetailDialogOpen(true); }} onEdit={openEditDialog} onDelete={handleDelete} onSubmit={handleSubmit} canManage={canManagePost} canSubmit={canSubmitPost} getStatusBadge={getStatusBadge} getAudienceBadge={getAudienceBadge} getCategoryIcon={getCategoryIcon} getCompanyName={getCompanyName} />
           </TabsContent>
         </Tabs>
       </div>
 
-      {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className={`${formAudience === 'public' ? 'sm:max-w-3xl' : 'max-w-2xl'} max-h-[90vh] flex flex-col`}>
           <DialogHeader className="flex-shrink-0">
             <DialogTitle>{editingPost ? 'Beitrag bearbeiten' : 'Beitrag erstellen'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 overflow-y-auto flex-1 pr-2">
-            {/* Owner Type */}
             <div>
               <Label>Bereich</Label>
               <Select value={formOwnerType} onValueChange={(v) => setFormOwnerType(v as 'club' | 'company')} disabled={!!editingPost}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {canManageClubPosts && <SelectItem value="club">Hauptverein</SelectItem>}
-                  {companyPostPermissions.map(compId => (
-                    <SelectItem key={compId} value="company">{getCompanyName(compId)}</SelectItem>
-                  ))}
+                  {companyPostPermissions.map(compId => <SelectItem key={compId} value="company">{getCompanyName(compId)}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-
-            {/* Title */}
-            <div>
-              <Label>Titel *</Label>
-              <Input
-                value={formTitle}
-                onChange={(e) => setFormTitle(e.target.value)}
-                placeholder="Beitragstitel"
-              />
-            </div>
-
-            {/* Content */}
-            <div>
-              <Label>Inhalt *</Label>
-              <Textarea
-                value={formContent}
-                onChange={(e) => setFormContent(e.target.value)}
-                placeholder="Beitragsinhalt..."
-                rows={8}
-              />
-            </div>
-
-            {/* Category */}
+            <div><Label>Titel *</Label><Input value={formTitle} onChange={(e) => setFormTitle(e.target.value)} placeholder="Beitragstitel" /></div>
+            <div><Label>Inhalt *</Label><Textarea value={formContent} onChange={(e) => setFormContent(e.target.value)} placeholder="Beitragsinhalt..." rows={8} /></div>
             <div>
               <Label>Kategorie</Label>
               <Select value={formCategory} onValueChange={setFormCategory}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CATEGORIES.map(c => (
-                    <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
-                  ))}
-                </SelectContent>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-
-            {/* Audience */}
             <div>
               <Label>Sichtbarkeit</Label>
               <Select value={formAudience} onValueChange={setFormAudience}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {formOwnerType === 'company' && (
-                    <SelectItem value="company_only">Nur Kompanie</SelectItem>
-                  )}
+                  {formOwnerType === 'company' && <SelectItem value="company_only">Nur Kompanie</SelectItem>}
                   <SelectItem value="club_internal">Verein intern</SelectItem>
                   <SelectItem value="public">Öffentlich (nach Freigabe)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-
-            {/* Cover Image */}
             <div>
               <Label>Titelbild (optional)</Label>
-              <Input
-                type="file"
-                accept="image/*"
-                onChange={(e) => {
-                  const file = e.target.files?.[0] || null;
-                  setFormCoverImage(file);
-                  if (file) {
-                    setFormCoverPreviewUrl(URL.createObjectURL(file));
-                  } else {
-                    setFormCoverPreviewUrl(null);
-                  }
-                }}
-              />
+              <Input type="file" accept="image/*" onChange={(e) => { const file = e.target.files?.[0] || null; setFormCoverImage(file); setFormCoverPreviewUrl(file ? URL.createObjectURL(file) : null); }} />
             </div>
-
-            {/* Public Preview */}
             {formAudience === 'public' && (
-              <PostPublicPreview
-                title={formTitle}
-                content={formContent}
-                category={formCategory}
-                coverImageUrl={formCoverPreviewUrl || (editingPost?.cover_image_path ? getStorageUrl("post-images", editingPost.cover_image_path) || "" : null)}
-                postId={editingPost?.id}
-                clubSlug={clubSlug}
-                createdAt={editingPost?.created_at}
-              />
+              <PostPublicPreview title={formTitle} content={formContent} category={formCategory} coverImageUrl={formCoverPreviewUrl || (editingPost?.cover_image_path ? getStorageUrl("post-images", editingPost.cover_image_path) || "" : null)} postId={editingPost?.id} clubSlug={clubSlug} createdAt={editingPost?.created_at} />
             )}
           </div>
           <DialogFooter className="flex-shrink-0 pt-4 border-t flex-wrap gap-2">
@@ -724,17 +501,11 @@ const Posts = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Detail Dialog - Updated to use PostDetailDialog */}
-      <PostDetailDialog
-        open={detailDialogOpen}
-        onOpenChange={setDetailDialogOpen}
-        post={selectedPost}
-      />
+      <PostDetailDialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen} post={selectedPost} />
     </PortalLayout>
   );
 };
 
-// Post Grid Component
 interface PostGridProps {
   posts: Post[];
   loading: boolean;
@@ -750,38 +521,10 @@ interface PostGridProps {
   getCompanyName: (companyId: string) => string;
 }
 
-const PostGrid = ({
-  posts,
-  loading,
-  onView,
-  onEdit,
-  onDelete,
-  onSubmit,
-  canManage,
-  canSubmit,
-  getStatusBadge,
-  getAudienceBadge,
-  getCategoryIcon,
-  getCompanyName,
-}: PostGridProps) => {
-  if (loading) {
-    return (
-      <div className="flex justify-center py-12">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
-  }
+const PostGrid = ({ posts, loading, onView, onEdit, onDelete, onSubmit, canManage, canSubmit, getStatusBadge, getAudienceBadge, getCategoryIcon, getCompanyName }: PostGridProps) => {
+  if (loading) return <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
-  if (posts.length === 0) {
-    return (
-      <Card>
-        <CardContent className="py-12 text-center">
-          <Megaphone className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-          <p className="text-muted-foreground">Keine Beiträge gefunden</p>
-        </CardContent>
-      </Card>
-    );
-  }
+  if (posts.length === 0) return <Card><CardContent className="py-12 text-center"><Megaphone className="w-12 h-12 mx-auto mb-4 text-muted-foreground" /><p className="text-muted-foreground">Keine Beiträge gefunden</p></CardContent></Card>;
 
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -789,39 +532,21 @@ const PostGrid = ({
         <Card key={post.id} className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer" onClick={() => onView(post)}>
           {post.cover_image_path && (
             <div className="h-32 bg-muted">
-              <img
-                src={`${getStorageUrl("post-images", post.cover_image_path) || ""}`}
-                alt={post.title}
-                className="w-full h-full object-cover"
-              />
+              <img src={`${getStorageUrl("post-images", post.cover_image_path) || ""}`} alt={post.title} className="w-full h-full object-cover" />
             </div>
           )}
           <CardContent className="p-4">
-            <div className="flex flex-wrap gap-1 mb-2">
-              {getStatusBadge(post.publication_status)}
-              {getAudienceBadge(post.audience)}
-            </div>
-            <div className="flex items-start gap-2 mb-2">
-              {getCategoryIcon(post.category)}
-              <h3 className="font-semibold line-clamp-2">{post.title}</h3>
-            </div>
+            <div className="flex flex-wrap gap-1 mb-2">{getStatusBadge(post.publication_status)}{getAudienceBadge(post.audience)}</div>
+            <div className="flex items-start gap-2 mb-2">{getCategoryIcon(post.category)}<h3 className="font-semibold line-clamp-2">{post.title}</h3></div>
             <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{post.content}</p>
-            <div className="text-xs text-muted-foreground">
-              {format(new Date(post.created_at), 'dd.MM.yyyy', { locale: de })}
-            </div>
+            <div className="text-xs text-muted-foreground">{format(new Date(post.created_at), 'dd.MM.yyyy', { locale: de })}</div>
             {canManage(post) && (
               <div className="flex gap-2 mt-3 pt-3 border-t" onClick={(e) => e.stopPropagation()}>
-                <Button variant="ghost" size="sm" onClick={() => onEdit(post)}>
-                  <Edit className="w-4 h-4" />
-                </Button>
+                <Button variant="ghost" size="sm" onClick={() => onEdit(post)}><Edit className="w-4 h-4" /></Button>
                 {post.publication_status === 'draft' && canSubmit(post) && post.audience === 'public' && (
-                  <Button variant="ghost" size="sm" onClick={() => onSubmit(post)}>
-                    <Send className="w-4 h-4" />
-                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => onSubmit(post)}><Send className="w-4 h-4" /></Button>
                 )}
-                <Button variant="ghost" size="sm" onClick={() => onDelete(post)} className="text-destructive">
-                  <Trash2 className="w-4 h-4" />
-                </Button>
+                <Button variant="ghost" size="sm" onClick={() => onDelete(post)} className="text-destructive"><Trash2 className="w-4 h-4" /></Button>
               </div>
             )}
           </CardContent>
