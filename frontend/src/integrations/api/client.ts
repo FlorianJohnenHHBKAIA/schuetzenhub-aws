@@ -261,6 +261,7 @@ class TableQuery {
       award_types: "/api/award-types",
       roles: "/api/roles",
       permissions: "/api/permissions",
+      role_permissions: "/api/role-permissions",
     };
 
     const apiPath = tableApiMap[this.table];

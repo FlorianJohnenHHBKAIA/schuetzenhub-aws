@@ -1,17 +1,19 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Plus, Edit, Trash2, Loader2, Shield, Building2 } from "lucide-react";
+import { Plus, Edit, Trash2, Loader2, Shield, Building2, Star } from "lucide-react";
 import PortalLayout from "@/components/portal/PortalLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface Role {
   id: string;
@@ -57,6 +59,7 @@ const Roles = () => {
   const [deletingRole, setDeletingRole] = useState<Role | null>(null);
   const [roleName, setRoleName] = useState("");
   const [roleLevel, setRoleLevel] = useState<"club" | "company">("club");
+  const [isDefault, setIsDefault] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
 
@@ -66,21 +69,33 @@ const Roles = () => {
 
   const fetchRoles = async () => {
     setIsLoading(true);
-    const { data: rolesData } = await supabase.from("roles").select("*").eq("club_id", member!.club_id).order("name");
+    try {
+      const { data: rolesData, error } = await supabase.from("roles").select("*").eq("club_id", member!.club_id).order("name");
 
-    if (rolesData) {
-      const { data: appointments } = await supabase.from("appointments").select("role_id").is("valid_to", null);
-      const countMap = new Map<string, number>();
-      ((appointments as RawAppointment[]) || []).forEach((a) => {
-        countMap.set(a.role_id, (countMap.get(a.role_id) || 0) + 1);
-      });
+      if (error) {
+        console.error("Fehler beim Laden der Rollen:", error);
+        toast({ title: "Fehler", description: "Ämter konnten nicht geladen werden: " + error.message, variant: "destructive" });
+        setIsLoading(false);
+        return;
+      }
 
-      const enrichedRoles = (rolesData as Role[]).map((r) => ({ ...r, appointment_count: countMap.get(r.id) || 0 }));
-      setClubRoles(enrichedRoles.filter((r) => r.level === "club"));
-      setCompanyRoles(enrichedRoles.filter((r) => r.level === "company"));
+      if (rolesData) {
+        const { data: appointments } = await supabase.from("appointments").select("role_id").is("valid_to", null);
+        const countMap = new Map<string, number>();
+        ((appointments as RawAppointment[]) || []).forEach((a) => {
+          countMap.set(a.role_id, (countMap.get(a.role_id) || 0) + 1);
+        });
+
+        const enrichedRoles = (rolesData as Role[]).map((r) => ({ ...r, appointment_count: countMap.get(r.id) || 0 }));
+        setClubRoles(enrichedRoles.filter((r) => r.level === "club"));
+        setCompanyRoles(enrichedRoles.filter((r) => r.level === "company"));
+      }
+    } catch (err) {
+      console.error("Fehler beim Abrufen von Rollen:", err);
+      toast({ title: "Fehler", description: "Fehler beim Laden der Ämter", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
     }
-
-    setIsLoading(false);
   };
 
   const seedDefaultRoles = async () => {
@@ -88,17 +103,34 @@ const Roles = () => {
     setIsSeeding(true);
 
     try {
-      const { data: existing } = await supabase.from("roles").select("id").eq("club_id", member.club_id).eq("is_default", true).limit(1);
+      const { data: existing, error: checkError } = await supabase.from("roles").select("id").eq("club_id", member.club_id).eq("is_default", true).limit(1);
+      if (checkError) {
+        console.error("Fehler beim Prüfen existierender Rollen:", checkError);
+        throw checkError;
+      }
+
       const existingList = (existing as { id: string }[] | null) || [];
-      if (existingList.length > 0) { toast({ title: "Standard-Ämter wurden bereits angelegt" }); setIsSeeding(false); return; }
+      if (existingList.length > 0) { 
+        toast({ title: "Standard-Ämter wurden bereits angelegt" }); 
+        setIsSeeding(false); 
+        return; 
+      }
 
       const clubRolesToInsert = DEFAULT_CLUB_ROLES.map((name) => ({ club_id: member.club_id, name, level: "club" as const, is_default: true }));
       const companyRolesToInsert = DEFAULT_COMPANY_ROLES.map((name) => ({ club_id: member.club_id, name, level: "company" as const, is_default: true }));
 
       const { data: insertedRoles, error } = await supabase.from("roles").insert([...clubRolesToInsert, ...companyRolesToInsert]).select("id, name");
-      if (error) throw error;
+      if (error) {
+        console.error("Fehler beim Einfügen von Rollen:", error);
+        throw error;
+      }
 
-      const { data: allPermissions } = await supabase.from("permissions").select("id, key");
+      const { data: allPermissions, error: permError } = await supabase.from("permissions").select("id, key");
+      if (permError) {
+        console.error("Fehler beim Laden von Permissions:", permError);
+        throw permError;
+      }
+
       if (insertedRoles && allPermissions) {
         const permissionMap = new Map<string, string>(((allPermissions as RawPermission[]) || []).map((p) => [p.key, p.id]));
         const rolePermissionsToInsert: { role_id: string; permission_id: string }[] = [];
@@ -129,14 +161,20 @@ const Roles = () => {
         }
 
         if (rolePermissionsToInsert.length > 0) {
-          await supabase.from("role_permissions").insert(rolePermissionsToInsert);
+          const { error: permInsertError } = await supabase.from("role_permissions").insert(rolePermissionsToInsert);
+          if (permInsertError) {
+            console.error("Fehler beim Einfügen von Role Permissions:", permInsertError);
+            throw permInsertError;
+          }
         }
       }
 
       toast({ title: "Standard-Ämter mit Rechten angelegt" });
-      fetchRoles();
+      await fetchRoles();
     } catch (error: unknown) {
-      toast({ title: "Fehler", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error("Fehler beim Anlegen von Standard-Ämtern:", errorMsg);
+      toast({ title: "Fehler", description: errorMsg, variant: "destructive" });
     }
 
     setIsSeeding(false);
@@ -148,18 +186,29 @@ const Roles = () => {
 
     try {
       if (editingRole) {
-        await supabase.from("roles").update({ name: roleName }).eq("id", editingRole.id);
+        const { error } = await supabase.from("roles").update({ name: roleName, is_default: isDefault }).eq("id", editingRole.id);
+        if (error) {
+          console.error("Update Fehler:", error);
+          throw error;
+        }
         toast({ title: "Amt aktualisiert" });
       } else {
-        await supabase.from("roles").insert({ club_id: member!.club_id, name: roleName, level: roleLevel, is_default: false });
+        const { error } = await supabase.from("roles").insert({ club_id: member!.club_id, name: roleName, level: roleLevel, is_default: isDefault });
+        if (error) {
+          console.error("Insert Fehler:", error);
+          throw error;
+        }
         toast({ title: "Amt erstellt" });
       }
-      fetchRoles();
+      await fetchRoles();
       setIsDialogOpen(false);
       setRoleName("");
+      setIsDefault(false);
       setEditingRole(null);
     } catch (error: unknown) {
-      toast({ title: "Fehler", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error("Fehler beim Speichern:", errorMsg);
+      toast({ title: "Fehler", description: errorMsg, variant: "destructive" });
     }
 
     setIsSubmitting(false);
@@ -178,8 +227,8 @@ const Roles = () => {
     setDeletingRole(null);
   };
 
-  const openNewDialog = (level: "club" | "company") => { setEditingRole(null); setRoleName(""); setRoleLevel(level); setIsDialogOpen(true); };
-  const openEditDialog = (role: Role) => { setEditingRole(role); setRoleName(role.name); setRoleLevel(role.level); setIsDialogOpen(true); };
+  const openNewDialog = (level: "club" | "company") => { setEditingRole(null); setRoleName(""); setRoleLevel(level); setIsDefault(false); setIsDialogOpen(true); };
+  const openEditDialog = (role: Role) => { setEditingRole(role); setRoleName(role.name); setRoleLevel(role.level); setIsDefault(role.is_default); setIsDialogOpen(true); };
 
   if (!hasPermission("club.roles.manage")) {
     return <PortalLayout><p className="text-center py-12 text-muted-foreground">Keine Berechtigung</p></PortalLayout>;
@@ -252,7 +301,24 @@ const Roles = () => {
           <DialogHeader><DialogTitle>{editingRole ? "Amt bearbeiten" : "Neues Amt"}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div><Label>Name</Label><Input value={roleName} onChange={(e) => setRoleName(e.target.value)} placeholder="z.B. Kassenwart" /></div>
-            {!editingRole && <div><Label>Ebene</Label><p className="text-sm text-muted-foreground">{roleLevel === "club" ? "Hauptverein" : "Kompanie"}</p></div>}
+            {!editingRole && (
+              <div>
+                <Label>Ebene</Label>
+                <Select value={roleLevel} onValueChange={(v) => setRoleLevel(v as "club" | "company")}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="club">Hauptverein</SelectItem>
+                    <SelectItem value="company">Kompanie</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <Checkbox id="is-default" checked={isDefault} onCheckedChange={(checked) => setIsDefault(checked as boolean)} />
+              <Label htmlFor="is-default" className="cursor-pointer">Als Standard-Amt markieren</Label>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Abbrechen</Button>

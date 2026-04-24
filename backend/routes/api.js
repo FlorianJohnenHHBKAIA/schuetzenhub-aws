@@ -1389,4 +1389,193 @@ router.delete("/delegations/:id", requireAuth, async (req, res) => {
   }
 });
 
+// ─── Roles ────────────────────────────────────────────────────────────────────
+
+// GET /api/roles
+router.get("/roles", requireAuth, async (req, res) => {
+  try {
+    const query = `
+      SELECT id, club_id, name, level, is_default, created_at
+      FROM roles
+      WHERE club_id = $1
+      ORDER BY name ASC
+    `;
+    const { rows } = await pool.query(query, [req.clubId]);
+    res.json(rows);
+  } catch (err) {
+    console.error("roles GET error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// GET /api/roles/:id
+router.get("/roles/:id", requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT * FROM roles WHERE id = $1 AND club_id = $2",
+      [req.params.id, req.clubId]
+    );
+    if (!rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error("roles GET by ID error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// POST /api/roles
+router.post("/roles", requireAuth, async (req, res) => {
+  try {
+    const { name, level, is_default } = req.body;
+    if (!name || !level) {
+      return res.status(400).json({ error: "Name und Ebene sind erforderlich" });
+    }
+    
+    const id = uuidv4();
+    const { rows } = await pool.query(
+      `INSERT INTO roles (id, club_id, name, level, is_default, created_at)
+       VALUES ($1, $2, $3, $4, $5, now())
+       RETURNING *`,
+      [id, req.clubId, name, level, is_default || false]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error("roles POST error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// PUT /api/roles/:id
+router.put("/roles/:id", requireAuth, async (req, res) => {
+  try {
+    const { name, is_default } = req.body;
+    const { rows } = await pool.query(
+      `UPDATE roles SET
+         name = COALESCE($1, name),
+         is_default = COALESCE($2, is_default)
+       WHERE id = $3 AND club_id = $4
+       RETURNING *`,
+      [name || null, is_default !== undefined ? is_default : null, req.params.id, req.clubId]
+    );
+    if (!rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error("roles PUT error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// DELETE /api/roles/:id
+router.delete("/roles/:id", requireAuth, async (req, res) => {
+  try {
+    // Prüfe ob Rolle noch Appointments hat
+    const { rows: appointments } = await pool.query(
+      "SELECT id FROM appointments WHERE role_id = $1 LIMIT 1",
+      [req.params.id]
+    );
+    if (appointments.length > 0) {
+      return res.status(400).json({ error: "Rolle ist noch besetzt und kann nicht gelöscht werden" });
+    }
+    
+    await pool.query(
+      "DELETE FROM roles WHERE id = $1 AND club_id = $2",
+      [req.params.id, req.clubId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("roles DELETE error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// ─── Permissions ──────────────────────────────────────────────────────────────
+
+// GET /api/permissions
+router.get("/permissions", requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT id, key, description, created_at FROM permissions ORDER BY key ASC"
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("permissions GET error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// ─── Role Permissions ─────────────────────────────────────────────────────────
+
+// GET /api/role-permissions
+router.get("/role-permissions", requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT rp.id, rp.role_id, rp.permission_id, rp.created_at
+       FROM role_permissions rp
+       INNER JOIN roles r ON rp.role_id = r.id
+       WHERE r.club_id = $1`,
+      [req.clubId]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("role-permissions GET error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// POST /api/role-permissions
+router.post("/role-permissions", requireAuth, async (req, res) => {
+  try {
+    const { role_id, permission_id } = req.body;
+    if (!role_id || !permission_id) {
+      return res.status(400).json({ error: "role_id und permission_id sind erforderlich" });
+    }
+    
+    // Verifiziere dass die Rolle zum Club des Users gehört
+    const { rows: roleCheck } = await pool.query(
+      "SELECT id FROM roles WHERE id = $1 AND club_id = $2",
+      [role_id, req.clubId]
+    );
+    if (!roleCheck[0]) {
+      return res.status(403).json({ error: "Keine Berechtigung" });
+    }
+    
+    const id = uuidv4();
+    const { rows } = await pool.query(
+      `INSERT INTO role_permissions (id, role_id, permission_id, created_at)
+       VALUES ($1, $2, $3, now())
+       RETURNING *`,
+      [id, role_id, permission_id]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error("role-permissions POST error:", err);
+    if (err.code === "23505") { // Unique constraint violation
+      return res.status(400).json({ error: "Permission ist bereits diesem Amt zugewiesen" });
+    }
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// DELETE /api/role-permissions/:id
+router.delete("/role-permissions/:id", requireAuth, async (req, res) => {
+  try {
+    // Verifiziere dass die role_permission zum Club des Users gehört
+    const { rows: rp } = await pool.query(
+      `SELECT rp.id FROM role_permissions rp
+       INNER JOIN roles r ON rp.role_id = r.id
+       WHERE rp.id = $1 AND r.club_id = $2`,
+      [req.params.id, req.clubId]
+    );
+    if (!rp[0]) {
+      return res.status(403).json({ error: "Keine Berechtigung" });
+    }
+    
+    await pool.query("DELETE FROM role_permissions WHERE id = $1", [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("role-permissions DELETE error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
 module.exports = router;

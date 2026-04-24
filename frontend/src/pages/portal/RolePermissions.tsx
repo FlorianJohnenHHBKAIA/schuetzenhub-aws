@@ -50,22 +50,41 @@ const RolePermissions = () => {
   const fetchData = async () => {
     setIsLoading(true);
 
-    const [rolesRes, permissionsRes, rolePermissionsRes] = await Promise.all([
-      supabase.from("roles").select("*").eq("club_id", member!.club_id).order("name"),
-      supabase.from("permissions").select("*").order("key"),
-      supabase.from("role_permissions").select("role_id, permission_id"),
-    ]);
+    try {
+      const [rolesRes, permissionsRes, rolePermissionsRes] = await Promise.all([
+        supabase.from("roles").select("*").eq("club_id", member!.club_id).order("name"),
+        supabase.from("permissions").select("*").order("key"),
+        supabase.from("role_permissions").select("role_id, permission_id"),
+      ]);
 
-    setRoles((rolesRes.data as Role[]) || []);
-    setPermissions((permissionsRes.data as Permission[]) || []);
+      if (rolesRes.error) {
+        console.error("Fehler beim Laden von Rollen:", rolesRes.error);
+        throw rolesRes.error;
+      }
+      if (permissionsRes.error) {
+        console.error("Fehler beim Laden von Berechtigungen:", permissionsRes.error);
+        throw permissionsRes.error;
+      }
+      if (rolePermissionsRes.error) {
+        console.error("Fehler beim Laden von Role Permissions:", rolePermissionsRes.error);
+        throw rolePermissionsRes.error;
+      }
 
-    const clubRoleIds = new Set(((rolesRes.data as Role[]) || []).map((r) => r.id));
-    const filteredRolePermissions = ((rolePermissionsRes.data as RolePermission[]) || []).filter(
-      (rp) => clubRoleIds.has(rp.role_id)
-    );
-    setRolePermissions(filteredRolePermissions);
+      setRoles((rolesRes.data as Role[]) || []);
+      setPermissions((permissionsRes.data as Permission[]) || []);
 
-    setIsLoading(false);
+      const clubRoleIds = new Set(((rolesRes.data as Role[]) || []).map((r) => r.id));
+      const filteredRolePermissions = ((rolePermissionsRes.data as RolePermission[]) || []).filter(
+        (rp) => clubRoleIds.has(rp.role_id)
+      );
+      setRolePermissions(filteredRolePermissions);
+    } catch (error: unknown) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error("Fehler beim Laden der Daten:", errorMsg);
+      toast({ title: "Fehler", description: "Daten konnten nicht geladen werden: " + errorMsg, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const clubRoles = roles.filter((r) => r.level === "club");
@@ -106,20 +125,27 @@ const RolePermissions = () => {
         const exists = rolePermissions.some((rp) => rp.role_id === roleId && rp.permission_id === permissionId);
 
         if (exists) {
-          const { error } = await supabase.from("role_permissions").delete().eq("role_id", roleId).eq("permission_id", permissionId);
-          if (error) throw error;
+          const deleteRes = await supabase.from("role_permissions").delete().eq("role_id", roleId).eq("permission_id", permissionId);
+          if (deleteRes.error) {
+            console.error("Delete error:", deleteRes.error);
+            throw deleteRes.error;
+          }
         } else {
-          const { error } = await supabase.from("role_permissions").insert({ role_id: roleId, permission_id: permissionId });
-          if (error) throw error;
+          const insertRes = await supabase.from("role_permissions").insert({ role_id: roleId, permission_id: permissionId });
+          if (insertRes.error) {
+            console.error("Insert error:", insertRes.error);
+            throw insertRes.error;
+          }
         }
       }
 
       toast({ title: "Rechte gespeichert" });
       setPendingChanges(new Set());
-      fetchData();
+      await fetchData();
     } catch (error: unknown) {
-      console.error("Save error:", error);
-      toast({ title: "Fehler", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error("Save error:", errorMsg);
+      toast({ title: "Fehler", description: errorMsg, variant: "destructive" });
     }
 
     setIsSaving(false);
