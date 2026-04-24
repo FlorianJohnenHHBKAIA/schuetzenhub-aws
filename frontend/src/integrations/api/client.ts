@@ -262,6 +262,10 @@ class TableQuery {
       roles: "/api/roles",
       permissions: "/api/permissions",
       role_permissions: "/api/role-permissions",
+      appointments: "/api/appointments",
+      delegations: "/api/delegations",
+      magazines: "/api/magazines",
+      magazine_ads: "/api/magazine-ads",
     };
 
     const apiPath = tableApiMap[this.table];

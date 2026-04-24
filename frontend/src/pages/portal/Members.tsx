@@ -6,7 +6,7 @@ import PortalLayout from "@/components/portal/PortalLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/integrations/api/client";
+import { supabase, apiJson } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
 import MemberDialog from "@/components/portal/MemberDialog";
 import MemberManagementDialog from "@/components/portal/MemberManagementDialog";
@@ -39,6 +39,8 @@ interface Member {
   city: string | null;
   status: string;
   created_at: string;
+  current_role_title: string | null;
+  company_ids: string[] | null;
   user_id: string | null;
 }
 
@@ -75,24 +77,19 @@ const Members = () => {
     if (!currentMember?.club_id) return;
 
     try {
-      const [membersRes, companiesRes, membershipsRes] = await Promise.all([
-        supabase.from("members").select("*").eq("club_id", currentMember.club_id).order("last_name", { ascending: true }),
+      const [membersData, companiesRes] = await Promise.all([
+        apiJson<Member[]>("/api/members"),
         supabase.from("companies").select("id, name").eq("club_id", currentMember.club_id).order("name", { ascending: true }),
-        supabase.from("member_company_memberships").select("member_id, company_id").is("valid_to", null),
       ]);
 
-      if (membersRes.error) throw membersRes.error;
       if (companiesRes.error) throw companiesRes.error;
-      if (membershipsRes.error) throw membershipsRes.error;
 
-      setMembers((membersRes.data as Member[]) || []);
+      setMembers(membersData || []);
       setCompanies((companiesRes.data as Company[]) || []);
 
       const map = new Map<string, string[]>();
-      ((membershipsRes.data as MemberCompanyMembership[]) || []).forEach((m) => {
-        const existing = map.get(m.member_id) || [];
-        existing.push(m.company_id);
-        map.set(m.member_id, existing);
+      (membersData || []).forEach((m) => {
+        if (m.company_ids) map.set(m.id, m.company_ids);
       });
       setMemberCompanyMap(map);
     } catch (error: unknown) {
@@ -207,6 +204,7 @@ const Members = () => {
                       <th className="text-left px-6 py-4 text-sm font-medium text-muted-foreground">Name</th>
                       <th className="text-left px-6 py-4 text-sm font-medium text-muted-foreground">E-Mail</th>
                       <th className="text-left px-6 py-4 text-sm font-medium text-muted-foreground">Telefon</th>
+                      <th className="text-left px-6 py-4 text-sm font-medium text-muted-foreground">Amt</th>
                       <th className="text-left px-6 py-4 text-sm font-medium text-muted-foreground">Status</th>
                       <th className="text-right px-6 py-4 text-sm font-medium text-muted-foreground">Aktionen</th>
                     </tr>
@@ -219,6 +217,7 @@ const Members = () => {
                           <td className="px-6 py-4"><span className="font-medium text-foreground">{member.last_name}, {member.first_name}</span></td>
                           <td className="px-6 py-4 text-muted-foreground">{member.email}</td>
                           <td className="px-6 py-4 text-muted-foreground">{member.phone || "–"}</td>
+                          <td className="px-6 py-4 text-muted-foreground">{member.current_role_title || "–"}</td>
                           <td className="px-6 py-4"><span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${status.className}`}>{status.label}</span></td>
                           <td className="px-6 py-4">
                             <div className="flex items-center justify-end gap-2">

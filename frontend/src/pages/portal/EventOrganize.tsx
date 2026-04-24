@@ -47,7 +47,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/integrations/api/client";
+import { supabase, apiJson } from "@/integrations/api/client";
 import { toast } from "sonner";
 import EventPostsSection from "@/components/portal/EventPostsSection";
 import EventQuickActions from "@/components/portal/EventQuickActions";
@@ -83,6 +83,7 @@ interface WorkShift {
   required_slots: number;
   owner_type: OwnerType;
   owner_id: string;
+  assignments?: WorkShiftAssignment[];
 }
 
 interface WorkShiftAssignment {
@@ -187,66 +188,27 @@ const EventOrganize = () => {
     setIsLoading(true);
 
     try {
-      const { data: eventData, error: eventError } = await supabase
-        .from("events")
-        .select("*")
-        .eq("id", id)
-        .eq("club_id", member.club_id)
-        .single();
-
-      if (eventError) throw eventError;
-      if (!eventData) {
-        toast.error("Event nicht gefunden");
-        navigate("/portal/events");
-        return;
-      }
-
-      const evt = eventData as Event;
+      const evt = await apiJson<Event>(`/api/events/${id}`);
       setEvent(evt);
       setInternalNotes(evt.internal_notes || "");
       setResponsibleMemberId(evt.responsible_member_id || null);
       initialNotesRef.current = evt.internal_notes || "";
 
-      const { data: companiesData } = await supabase
-        .from("companies")
-        .select("id, name")
-        .eq("club_id", member.club_id);
-      setCompanies((companiesData as Company[]) || []);
+      const companiesList = await apiJson<Company[]>("/api/companies") || [];
+      setCompanies(companiesList);
 
-      const { data: membersData } = await supabase
-        .from("members")
-        .select("id, first_name, last_name")
-        .eq("club_id", member.club_id)
-        .order("last_name");
-      setMembers((membersData as Member[]) || []);
+      const membersList = await apiJson<Member[]>("/api/members") || [];
+      setMembers(membersList);
 
-      const { data: shiftsData } = await supabase
-        .from("work_shifts")
-        .select("*")
-        .eq("event_id", id)
-        .order("start_at");
-      const shiftsList = (shiftsData as WorkShift[]) || [];
+      const shiftsList = await apiJson<WorkShift[]>(`/api/work-shifts?event_id=${id}`) || [];
       setShifts(shiftsList);
 
-      if (shiftsList.length > 0) {
-        const shiftIds = shiftsList.map((s) => s.id);
-        const { data: assignmentsData } = await supabase
-          .from("work_shift_assignments")
-          .select(`id, work_shift_id, member_id, status, hours_override, member:members(id, first_name, last_name)`)
-          .in("work_shift_id", shiftIds);
-
-        setAssignments(
-          ((assignmentsData as RawAssignment[]) || []).map((a) => ({
-            ...a,
-            member: Array.isArray(a.member) ? a.member[0] : a.member ?? undefined,
-          }))
-        );
-      } else {
-        setAssignments([]);
-      }
+      const allAssignments = shiftsList.flatMap((s) => s.assignments || []);
+      setAssignments(allAssignments);
     } catch (error: unknown) {
       console.error("Error fetching data:", error);
       toast.error("Fehler beim Laden");
+      navigate("/portal/events");
     } finally {
       setIsLoading(false);
     }
@@ -258,15 +220,13 @@ const EventOrganize = () => {
     const notesChanged = internalNotes.trim() !== initialNotesRef.current;
 
     try {
-      const { error } = await supabase
-        .from("events")
-        .update({
+      await apiJson(`/api/events/${event.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
           internal_notes: internalNotes.trim() || null,
           responsible_member_id: responsibleMemberId,
-        })
-        .eq("id", event.id);
-
-      if (error) throw error;
+        }),
+      });
       
       if (notesChanged && internalNotes.trim()) {
         await notifyEventNotesChanged(member.club_id, event.id, event.title, member.id);
@@ -322,12 +282,16 @@ const EventOrganize = () => {
 
     try {
       if (editingShift) {
-        const { error } = await supabase.from("work_shifts").update(shiftData).eq("id", editingShift.id);
-        if (error) throw error;
+        await apiJson(`/api/work-shifts/${editingShift.id}`, {
+          method: "PUT",
+          body: JSON.stringify(shiftData),
+        });
         toast.success("Schicht aktualisiert");
       } else {
-        const { error } = await supabase.from("work_shifts").insert({ ...shiftData, created_by_member_id: member.id });
-        if (error) throw error;
+        await apiJson("/api/work-shifts", {
+          method: "POST",
+          body: JSON.stringify({ ...shiftData, created_by_member_id: member.id }),
+        });
         await notifyNewShift(member.club_id, event.id, formTitle, event.title, member.id);
         toast.success("Schicht erstellt");
       }
@@ -341,8 +305,7 @@ const EventOrganize = () => {
   const handleDeleteShift = async (shift: WorkShift) => {
     if (!confirm(`Schicht "${shift.title}" wirklich löschen?`)) return;
     try {
-      const { error } = await supabase.from("work_shifts").delete().eq("id", shift.id);
-      if (error) throw error;
+      await apiJson(`/api/work-shifts/${shift.id}`, { method: "DELETE" });
       toast.success("Schicht gelöscht");
       fetchData();
     } catch (error: unknown) {
@@ -353,13 +316,7 @@ const EventOrganize = () => {
   const handleSignUp = async (shift: WorkShift) => {
     if (!member) return;
     try {
-      const { error } = await supabase.from("work_shift_assignments").insert({
-        club_id: member.club_id,
-        work_shift_id: shift.id,
-        member_id: member.id,
-        status: "signed_up",
-      });
-      if (error) throw error;
+      await apiJson(`/api/work-shifts/${shift.id}/sign-up`, { method: "POST" });
       toast.success(`Für "${shift.title}" eingetragen`);
       fetchData();
     } catch (error: unknown) {
@@ -374,8 +331,10 @@ const EventOrganize = () => {
     );
     if (!assignment) return;
     try {
-      const { error } = await supabase.from("work_shift_assignments").update({ status: "cancelled" }).eq("id", assignment.id);
-      if (error) throw error;
+      await apiJson(`/api/work-shift-assignments/${assignment.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ status: "cancelled" })
+      });
       toast.success(`Von "${shift.title}" ausgetragen`);
       fetchData();
     } catch (error: unknown) {
@@ -385,8 +344,10 @@ const EventOrganize = () => {
 
   const handleSetStatus = async (assignmentId: string, status: "completed" | "no_show") => {
     try {
-      const { error } = await supabase.from("work_shift_assignments").update({ status }).eq("id", assignmentId);
-      if (error) throw error;
+      await apiJson(`/api/work-shift-assignments/${assignmentId}`, {
+        method: "PUT",
+        body: JSON.stringify({ status })
+      });
       toast.success(status === "completed" ? "Als erledigt markiert" : "Als No-Show markiert");
       fetchData();
     } catch (error: unknown) {
@@ -398,9 +359,10 @@ const EventOrganize = () => {
     const shiftAssignments = assignments.filter((a) => a.work_shift_id === shiftId && a.status === "signed_up");
     if (shiftAssignments.length === 0) { toast.info("Keine offenen Einsätze zum Markieren"); return; }
     try {
-      for (const a of shiftAssignments) {
-        await supabase.from("work_shift_assignments").update({ status: "completed" }).eq("id", a.id);
-      }
+      await apiJson("/api/work-shift-assignments/bulk-status", {
+        method: "POST",
+        body: JSON.stringify({ ids: shiftAssignments.map(a => a.id), status: "completed" })
+      });
       toast.success(`${shiftAssignments.length} Einsätze als erledigt markiert`);
       fetchData();
     } catch (error: unknown) {
@@ -412,9 +374,10 @@ const EventOrganize = () => {
     const signedUpAssignments = assignments.filter((a) => a.status === "signed_up");
     if (signedUpAssignments.length === 0) { toast.info("Keine offenen Einsätze zum Markieren"); return; }
     try {
-      for (const a of signedUpAssignments) {
-        await supabase.from("work_shift_assignments").update({ status: "completed" }).eq("id", a.id);
-      }
+      await apiJson("/api/work-shift-assignments/bulk-status", {
+        method: "POST",
+        body: JSON.stringify({ ids: signedUpAssignments.map(a => a.id), status: "completed" })
+      });
       toast.success(`${signedUpAssignments.length} Einsätze als erledigt markiert`);
       fetchData();
     } catch (error: unknown) {

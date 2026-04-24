@@ -235,6 +235,109 @@ router.post("/companies/:id/logo", requireAuth, upload.single("file"), async (re
   res.json({ url: getPublicUrl("company-assets", destPath) });
 });
 
+// ─── Events ───────────────────────────────────────────────────────────────────
+
+router.get("/events", requireAuth, async (req, res) => {
+  try {
+    const { from, to, ids } = req.query;
+    let query = "SELECT * FROM events WHERE club_id = $1";
+    const params = [req.clubId];
+
+    if (ids) {
+      const idList = ids.split(",");
+      const placeholders = idList.map((_, i) => `$${i + 2}`).join(",");
+      query += ` AND id IN (${placeholders})`;
+      params.push(...idList);
+    } else {
+      if (from) {
+        params.push(from);
+        query += ` AND start_at >= $${params.length}`;
+      }
+      if (to) {
+        params.push(to);
+        query += ` AND start_at <= $${params.length}`;
+      }
+    }
+
+    query += " ORDER BY start_at ASC";
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error("GET /events error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+router.get("/events/:id", requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM events WHERE id = $1 AND club_id = $2",
+      [req.params.id, req.clubId]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("GET /events/:id error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+router.post("/events", requireAuth, async (req, res) => {
+  const { title, description, location, start_at, end_at, category, owner_type, owner_id, audience, publication_status } = req.body;
+  if (!title || !start_at) return res.status(400).json({ error: "Titel und Startdatum erforderlich" });
+  const id = uuidv4();
+  try {
+    const result = await pool.query(
+      `INSERT INTO events (id, club_id, title, description, location, start_at, end_at, category, owner_type, owner_id, audience, publication_status, created_by_member_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+      [id, req.clubId, title, description || null, location || null, start_at, end_at || null, category || 'other', owner_type || 'club', owner_id || req.clubId, audience || 'club_internal', publication_status || 'draft', req.member.id]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error("POST /events error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+router.put("/events/:id", requireAuth, async (req, res) => {
+  const { title, description, location, start_at, end_at, category, owner_type, owner_id, audience, publication_status, internal_notes, responsible_member_id } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE events SET
+        title = COALESCE($1, title),
+        description = COALESCE($2, description),
+        location = COALESCE($3, location),
+        start_at = COALESCE($4, start_at),
+        end_at = COALESCE($5, end_at),
+        category = COALESCE($6, category),
+        owner_type = COALESCE($7, owner_type),
+        owner_id = COALESCE($8, owner_id),
+        audience = COALESCE($9, audience),
+        publication_status = COALESCE($10, publication_status),
+        internal_notes = COALESCE($11, internal_notes),
+        responsible_member_id = COALESCE($12, responsible_member_id),
+        updated_at = now()
+       WHERE id = $13 AND club_id = $14 RETURNING *`,
+      [title || null, description || null, location || null, start_at || null, end_at || null, category || null, owner_type || null, owner_id || null, audience || null, publication_status || null, internal_notes || null, responsible_member_id || null, req.params.id, req.clubId]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("PUT /events/:id error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+router.delete("/events/:id", requireAuth, async (req, res) => {
+  try {
+    await pool.query("DELETE FROM events WHERE id = $1 AND club_id = $2", [req.params.id, req.clubId]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("DELETE /events/:id error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
 // ─── Posts ────────────────────────────────────────────────────────────────────
 
 router.get("/posts", requireAuth, async (req, res) => {
@@ -459,17 +562,37 @@ router.delete("/documents/:id", requireAuth, async (req, res) => {
 // ─── Work Shifts ──────────────────────────────────────────────────────────────
 
 router.get("/work-shifts", requireAuth, async (req, res) => {
-  const result = await pool.query(
-    `SELECT ws.*, 
-      json_agg(wsa.*) FILTER (WHERE wsa.id IS NOT NULL) as assignments
-     FROM work_shifts ws
-     LEFT JOIN work_shift_assignments wsa ON wsa.work_shift_id = ws.id
-     WHERE ws.club_id = $1
-     GROUP BY ws.id
-     ORDER BY ws.start_at ASC`,
-    [req.clubId]
-  );
-  res.json(result.rows);
+  const { event_id } = req.query;
+  try {
+    let query = `
+      SELECT ws.*, 
+        json_agg(
+          json_build_object(
+            'id', wsa.id,
+            'work_shift_id', wsa.work_shift_id,
+            'member_id', wsa.member_id,
+            'status', wsa.status,
+            'member', CASE WHEN m.id IS NOT NULL THEN json_build_object('id', m.id, 'first_name', m.first_name, 'last_name', m.last_name) ELSE NULL END
+          )
+        ) FILTER (WHERE wsa.id IS NOT NULL) as assignments
+      FROM work_shifts ws
+      LEFT JOIN work_shift_assignments wsa ON wsa.work_shift_id = ws.id
+      LEFT JOIN members m ON m.id = wsa.member_id
+      WHERE ws.club_id = $1`;
+    const params = [req.clubId];
+
+    if (event_id) {
+      params.push(event_id);
+      query += ` AND ws.event_id = $${params.length}`;
+    }
+
+    query += ` GROUP BY ws.id ORDER BY ws.start_at ASC`;
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error("GET /work-shifts error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
 });
 
 router.post("/work-shifts", requireAuth, async (req, res) => {
@@ -497,7 +620,9 @@ router.post("/work-shifts/:id/sign-up", requireAuth, async (req, res) => {
   try {
     await pool.query(
       `INSERT INTO work_shift_assignments (id, work_shift_id, member_id, status)
-       VALUES ($1,$2,$3,'signed_up') ON CONFLICT (work_shift_id, member_id) DO NOTHING`,
+       VALUES ($1, $2, $3, 'signed_up')
+       ON CONFLICT (work_shift_id, member_id) 
+       DO UPDATE SET status = 'signed_up'`,
       [id, req.params.id, req.member.id]
     );
     res.json({ success: true });
@@ -506,97 +631,35 @@ router.post("/work-shifts/:id/sign-up", requireAuth, async (req, res) => {
   }
 });
 
-// ─── Roles & Permissions ──────────────────────────────────────────────────────
-
-router.get("/roles", requireAuth, async (req, res) => {
-  const result = await pool.query(
-    "SELECT r.*, json_agg(p.key) FILTER (WHERE p.key IS NOT NULL) as permissions FROM roles r LEFT JOIN role_permissions rp ON rp.role_id = r.id LEFT JOIN permissions p ON p.id = rp.permission_id WHERE r.club_id = $1 GROUP BY r.id ORDER BY r.name",
-    [req.clubId]
-  );
-  res.json(result.rows);
-});
-
-router.get("/permissions", requireAuth, async (req, res) => {
-  const result = await pool.query("SELECT * FROM permissions ORDER BY key");
-  res.json(result.rows);
-});
-
-// ─── Member Company Memberships ───────────────────────────────────────────────
-
-router.get("/memberships", requireAuth, async (req, res) => {
-  const result = await pool.query(
-    `SELECT mcm.* FROM member_company_memberships mcm
-     JOIN members m ON m.id = mcm.member_id
-     WHERE m.club_id = $1`,
-    [req.clubId]
-  );
-  res.json(result.rows);
-});
-
-router.post("/memberships", requireAuth, async (req, res) => {
-  const { member_id, company_id, valid_from } = req.body;
-  if (!member_id || !company_id) return res.status(400).json({ error: "Pflichtfelder fehlen" });
-  const id = uuidv4();
-  // Bestehende aktive Mitgliedschaft beenden
-  await pool.query(
-    "UPDATE member_company_memberships SET valid_to = now() WHERE member_id = $1 AND valid_to IS NULL",
-    [member_id]
-  );
-  const result = await pool.query(
-    "INSERT INTO member_company_memberships (id, member_id, company_id, valid_from) VALUES ($1,$2,$3,$4) RETURNING *",
-    [id, member_id, company_id, valid_from || new Date().toISOString().split("T")[0]]
-  );
-  res.status(201).json(result.rows[0]);
-});
-
-// ─── Dashboard Stats ──────────────────────────────────────────────────────────
-
-router.get("/dashboard", requireAuth, async (req, res) => {
+// DELETE /api/work-shift-assignments/:id (Austragen)
+router.delete("/work-shift-assignments/:id", requireAuth, async (req, res) => {
   try {
-    const now = new Date().toISOString();
-    const [
-      membershipRes, eventsRes, postRes, notifRes, pendingAwardsRes
-    ] = await Promise.all([
-      pool.query(
-        "SELECT company_id FROM member_company_memberships WHERE member_id = $1 AND valid_to IS NULL LIMIT 1",
-        [req.member.id]
-      ),
-      pool.query(
-        "SELECT id, title, start_at, location, owner_type, owner_id, audience FROM events WHERE club_id = $1 AND start_at >= $2 ORDER BY start_at ASC LIMIT 10",
-        [req.clubId, now]
-      ),
-      pool.query(
-        "SELECT id, title, created_at, cover_image_path FROM posts WHERE club_id = $1 AND publication_status = 'approved' ORDER BY created_at DESC LIMIT 1",
-        [req.clubId]
-      ),
-      pool.query(
-        "SELECT COUNT(*) FROM notifications WHERE recipient_member_id = $1 AND is_read = false",
-        [req.member.id]
-      ),
-      pool.query(
-        "SELECT COUNT(*) FROM member_awards WHERE member_id = $1 AND status = 'pending'",
-        [req.member.id]
-      ),
-    ]);
-
-    const companyId = membershipRes.rows[0]?.company_id || null;
-    const events = eventsRes.rows;
-    const companyEvents = companyId ? events.filter(e => e.owner_type === "company" && e.owner_id === companyId) : [];
-    const clubEvents = events.filter(e => e.owner_type === "club");
-
-    res.json({
-      companyId,
-      companyEvents,
-      clubEvents,
-      latestPost: postRes.rows[0] ? {
-        ...postRes.rows[0],
-        cover_image_url: postRes.rows[0].cover_image_path ? getPublicUrl("post-images", postRes.rows[0].cover_image_path) : null
-      } : null,
-      unreadNotifications: parseInt(notifRes.rows[0].count),
-      pendingAwardRequests: parseInt(pendingAwardsRes.rows[0].count),
-    });
+    await pool.query("DELETE FROM work_shift_assignments WHERE id = $1", [req.params.id]);
+    res.json({ success: true });
   } catch (err) {
-    console.error(err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// PUT /api/work-shift-assignments/:id (Status ändern)
+router.put("/work-shift-assignments/:id", requireAuth, async (req, res) => {
+  const { status } = req.body;
+  try {
+    await pool.query("UPDATE work_shift_assignments SET status = $1 WHERE id = $2", [status, req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// POST /api/work-shift-assignments/bulk-status (Mehrere als erledigt markieren)
+router.post("/work-shift-assignments/bulk-status", requireAuth, async (req, res) => {
+  const { ids, status } = req.body;
+  if (!Array.isArray(ids) || !status) return res.status(400).json({ error: "Ungültige Daten" });
+  try {
+    await pool.query("UPDATE work_shift_assignments SET status = $1 WHERE id = ANY($2)", [status, ids]);
+    res.json({ success: true });
+  } catch (err) {
     res.status(500).json({ error: "Serverfehler" });
   }
 });
@@ -677,48 +740,33 @@ router.delete("/awards/:id", requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
 });
 
-// ─── Roles & Permissions ─────────────────────────────────────────────────────
+// ─── Member Company Memberships ───────────────────────────────────────────────
 
-router.post("/roles", requireAuth, async (req, res) => {
-  try {
-    const { name, description } = req.body;
-    const result = await pool.query(
-      "INSERT INTO roles (id, club_id, name, description) VALUES (gen_random_uuid(), $1, $2, $3) RETURNING *",
-      [req.clubId, name, description || null]
-    );
-    res.json(result.rows[0]);
-  } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
+router.get("/memberships", requireAuth, async (req, res) => {
+  const result = await pool.query(
+    `SELECT mcm.* FROM member_company_memberships mcm
+     JOIN members m ON m.id = mcm.member_id
+     WHERE m.club_id = $1`,
+    [req.clubId]
+  );
+  res.json(result.rows);
 });
 
-router.put("/roles/:id", requireAuth, async (req, res) => {
-  try {
-    const { name, description } = req.body;
-    const result = await pool.query(
-      "UPDATE roles SET name=$1, description=$2 WHERE id=$3 AND club_id=$4 RETURNING *",
-      [name, description || null, req.params.id, req.clubId]
-    );
-    res.json(result.rows[0]);
-  } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
+router.post("/memberships", requireAuth, async (req, res) => {
+  const { member_id, company_id, valid_from } = req.body;
+  if (!member_id || !company_id) return res.status(400).json({ error: "Pflichtfelder fehlen" });
+  const id = uuidv4();
+  // Bestehende aktive Mitgliedschaft beenden
+  await pool.query(
+    "UPDATE member_company_memberships SET valid_to = now() WHERE member_id = $1 AND valid_to IS NULL",
+    [member_id]
+  );
+  const result = await pool.query(
+    "INSERT INTO member_company_memberships (id, member_id, company_id, valid_from) VALUES ($1,$2,$3,$4) RETURNING *",
+    [id, member_id, company_id, valid_from || new Date().toISOString().split("T")[0]]
+  );
+  res.status(201).json(result.rows[0]);
 });
-
-router.delete("/roles/:id", requireAuth, async (req, res) => {
-  try {
-    await pool.query("DELETE FROM roles WHERE id=$1 AND club_id=$2", [req.params.id, req.clubId]);
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
-});
-
-router.put("/permissions/:id", requireAuth, async (req, res) => {
-  try {
-    const result = await pool.query(
-      "UPDATE permissions SET key=$1, description=$2 WHERE id=$3 RETURNING *",
-      [req.body.key, req.body.description || null, req.params.id]
-    );
-    res.json(result.rows[0]);
-  } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
-});
-
-// ─── Memberships ──────────────────────────────────────────────────────────────
 
 router.put("/memberships/:id", requireAuth, async (req, res) => {
   try {
@@ -736,6 +784,58 @@ router.delete("/memberships/:id", requireAuth, async (req, res) => {
     await pool.query("DELETE FROM member_company_memberships WHERE id=$1 AND club_id=$2", [req.params.id, req.clubId]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
+});
+
+// ─── Dashboard Stats ──────────────────────────────────────────────────────────
+
+router.get("/dashboard", requireAuth, async (req, res) => {
+  try {
+    const now = new Date().toISOString();
+    const [
+      membershipRes, eventsRes, postRes, notifRes, pendingAwardsRes
+    ] = await Promise.all([
+      pool.query(
+        "SELECT company_id FROM member_company_memberships WHERE member_id = $1 AND valid_to IS NULL LIMIT 1",
+        [req.member.id]
+      ),
+      pool.query(
+        "SELECT id, title, start_at, location, owner_type, owner_id, audience FROM events WHERE club_id = $1 AND start_at >= $2 ORDER BY start_at ASC LIMIT 10",
+        [req.clubId, now]
+      ),
+      pool.query(
+        "SELECT id, title, created_at, cover_image_path FROM posts WHERE club_id = $1 AND publication_status = 'approved' ORDER BY created_at DESC LIMIT 1",
+        [req.clubId]
+      ),
+      pool.query(
+        "SELECT COUNT(*) FROM notifications WHERE recipient_member_id = $1 AND is_read = false",
+        [req.member.id]
+      ),
+      pool.query(
+        "SELECT COUNT(*) FROM member_awards WHERE member_id = $1 AND status = 'pending'",
+        [req.member.id]
+      ),
+    ]);
+
+    const companyId = membershipRes.rows[0]?.company_id || null;
+    const events = eventsRes.rows;
+    const companyEvents = companyId ? events.filter(e => e.owner_type === "company" && e.owner_id === companyId) : [];
+    const clubEvents = events.filter(e => e.owner_type === "club");
+
+    res.json({
+      companyId,
+      companyEvents,
+      clubEvents,
+      latestPost: postRes.rows[0] ? {
+        ...postRes.rows[0],
+        cover_image_url: postRes.rows[0].cover_image_path ? getPublicUrl("post-images", postRes.rows[0].cover_image_path) : null
+      } : null,
+      unreadNotifications: parseInt(notifRes.rows[0].count),
+      pendingAwardRequests: parseInt(pendingAwardsRes.rows[0].count),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
 });
 
 // ─── Notification Settings ────────────────────────────────────────────────────
@@ -1137,41 +1237,57 @@ router.get("/appointments/leadership", requireAuth, async (req, res) => {
     );
     const leadership = result.rows.map(r => ({
       id: r.id,
-      role_name: r.title,
+      role_name: r.title || 'Mitglied',
       member: {
         id: r.member_id,
         first_name: r.first_name,
         last_name: r.last_name,
         avatar_url: r.avatar_url,
         title: r.member_title,
-      }
-    }));
+      },
+      roles: { name: r.title || 'Mitglied' } // Kompatibilität für Supabase-Join Syntax
+    } ));
     res.json(leadership);
   } catch (err) {
     console.error("appointments/leadership error:", err);
     res.json([]);
   }
 });
+
 // ─── Appointments (CRUD) ───────────────────────────────────────────────────────
 
 // GET /api/appointments – alle Appointments des Clubs
 router.get("/appointments", requireAuth, async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT a.*,
-              r.name as role_name,
+    const { member_id } = req.query;
+    let query = `SELECT a.*,
+              COALESCE(a.title, r.name, 'Mitglied') as resolved_role_name,
+              r.id as resolved_role_id,
               c.name as company_name,
               m.first_name,
               m.last_name
        FROM appointments a
-       LEFT JOIN roles r ON r.id = a.role_id
+       LEFT JOIN roles r ON (r.name = a.title OR r.id::text = a.title) AND r.club_id = a.club_id
        LEFT JOIN companies c ON c.id = a.scope_id AND a.scope_type = 'company'
        LEFT JOIN members m ON m.id = a.member_id
-       WHERE a.club_id = $1
-       ORDER BY a.valid_from DESC NULLS LAST`,
-      [req.clubId]
-    );
-    res.json(result.rows);
+       WHERE a.club_id = $1`;
+    const params = [req.clubId];
+
+    if (member_id) {
+      params.push(member_id);
+      query += ` AND a.member_id = $${params.length}`;
+    }
+
+    query += ` ORDER BY a.valid_from DESC NULLS LAST`;
+
+    const result = await pool.query(query, params);
+    const appointments = (result.rows || []).map(row => ({
+      ...row,
+      role_id: row.role_id || row.resolved_role_id,
+      role_name: row.resolved_role_name,
+      roles: { name: row.resolved_role_name, id: row.resolved_role_id } 
+    }));
+    res.json(appointments);
   } catch (err) {
     console.error("appointments GET error:", err);
     res.status(500).json({ error: "Serverfehler" });
@@ -1181,14 +1297,26 @@ router.get("/appointments", requireAuth, async (req, res) => {
 // POST /api/appointments
 router.post("/appointments", requireAuth, async (req, res) => {
   try {
-    const { member_id, role_id, title, scope_type, scope_id, valid_from, valid_to } = req.body;
-    const id = require("crypto").randomUUID();
+    let { member_id, title, role_id, scope_type, scope_id, valid_from, valid_to } = req.body;
+    
+    // Fallback: Wenn title fehlt, aber role_id vorhanden ist (Migration-Support)
+    if (!title && role_id) {
+      const roleRow = await pool.query("SELECT name FROM roles WHERE id = $1", [role_id]);
+      if (roleRow.rows[0]) title = roleRow.rows[0].name;
+    }
+
+    const id = uuidv4();
     const result = await pool.query(
-      `INSERT INTO appointments (id, club_id, member_id, role_id, title, scope_type, scope_id, valid_from, valid_to, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now()) RETURNING *`,
-      [id, req.clubId, member_id, role_id, title || null, scope_type || "club", scope_id, valid_from || null, valid_to || null]
+      `INSERT INTO appointments (id, club_id, member_id, title, scope_type, scope_id, valid_from, valid_to, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now()) RETURNING *`,
+      [id, req.clubId, member_id, title || 'Mitglied', scope_type || "club", scope_id || req.clubId, valid_from || null, valid_to || null]
     );
-    res.json(result.rows[0]);
+    const newAppointment = {
+      ...result.rows[0],
+      role_name: result.rows[0].title,
+      roles: { name: result.rows[0].title, id: role_id || null }
+    };
+    res.json(newAppointment);
   } catch (err) {
     console.error("appointments POST error:", err);
     res.status(500).json({ error: "Serverfehler" });
@@ -1198,23 +1326,35 @@ router.post("/appointments", requireAuth, async (req, res) => {
 // PUT /api/appointments/:id
 router.put("/appointments/:id", requireAuth, async (req, res) => {
   try {
-    const { member_id, role_id, title, scope_type, scope_id, valid_from, valid_to } = req.body;
+    let { member_id, title, role_id, scope_type, scope_id, valid_from, valid_to } = req.body;
+
+    // Fallback für role_id lookup
+    if (!title && role_id) {
+      const roleRow = await pool.query("SELECT name FROM roles WHERE id = $1", [role_id]);
+      if (roleRow.rows[0]) title = roleRow.rows[0].name;
+    }
+
     const result = await pool.query(
       `UPDATE appointments SET
          member_id   = COALESCE($1, member_id),
-         role_id     = COALESCE($2, role_id),
-         title       = COALESCE($3, title),
-         scope_type  = COALESCE($4, scope_type),
-         scope_id    = COALESCE($5, scope_id),
-         valid_from  = $6,
-         valid_to    = $7
-       WHERE id = $8 AND club_id = $9
+         title       = COALESCE($2, title),
+         scope_type  = COALESCE($3, scope_type),
+         scope_id    = COALESCE($4, scope_id),
+         valid_from  = $5,
+         valid_to    = $6
+       WHERE id = $7 AND club_id = $8
        RETURNING *`,
-      [member_id || null, role_id || null, title || null, scope_type || null, scope_id || null,
+      [member_id || null, title || null, scope_type || null, scope_id || null,
        valid_from || null, valid_to || null, req.params.id, req.clubId]
     );
     if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
-    res.json(result.rows[0]);
+    
+    const updatedAppointment = {
+      ...result.rows[0],
+      role_name: result.rows[0].title,
+      roles: { name: result.rows[0].title, id: role_id || null }
+    };
+    res.json(updatedAppointment);
   } catch (err) {
     console.error("appointments PUT error:", err);
     res.status(500).json({ error: "Serverfehler" });
@@ -1231,82 +1371,6 @@ router.delete("/appointments/:id", requireAuth, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error("appointments DELETE error:", err);
-    res.status(500).json({ error: "Serverfehler" });
-  }
-});
-
-// ─── Role Permissions ──────────────────────────────────────────────────────────
-
-// GET /api/role-permissions – alle role_permissions des Clubs
-router.get("/role-permissions", requireAuth, async (req, res) => {
-  try {
-    const result = await pool.query(
-      `SELECT rp.role_id, rp.permission_id
-       FROM role_permissions rp
-       JOIN roles r ON r.id = rp.role_id
-       WHERE r.club_id = $1`,
-      [req.clubId]
-    );
-    res.json(result.rows);
-  } catch (err) {
-    console.error("role-permissions GET error:", err);
-    res.status(500).json({ error: "Serverfehler" });
-  }
-});
-
-// POST /api/role-permissions – einzeln oder als Array
-router.post("/role-permissions", requireAuth, async (req, res) => {
-  try {
-    const records = Array.isArray(req.body) ? req.body : [req.body];
-    for (const { role_id, permission_id } of records) {
-      await pool.query(
-        `INSERT INTO role_permissions (role_id, permission_id)
-         VALUES ($1, $2) ON CONFLICT (role_id, permission_id) DO NOTHING`,
-        [role_id, permission_id]
-      );
-    }
-    res.json({ success: true });
-  } catch (err) {
-    console.error("role-permissions POST error:", err);
-    res.status(500).json({ error: "Serverfehler" });
-  }
-});
-
-// DELETE /api/role-permissions – löscht eine spezifische Zuweisung per Body
-router.delete("/role-permissions", requireAuth, async (req, res) => {
-  try {
-    const { role_id, permission_id } = req.body;
-    await pool.query(
-      "DELETE FROM role_permissions WHERE role_id = $1 AND permission_id = $2",
-      [role_id, permission_id]
-    );
-    res.json({ success: true });
-  } catch (err) {
-    console.error("role-permissions DELETE error:", err);
-    res.status(500).json({ error: "Serverfehler" });
-  }
-});
-
-// ─── Notifications (Bulk Insert) ───────────────────────────────────────────────
-
-// POST /api/notifications – einzelne oder mehrere Notifications anlegen
-router.post("/notifications", requireAuth, async (req, res) => {
-  try {
-    const records = Array.isArray(req.body) ? req.body : [req.body];
-    for (const n of records) {
-      const id = require("crypto").randomUUID();
-      await pool.query(
-        `INSERT INTO notifications
-           (id, club_id, recipient_member_id, type, reference_id, reference_type, payload, is_read, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, false, now())`,
-        [id, n.club_id, n.recipient_member_id, n.type,
-         n.reference_id || null, n.reference_type || null,
-         JSON.stringify(n.payload || {})]
-      );
-    }
-    res.json({ success: true });
-  } catch (err) {
-    console.error("notifications POST error:", err);
     res.status(500).json({ error: "Serverfehler" });
   }
 });
@@ -1342,7 +1406,7 @@ router.get("/delegations", requireAuth, async (req, res) => {
 router.post("/delegations", requireAuth, async (req, res) => {
   try {
     const { from_member_id, to_member_id, title, valid_from, valid_to } = req.body;
-    const id = require("crypto").randomUUID();
+    const id = uuidv4();
     const result = await pool.query(
       `INSERT INTO delegations (id, club_id, from_member_id, to_member_id, title, valid_from, valid_to, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, now()) RETURNING *`,
@@ -1394,6 +1458,10 @@ router.delete("/delegations/:id", requireAuth, async (req, res) => {
 // GET /api/roles
 router.get("/roles", requireAuth, async (req, res) => {
   try {
+    if (!req.clubId) {
+      return res.status(401).json({ error: "Nicht authentifiziert oder Club-ID fehlt" });
+    }
+    
     const query = `
       SELECT id, club_id, name, level, is_default, created_at
       FROM roles
@@ -1404,7 +1472,7 @@ router.get("/roles", requireAuth, async (req, res) => {
     res.json(rows);
   } catch (err) {
     console.error("roles GET error:", err);
-    res.status(500).json({ error: "Serverfehler" });
+    res.status(500).json({ error: "Serverfehler beim Abrufen der Ämter" });
   }
 });
 
@@ -1415,11 +1483,11 @@ router.get("/roles/:id", requireAuth, async (req, res) => {
       "SELECT * FROM roles WHERE id = $1 AND club_id = $2",
       [req.params.id, req.clubId]
     );
-    if (!rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
+    if (!rows[0]) return res.status(404).json({ error: "Amt nicht gefunden" });
     res.json(rows[0]);
   } catch (err) {
     console.error("roles GET by ID error:", err);
-    res.status(500).json({ error: "Serverfehler" });
+    res.status(500).json({ error: "Serverfehler beim Abrufen des Amtes" });
   }
 });
 
@@ -1427,8 +1495,18 @@ router.get("/roles/:id", requireAuth, async (req, res) => {
 router.post("/roles", requireAuth, async (req, res) => {
   try {
     const { name, level, is_default } = req.body;
-    if (!name || !level) {
-      return res.status(400).json({ error: "Name und Ebene sind erforderlich" });
+    
+    console.log(`[Roles POST] Erstelle Rolle: "${name}" für Club: ${req.clubId}`);
+    
+    // Validierung
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: "Amtsbezeichnung ist erforderlich" });
+    }
+    if (!level || !["club", "company"].includes(level)) {
+      return res.status(400).json({ error: "Ebene muss 'club' oder 'company' sein" });
+    }
+    if (!req.clubId) {
+      return res.status(401).json({ error: "Nicht authentifiziert oder Club-ID fehlt" });
     }
     
     const id = uuidv4();
@@ -1436,12 +1514,26 @@ router.post("/roles", requireAuth, async (req, res) => {
       `INSERT INTO roles (id, club_id, name, level, is_default, created_at)
        VALUES ($1, $2, $3, $4, $5, now())
        RETURNING *`,
-      [id, req.clubId, name, level, is_default || false]
+      [id, req.clubId, name.trim(), level, is_default === true ? true : false]
     );
+    
+    if (!rows[0]) {
+      return res.status(500).json({ error: "Rolle konnte nicht erstellt werden" });
+    }
+    
     res.status(201).json(rows[0]);
   } catch (err) {
     console.error("roles POST error:", err);
-    res.status(500).json({ error: "Serverfehler" });
+    
+    // Besseres Error-Handling
+    if (err.code === "23505") {
+      return res.status(400).json({ error: "Ein Amt mit diesem Namen existiert bereits für diesen Club" });
+    }
+    if (err.code === "23503") {
+      return res.status(400).json({ error: "Club oder Level nicht gefunden" });
+    }
+    
+    res.status(500).json({ error: `Fehler beim Erstellen des Amtes: ${err.message || "Unbekannter Fehler"}` });
   }
 });
 
@@ -1449,19 +1541,28 @@ router.post("/roles", requireAuth, async (req, res) => {
 router.put("/roles/:id", requireAuth, async (req, res) => {
   try {
     const { name, is_default } = req.body;
+    
+    if (name !== undefined && (!name || !name.trim())) {
+      return res.status(400).json({ error: "Amtsbezeichnung darf nicht leer sein" });
+    }
+    
     const { rows } = await pool.query(
       `UPDATE roles SET
          name = COALESCE($1, name),
-         is_default = COALESCE($2, is_default)
+         is_default = COALESCE($2, is_default),
+         updated_at = now()
        WHERE id = $3 AND club_id = $4
        RETURNING *`,
-      [name || null, is_default !== undefined ? is_default : null, req.params.id, req.clubId]
+      [name ? name.trim() : null, is_default !== undefined ? is_default : null, req.params.id, req.clubId]
     );
-    if (!rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
+    if (!rows[0]) return res.status(404).json({ error: "Amt nicht gefunden" });
     res.json(rows[0]);
   } catch (err) {
     console.error("roles PUT error:", err);
-    res.status(500).json({ error: "Serverfehler" });
+    if (err.code === "23505") {
+      return res.status(400).json({ error: "Ein Amt mit diesem Namen existiert bereits" });
+    }
+    res.status(500).json({ error: "Fehler beim Aktualisieren des Amtes" });
   }
 });
 
@@ -1469,22 +1570,29 @@ router.put("/roles/:id", requireAuth, async (req, res) => {
 router.delete("/roles/:id", requireAuth, async (req, res) => {
   try {
     // Prüfe ob Rolle noch Appointments hat
+    const role = (await pool.query("SELECT name FROM roles WHERE id = $1", [req.params.id])).rows[0];
+    
     const { rows: appointments } = await pool.query(
-      "SELECT id FROM appointments WHERE role_id = $1 LIMIT 1",
-      [req.params.id]
+      "SELECT id FROM appointments WHERE title = $1 AND club_id = $2 AND valid_to IS NULL LIMIT 1",
+      [role?.name, req.clubId]
     );
     if (appointments.length > 0) {
-      return res.status(400).json({ error: "Rolle ist noch besetzt und kann nicht gelöscht werden" });
+      return res.status(400).json({ error: "Amt ist noch besetzt und kann nicht gelöscht werden" });
     }
     
-    await pool.query(
-      "DELETE FROM roles WHERE id = $1 AND club_id = $2",
+    const { rows: deleted } = await pool.query(
+      "DELETE FROM roles WHERE id = $1 AND club_id = $2 RETURNING id",
       [req.params.id, req.clubId]
     );
+    
+    if (!deleted[0]) {
+      return res.status(404).json({ error: "Amt nicht gefunden" });
+    }
+    
     res.json({ success: true });
   } catch (err) {
     console.error("roles DELETE error:", err);
-    res.status(500).json({ error: "Serverfehler" });
+    res.status(500).json({ error: "Fehler beim Löschen des Amtes" });
   }
 });
 
@@ -1574,6 +1682,30 @@ router.delete("/role-permissions/:id", requireAuth, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error("role-permissions DELETE error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// ─── Notifications (Bulk Insert) ───────────────────────────────────────────────
+
+// POST /api/notifications – einzelne oder mehrere Notifications anlegen
+router.post("/notifications", requireAuth, async (req, res) => {
+  try {
+    const records = Array.isArray(req.body) ? req.body : [req.body];
+    for (const n of records) {
+      const id = uuidv4();
+      await pool.query(
+        `INSERT INTO notifications
+           (id, recipient_member_id, type, reference_id, reference_type, payload, is_read, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, false, now())`,
+        [id, n.recipient_member_id, n.type,
+         n.reference_id || null, n.reference_type || null,
+         JSON.stringify(n.payload || {})]
+      );
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error("notifications POST error:", err);
     res.status(500).json({ error: "Serverfehler" });
   }
 });

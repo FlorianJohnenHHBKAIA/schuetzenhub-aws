@@ -35,7 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/integrations/api/client";
+import { supabase, apiJson } from "@/integrations/api/client";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -222,14 +222,10 @@ const Events = () => {
         .maybeSingle();
       setUserCompanyId((membershipData as RawMembership | null)?.company_id || null);
 
-      const { data: eventsData, error } = await supabase
-        .from("events")
-        .select("*")
-        .eq("club_id", member.club_id)
-        .gte("start_at", startOfDay(new Date()).toISOString())
-        .order("start_at", { ascending: true });
-
-      if (error) throw error;
+      // Termine über den Backend-API-Endpunkt abrufen
+      const eventsData = await apiJson<RawEvent[]>(
+        `/api/events?from=${startOfDay(new Date()).toISOString()}`
+      ) || [];
 
       const companyMap = new Map<string, string>(companiesList.map((c) => [c.id, c.name]));
       const enrichedEvents = ((eventsData as RawEvent[]) || []).map((e) => ({
@@ -312,10 +308,14 @@ const Events = () => {
           updateData.approved_by_member_id = member.id;
         }
 
-        const { error } = await supabase.from("events").update(updateData).eq("id", editingEvent.id);
-        if (error) throw error;
+        // Termin über Backend-API aktualisieren
+        await apiJson(`/api/events/${editingEvent.id}`, {
+          method: "PUT",
+          body: JSON.stringify(updateData),
+        });
         toast.success("Termin aktualisiert");
       } else {
+        // Neuen Termin über Backend-API erstellen
         const insertData: EventInsertData = {
           club_id: member.club_id,
           owner_type: ownerType,
@@ -328,6 +328,7 @@ const Events = () => {
           category,
           audience: effectiveAudience,
           created_by_member_id: member.id,
+          // Frontend bestimmt den initialen Publikationsstatus basierend auf Berechtigungen
           publication_status: effectiveAudience === "public" && canManageClubEvents ? "approved" : "draft",
         };
 
@@ -335,9 +336,10 @@ const Events = () => {
           insertData.approved_at = new Date().toISOString();
           insertData.approved_by_member_id = member.id;
         }
-
-        const { error } = await supabase.from("events").insert(insertData);
-        if (error) throw error;
+        await apiJson("/api/events", {
+          method: "POST",
+          body: JSON.stringify(insertData),
+        });
         toast.success("Termin erstellt");
       }
 
@@ -354,9 +356,11 @@ const Events = () => {
 
   const handleDelete = async () => {
     if (!deletingEvent) return;
+    // Termin über Backend-API löschen
     try {
-      const { error } = await supabase.from("events").delete().eq("id", deletingEvent.id);
-      if (error) throw error;
+      await apiJson(`/api/events/${deletingEvent.id}`, {
+        method: "DELETE",
+      });
       toast.success("Termin gelöscht");
       fetchData();
     } catch (error: unknown) {
@@ -369,8 +373,11 @@ const Events = () => {
 
   const handleShareInternal = async (event: Event) => {
     try {
-      const { error } = await supabase.from("events").update({ audience: "club_internal" }).eq("id", event.id);
-      if (error) throw error;
+      // Termin über Backend-API aktualisieren
+      await apiJson(`/api/events/${event.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ audience: "club_internal" }),
+      });
       toast.success("Termin wird jetzt schützen-intern geteilt");
       fetchData();
     } catch (error: unknown) {
@@ -381,11 +388,14 @@ const Events = () => {
 
   const handleSubmitForPublication = async (event: Event) => {
     try {
-      const { error } = await supabase.from("events").update({
-        publication_status: "submitted",
-        submitted_at: new Date().toISOString(),
-      }).eq("id", event.id);
-      if (error) throw error;
+      // Termin über Backend-API aktualisieren
+      await apiJson(`/api/events/${event.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          publication_status: "submitted",
+          submitted_at: new Date().toISOString(),
+        }),
+      });
       toast.success("Termin zur Veröffentlichung eingereicht");
       fetchData();
     } catch (error: unknown) {

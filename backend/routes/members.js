@@ -17,9 +17,16 @@ router.get("/", requireAuth, async (req, res) => {
       if (ids.length === 0) return res.json([]);
       const placeholders = ids.map((_, i) => `$${i + 2}`).join(", ");
       const result = await pool.query(
-        `SELECT id, first_name, last_name, email, status
-         FROM members
-         WHERE club_id = $1 AND id IN (${placeholders})`,
+        `SELECT m.id, m.first_name, m.last_name, m.email, m.status, m.avatar_url,
+          (SELECT STRING_AGG(COALESCE(a.title, 'Mitglied'), ', ')
+           FROM appointments a
+           WHERE a.member_id = m.id
+             AND a.club_id = m.club_id
+             AND (a.valid_from IS NULL OR a.valid_from <= NOW())
+             AND (a.valid_to IS NULL OR a.valid_to >= NOW())
+          ) as current_role_title
+         FROM members m
+         WHERE m.club_id = $1 AND m.id IN (${placeholders})`,
         [req.clubId, ...ids]
       );
       return res.json(result.rows);
@@ -28,6 +35,13 @@ router.get("/", requireAuth, async (req, res) => {
     const result = await pool.query(
       `SELECT m.*, 
         ARRAY_AGG(DISTINCT mcm.company_id) FILTER (WHERE mcm.company_id IS NOT NULL AND mcm.valid_to IS NULL) as company_ids
+        , (SELECT STRING_AGG(COALESCE(a.title, 'Mitglied'), ', ')
+           FROM appointments a
+           WHERE a.member_id = m.id
+             AND a.club_id = m.club_id
+             AND (a.valid_from IS NULL OR a.valid_from <= NOW())
+             AND (a.valid_to IS NULL OR a.valid_to >= NOW())
+          ) as current_role_title
        FROM members m
        LEFT JOIN member_company_memberships mcm ON mcm.member_id = m.id AND mcm.valid_to IS NULL
        WHERE m.club_id = $1
@@ -46,7 +60,19 @@ router.get("/", requireAuth, async (req, res) => {
 router.get("/:id", requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT * FROM members WHERE id = $1 AND club_id = $2",
+      `SELECT m.*,
+        ARRAY_AGG(DISTINCT mcm.company_id) FILTER (WHERE mcm.company_id IS NOT NULL AND mcm.valid_to IS NULL) as company_ids,
+        (SELECT STRING_AGG(COALESCE(a.title, 'Mitglied'), ', ')
+         FROM appointments a
+         WHERE a.member_id = m.id
+           AND a.club_id = m.club_id
+           AND (a.valid_from IS NULL OR a.valid_from <= NOW())
+           AND (a.valid_to IS NULL OR a.valid_to >= NOW())
+        ) as current_role_title
+       FROM members m
+       LEFT JOIN member_company_memberships mcm ON mcm.member_id = m.id AND mcm.valid_to IS NULL
+       WHERE m.id = $1 AND m.club_id = $2
+       GROUP BY m.id`,
       [req.params.id, req.clubId]
     );
     if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });

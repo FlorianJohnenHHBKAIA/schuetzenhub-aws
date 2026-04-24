@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/integrations/api/client";
+import { supabase, apiJson } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -79,6 +79,8 @@ interface RawAppointment {
   id: string;
   member_id: string;
   role_id: string;
+  title?: string;
+  role_name?: string;
   scope_type: "club" | "company";
   scope_id: string;
   valid_from: string;
@@ -116,11 +118,11 @@ const Appointments = () => {
   const fetchData = async () => {
     setIsLoading(true);
 
-    const [rolesRes, companiesRes, membersRes, appointmentsRes] = await Promise.all([
+    const [rolesRes, companiesRes, membersRes, appointmentsData] = await Promise.all([
       supabase.from("roles").select("*").eq("club_id", member!.club_id).order("name"),
       supabase.from("companies").select("id, name").eq("club_id", member!.club_id).order("name"),
       supabase.from("members").select("id, first_name, last_name").eq("club_id", member!.club_id).order("last_name"),
-      supabase.from("appointments").select("*").order("valid_from", { ascending: false }),
+      apiJson<RawAppointment[]>("/api/appointments"),
     ]);
 
     const roles = (rolesRes.data as Role[]) || [];
@@ -129,8 +131,8 @@ const Appointments = () => {
     setCompanies((companiesRes.data as Company[]) || []);
     setMembers((membersRes.data as Member[]) || []);
 
-    if (appointmentsRes.data) {
-      const rawAppointments = appointmentsRes.data as RawAppointment[];
+    if (appointmentsData) {
+      const rawAppointments = appointmentsData;
       const roleMap = new Map<string, Role>(roles.map((r) => [r.id, r]));
       const companyMap = new Map<string, string>(
         ((companiesRes.data as Company[]) || []).map((c) => [c.id, c.name])
@@ -139,15 +141,12 @@ const Appointments = () => {
         ((membersRes.data as Member[]) || []).map((m) => [m.id, `${m.first_name} ${m.last_name}`])
       );
 
-      const clubRoleIds = new Set(roles.map((r) => r.id));
-      const filteredAppointments = rawAppointments.filter((a) => clubRoleIds.has(a.role_id));
-
-      const enriched: Appointment[] = filteredAppointments.map((a) => {
+      const enriched: Appointment[] = rawAppointments.map((a) => {
         const role = roleMap.get(a.role_id);
         return {
           ...a,
           member_name: memberMap.get(a.member_id) || "Unbekannt",
-          role_name: role?.name || "Unbekannt",
+          role_name: a.role_name || role?.name || a.title || "Unbekannt",
           scope_name:
             a.scope_type === "club"
               ? "Hauptverein"
@@ -177,16 +176,17 @@ const Appointments = () => {
     try {
       const scopeId = dialogType === "club" ? member!.club_id : formData.company_id;
 
-      const { error } = await supabase.from("appointments").insert({
-        member_id: formData.member_id,
-        role_id: formData.role_id,
-        scope_type: dialogType,
-        scope_id: scopeId,
-        valid_from: formData.valid_from,
-        valid_to: formData.valid_to || null,
+      await apiJson("/api/appointments", {
+        method: "POST",
+        body: JSON.stringify({
+          member_id: formData.member_id,
+          role_id: formData.role_id,
+          scope_type: dialogType,
+          scope_id: scopeId,
+          valid_from: formData.valid_from,
+          valid_to: formData.valid_to || null,
+        }),
       });
-
-      if (error) throw error;
 
       toast({ title: "Besetzung gespeichert" });
       fetchData();
@@ -208,12 +208,12 @@ const Appointments = () => {
 
     try {
       const today = new Date().toISOString().split("T")[0];
-      const { error } = await supabase
-        .from("appointments")
-        .update({ valid_to: today })
-        .eq("id", endingAppointment.id);
-
-      if (error) throw error;
+      await apiJson(`/api/appointments/${endingAppointment.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          valid_to: today
+        }),
+      });
 
       toast({ title: "Besetzung beendet" });
       fetchData();

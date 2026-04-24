@@ -77,10 +77,7 @@ router.post("/get_work_hours", requireAuth, async (req, res) => {
          m.last_name,
          COUNT(wsa.id) as shift_count,
          COALESCE(SUM(
-           CASE WHEN wsa.hours_override IS NOT NULL 
-             THEN wsa.hours_override::numeric
-             ELSE EXTRACT(EPOCH FROM (ws.end_at - ws.start_at)) / 3600
-           END
+           EXTRACT(EPOCH FROM (ws.end_at - ws.start_at)) / 3600
          ), 0) as total_hours
        FROM members m
        LEFT JOIN work_shift_assignments wsa ON wsa.member_id = m.id AND wsa.status = 'completed'
@@ -111,10 +108,7 @@ router.post("/get_company_work_stats", requireAuth, async (req, res) => {
          c.name as company_name,
          COUNT(DISTINCT wsa.member_id) as members_participated,
          COALESCE(SUM(
-           CASE WHEN wsa.hours_override IS NOT NULL 
-             THEN wsa.hours_override::numeric
-             ELSE EXTRACT(EPOCH FROM (ws.end_at - ws.start_at)) / 3600
-           END
+           EXTRACT(EPOCH FROM (ws.end_at - ws.start_at)) / 3600
          ), 0) as total_hours
        FROM companies c
        LEFT JOIN member_company_memberships mcm ON mcm.company_id = c.id AND mcm.valid_to IS NULL

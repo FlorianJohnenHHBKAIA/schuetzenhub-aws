@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Plus, Edit, Trash2, Loader2, Shield, Building2, Star } from "lucide-react";
+import { Plus, Edit, Trash2, Loader2, Shield, Building2 } from "lucide-react";
 import PortalLayout from "@/components/portal/PortalLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,11 +9,11 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import { apiJson } from "@/integrations/api/client";
 
 interface Role {
   id: string;
@@ -22,20 +22,6 @@ interface Role {
   is_default: boolean;
   created_at: string;
   appointment_count?: number;
-}
-
-interface RawAppointment {
-  role_id: string;
-}
-
-interface RawPermission {
-  id: string;
-  key: string;
-}
-
-interface RawInsertedRole {
-  id: string;
-  name: string;
 }
 
 const DEFAULT_CLUB_ROLES = [
@@ -70,106 +56,49 @@ const Roles = () => {
   const fetchRoles = async () => {
     setIsLoading(true);
     try {
-      const { data: rolesData, error } = await supabase.from("roles").select("*").eq("club_id", member!.club_id).order("name");
-
-      if (error) {
-        console.error("Fehler beim Laden der Rollen:", error);
-        toast({ title: "Fehler", description: "Ämter konnten nicht geladen werden: " + error.message, variant: "destructive" });
-        setIsLoading(false);
-        return;
-      }
-
+      const rolesData = await apiJson<Role[]>("/api/roles");
       if (rolesData) {
-        const { data: appointments } = await supabase.from("appointments").select("role_id").is("valid_to", null);
-        const countMap = new Map<string, number>();
-        ((appointments as RawAppointment[]) || []).forEach((a) => {
-          countMap.set(a.role_id, (countMap.get(a.role_id) || 0) + 1);
-        });
-
-        const enrichedRoles = (rolesData as Role[]).map((r) => ({ ...r, appointment_count: countMap.get(r.id) || 0 }));
-        setClubRoles(enrichedRoles.filter((r) => r.level === "club"));
-        setCompanyRoles(enrichedRoles.filter((r) => r.level === "company"));
+        setClubRoles(rolesData.filter((r) => r.level === "club"));
+        setCompanyRoles(rolesData.filter((r) => r.level === "company"));
       }
     } catch (err) {
       console.error("Fehler beim Abrufen von Rollen:", err);
-      toast({ title: "Fehler", description: "Fehler beim Laden der Ämter", variant: "destructive" });
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      toast({ title: "Fehler", description: "Fehler beim Laden der Ämter: " + errorMsg, variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
   };
 
   const seedDefaultRoles = async () => {
-    if (!member?.club_id) return;
     setIsSeeding(true);
 
     try {
-      const { data: existing, error: checkError } = await supabase.from("roles").select("id").eq("club_id", member.club_id).eq("is_default", true).limit(1);
-      if (checkError) {
-        console.error("Fehler beim Prüfen existierender Rollen:", checkError);
-        throw checkError;
+      // Prüfe ob bereits Rollen existieren
+      const existingRoles = await apiJson<Role[]>("/api/roles");
+      if (existingRoles && existingRoles.length > 0) {
+        toast({ title: "Standard-Ämter wurden bereits angelegt" });
+        setIsSeeding(false);
+        return;
       }
 
-      const existingList = (existing as { id: string }[] | null) || [];
-      if (existingList.length > 0) { 
-        toast({ title: "Standard-Ämter wurden bereits angelegt" }); 
-        setIsSeeding(false); 
-        return; 
+      // Erstelle Club-Rollen
+      for (const name of DEFAULT_CLUB_ROLES) {
+        await apiJson("/api/roles", {
+          method: "POST",
+          body: JSON.stringify({ name, level: "club", is_default: true }),
+        });
       }
 
-      const clubRolesToInsert = DEFAULT_CLUB_ROLES.map((name) => ({ club_id: member.club_id, name, level: "club" as const, is_default: true }));
-      const companyRolesToInsert = DEFAULT_COMPANY_ROLES.map((name) => ({ club_id: member.club_id, name, level: "company" as const, is_default: true }));
-
-      const { data: insertedRoles, error } = await supabase.from("roles").insert([...clubRolesToInsert, ...companyRolesToInsert]).select("id, name");
-      if (error) {
-        console.error("Fehler beim Einfügen von Rollen:", error);
-        throw error;
+      // Erstelle Company-Rollen
+      for (const name of DEFAULT_COMPANY_ROLES) {
+        await apiJson("/api/roles", {
+          method: "POST",
+          body: JSON.stringify({ name, level: "company", is_default: true }),
+        });
       }
 
-      const { data: allPermissions, error: permError } = await supabase.from("permissions").select("id, key");
-      if (permError) {
-        console.error("Fehler beim Laden von Permissions:", permError);
-        throw permError;
-      }
-
-      if (insertedRoles && allPermissions) {
-        const permissionMap = new Map<string, string>(((allPermissions as RawPermission[]) || []).map((p) => [p.key, p.id]));
-        const rolePermissionsToInsert: { role_id: string; permission_id: string }[] = [];
-
-        for (const role of (insertedRoles as RawInsertedRole[])) {
-          if (role.name === "Vereins-Admin (technisch)") {
-            const permId = permissionMap.get("club.admin.full");
-            if (permId) rolePermissionsToInsert.push({ role_id: role.id, permission_id: permId });
-          }
-          if (role.name === "Geschäftsführer") {
-            ["club.members.manage", "club.companies.manage", "club.roles.manage", "club.appointments.manage"].forEach((key) => {
-              const permId = permissionMap.get(key);
-              if (permId) rolePermissionsToInsert.push({ role_id: role.id, permission_id: permId });
-            });
-          }
-          if (role.name === "Schriftführer") {
-            const permId = permissionMap.get("club.appointments.manage");
-            if (permId) rolePermissionsToInsert.push({ role_id: role.id, permission_id: permId });
-          }
-          if (role.name === "Brudermeister / 1. Vorsitzender") {
-            const permId = permissionMap.get("club.members.view");
-            if (permId) rolePermissionsToInsert.push({ role_id: role.id, permission_id: permId });
-          }
-          if (role.name === "Hauptmann") {
-            const permId = permissionMap.get("company.delegations.manage");
-            if (permId) rolePermissionsToInsert.push({ role_id: role.id, permission_id: permId });
-          }
-        }
-
-        if (rolePermissionsToInsert.length > 0) {
-          const { error: permInsertError } = await supabase.from("role_permissions").insert(rolePermissionsToInsert);
-          if (permInsertError) {
-            console.error("Fehler beim Einfügen von Role Permissions:", permInsertError);
-            throw permInsertError;
-          }
-        }
-      }
-
-      toast({ title: "Standard-Ämter mit Rechten angelegt" });
+      toast({ title: "Standard-Ämter angelegt" });
       await fetchRoles();
     } catch (error: unknown) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -186,23 +115,22 @@ const Roles = () => {
 
     try {
       if (editingRole) {
-        const { error } = await supabase.from("roles").update({ name: roleName, is_default: isDefault }).eq("id", editingRole.id);
-        if (error) {
-          console.error("Update Fehler:", error);
-          throw error;
-        }
+        // UPDATE
+        await apiJson(`/api/roles/${editingRole.id}`, {
+          method: "PUT",
+          body: JSON.stringify({ name: roleName, is_default: isDefault }),
+        });
         toast({ title: "Amt aktualisiert" });
       } else {
-        const { error } = await supabase.from("roles").insert({ club_id: member!.club_id, name: roleName, level: roleLevel, is_default: isDefault });
-        if (error) {
-          console.error("Insert Fehler:", error);
-          throw error;
-        }
+        // INSERT
+        await apiJson("/api/roles", {
+          method: "POST",
+          body: JSON.stringify({ name: roleName, level: roleLevel, is_default: isDefault }),
+        });
         toast({ title: "Amt erstellt" });
       }
       await fetchRoles();
       setIsDialogOpen(false);
-      setRoleName("");
       setIsDefault(false);
       setEditingRole(null);
     } catch (error: unknown) {
@@ -217,12 +145,14 @@ const Roles = () => {
   const handleDelete = async () => {
     if (!deletingRole) return;
     try {
-      const { error } = await supabase.from("roles").delete().eq("id", deletingRole.id);
-      if (error) throw error;
+      await apiJson(`/api/roles/${deletingRole.id}`, {
+        method: "DELETE",
+      });
       toast({ title: "Amt gelöscht" });
       fetchRoles();
     } catch (error: unknown) {
-      toast({ title: "Fehler", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      toast({ title: "Fehler", description: errorMsg, variant: "destructive" });
     }
     setDeletingRole(null);
   };
