@@ -64,6 +64,8 @@ interface MemberAward {
   awarded_at: string;
   award_type: string;
   award_type_id?: string | null;
+  company_id?: string | null;
+  is_regiment?: boolean; // Füge is_regiment zur MemberAward-Schnittstelle hinzu
 }
 
 interface AwardType {
@@ -90,6 +92,7 @@ interface Role {
 interface MemberManagementDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  currentUser?: { id: string } | null;
   member: {
     id: string;
     first_name: string;
@@ -114,6 +117,7 @@ const MemberManagementDialog = ({
   open,
   onOpenChange,
   member,
+  currentUser,
   clubId,
   onRefresh,
 }: MemberManagementDialogProps) => {
@@ -190,7 +194,7 @@ const MemberManagementDialog = ({
         .order("valid_from", { ascending: false }),
       supabase
         .from("member_awards")
-        .select("id, title, description, awarded_at, award_type, award_type_id")
+        .select("id, title, description, awarded_at, award_type, award_type_id, company_id, is_regiment") // Lade is_regiment aus der Datenbank
         .eq("member_id", member.id)
         .order("awarded_at", { ascending: false }),
       supabase.from("companies").select("id, name").eq("club_id", clubId),
@@ -290,6 +294,9 @@ const MemberManagementDialog = ({
         awarded_at: format(new Date(), "yyyy-MM-dd"),
         award_type: awardType.icon,
         award_type_id: awardType.id,
+        is_regiment: awardType.scope_type === 'club',
+        company_id: awardType.scope_type === 'company' ? awardType.scope_id : null,
+        requested_by_member_id: currentUser?.id,
         status: "approved",
       });
 
@@ -625,7 +632,12 @@ const MemberManagementDialog = ({
                               <Icon className={`w-5 h-5 ${config.color}`} />
                             </div>
                             <div>
-                              <p className="font-medium">{award.title}</p>
+                              <div className="flex items-center gap-2">
+                                <p className="font-medium">{award.title}</p>
+                                <Badge variant="outline" className="text-[10px] h-4 px-1.5 font-normal bg-muted/30">
+                                  {award.is_regiment ? "Regiment" : (companies.find(c => c.id === award.company_id)?.name || "Kompanie")}
+                                </Badge>
+                              </div>
                               <p className="text-sm text-muted-foreground">
                                 {formatDate(award.awarded_at)}
                                 {award.description && ` · ${award.description}`}

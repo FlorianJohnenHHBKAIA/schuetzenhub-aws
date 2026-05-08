@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
-import { Building2, Calendar, Loader2, Award, Shield, UserCog } from "lucide-react";
+import { Building2, Calendar, Loader2, Award, Shield, UserCog, Medal } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { api } from "@/integrations/api/client";
+import { getAwardTypeConfig } from "./AwardDialog";
 
 interface MembershipHistory {
   id: string;
@@ -35,6 +36,16 @@ interface DelegationInfo {
   from_member_name: string | null;
   valid_from: string;
   valid_to: string | null;
+}
+
+interface MemberAwardInfo {
+  id: string;
+  title: string;
+  description: string | null;
+  awarded_at: string;
+  award_type: string;
+  is_regiment: boolean;
+  company_name: string | null;
 }
 
 interface MemberDetailDialogProps {
@@ -70,6 +81,7 @@ const MemberDetailDialog = ({
   const [memberships,  setMemberships]  = useState<MembershipHistory[]>([]);
   const [appointments, setAppointments] = useState<AppointmentInfo[]>([]);
   const [delegations,  setDelegations]  = useState<DelegationInfo[]>([]);
+  const [awards,       setAwards]       = useState<MemberAwardInfo[]>([]);
   const [isLoading,    setIsLoading]    = useState(false);
 
   useEffect(() => {
@@ -106,18 +118,30 @@ const MemberDetailDialog = ({
       }
       interface ApiMember    { id: string; first_name: string; last_name: string }
 
+      interface ApiAward {
+        id: string;
+        title: string;
+        description: string | null;
+        awarded_at: string;
+        award_type: string;
+        is_regiment: boolean;
+        company_id: string | null;
+      }
+
       const [
         membershipData,
         appointmentData,
         companies,
         roles,
         delegationData,
+        awardData,
       ] = await Promise.all([
         api.json<ApiMembership[]>(`/api/memberships?member_id=${member.id}`).catch((): ApiMembership[] => []),
         api.json<ApiAppointment[]>(`/api/appointments?member_id=${member.id}`).catch((): ApiAppointment[] => []),
         api.json<ApiCompany[]>("/api/companies").catch((): ApiCompany[] => []),
         api.json<ApiRole[]>("/api/roles").catch((): ApiRole[] => []),
         api.json<ApiDelegation[]>(`/api/delegations?to_member_id=${member.id}`).catch((): ApiDelegation[] => []),
+        api.json<ApiAward[]>(`/api/awards?member_id=${member.id}`).catch((): ApiAward[] => []),
       ]);
 
       const companyMap = new Map<string, string>(companies.map((c): [string, string] => [c.id, c.name]));
@@ -174,6 +198,19 @@ const MemberDetailDialog = ({
       } else {
         setDelegations([]);
       }
+
+      // Awards anreichern
+      setAwards(
+        awardData.map((a): MemberAwardInfo => ({
+          id:           a.id,
+          title:        a.title,
+          description:  a.description,
+          awarded_at:   a.awarded_at,
+          award_type:   a.award_type,
+          is_regiment:  a.is_regiment,
+          company_name: a.company_id ? (companyMap.get(a.company_id) ?? "Unbekannt") : null,
+        }))
+      );
     } catch (err) {
       console.error("MemberDetailDialog fetchData error:", err);
     }
@@ -259,6 +296,51 @@ const MemberDetailDialog = ({
             ) : (
               <p className="text-muted-foreground text-sm italic">
                 Keine aktive Zuordnung
+              </p>
+            )}
+          </div>
+
+          {/* ── Auszeichnungen ── */}
+          <div className="space-y-3">
+            <h3 className="font-medium flex items-center gap-2">
+              <Medal className="w-4 h-4" />
+              Auszeichnungen
+            </h3>
+            {isLoading ? (
+              <div className="flex justify-center py-4">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : awards.length > 0 ? (
+              <div className="space-y-2">
+                {awards.map((award) => {
+                  const config = getAwardTypeConfig(award.award_type);
+                  const Icon = config.icon;
+                  return (
+                    <div key={award.id} className="p-3 bg-primary/5 border border-primary/20 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${config.bgColor}`}>
+                          <Icon className={`w-5 h-5 ${config.color}`} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium">{award.title}</span>
+                            <Badge variant="outline" className="text-[10px] h-4 px-1.5 font-normal bg-muted/30">
+                              {award.is_regiment ? "Regiment" : (award.company_name || "Kompanie")}
+                            </Badge>
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            {formatDate(award.awarded_at)}
+                            {award.description && ` · ${award.description}`}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-sm italic">
+                Keine Auszeichnungen vorhanden
               </p>
             )}
           </div>

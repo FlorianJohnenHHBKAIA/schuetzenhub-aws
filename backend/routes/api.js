@@ -667,11 +667,20 @@ router.post("/work-shift-assignments/bulk-status", requireAuth, async (req, res)
 // ─── Awards ───────────────────────────────────────────────────────────────────
 
 router.get("/awards", requireAuth, async (req, res) => {
-  const result = await pool.query(
-    "SELECT ma.*, at.name as award_type_name FROM member_awards ma LEFT JOIN award_types at ON at.id = ma.award_type_id WHERE ma.club_id = $1 ORDER BY ma.created_at DESC",
-    [req.clubId]
-  );
-  res.json(result.rows);
+  try {
+    const { member_id } = req.query;
+    let query = "SELECT ma.*, at.name as award_type_name FROM member_awards ma LEFT JOIN award_types at ON at.id = ma.award_type_id WHERE ma.club_id = $1";
+    const params = [req.clubId];
+
+    if (member_id) {
+      params.push(member_id);
+      query += ` AND ma.member_id = $${params.length}`;
+    }
+
+    query += " ORDER BY ma.awarded_at DESC, ma.created_at DESC";
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
 });
 
 router.get("/award-types", requireAuth, async (req, res) => {
@@ -713,24 +722,58 @@ router.delete("/award-types/:id", requireAuth, async (req, res) => {
 
 router.post("/awards", requireAuth, async (req, res) => {
   try {
-    const { member_id, award_type_id, awarded_at, notes, awarded_by_member_id } = req.body;
+    const { 
+      member_id, title, description, awarded_at, award_type, 
+      award_type_id, company_id, is_regiment, requested_by_member_id, status 
+    } = req.body;
+
+    if (!title || !member_id) {
+      return res.status(400).json({ error: "Titel und Mitglied-ID sind erforderlich" });
+    }
+
+    const id = uuidv4();
     const result = await pool.query(
-      "INSERT INTO member_awards (id, club_id, member_id, award_type_id, awarded_at, notes, awarded_by_member_id) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6) RETURNING *",
-      [req.clubId, member_id, award_type_id, awarded_at || new Date(), notes || null, awarded_by_member_id || null]
+      `INSERT INTO member_awards (
+        id, club_id, member_id, title, description, awarded_at, 
+        award_type, award_type_id, company_id, is_regiment, 
+        requested_by_member_id, status, approved_by_member_id, approved_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
+      [
+        id, req.clubId, member_id, title, description || null, awarded_at || new Date(), 
+        award_type || 'medal', award_type_id || null, company_id || null, 
+        is_regiment === undefined ? true : is_regiment, 
+        requested_by_member_id || req.member.id,
+        status || 'approved',
+        status === 'approved' ? req.member.id : null,
+        status === 'approved' ? new Date() : null
+      ]
     );
     res.json(result.rows[0]);
-  } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
+  } catch (err) { 
+    console.error("POST /awards error:", err);
+    res.status(500).json({ error: "Serverfehler" }); 
+  }
 });
 
 router.put("/awards/:id", requireAuth, async (req, res) => {
   try {
-    const { notes, awarded_at } = req.body;
+    const { title, description, awarded_at, award_type, company_id, is_regiment } = req.body;
     const result = await pool.query(
-      "UPDATE member_awards SET notes=$1, awarded_at=$2 WHERE id=$3 AND club_id=$4 RETURNING *",
-      [notes || null, awarded_at, req.params.id, req.clubId]
+      `UPDATE member_awards SET 
+        title = COALESCE($1, title),
+        description = $2, 
+        awarded_at = COALESCE($3, awarded_at),
+        award_type = COALESCE($4, award_type),
+        company_id = $5,
+        is_regiment = COALESCE($6, is_regiment)
+       WHERE id=$7 AND club_id=$8 RETURNING *`,
+      [title, description || null, awarded_at, award_type, company_id || null, is_regiment, req.params.id, req.clubId]
     );
     res.json(result.rows[0]);
-  } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
+  } catch (err) { 
+    console.error("PUT /awards error:", err);
+    res.status(500).json({ error: "Serverfehler" }); 
+  }
 });
 
 router.delete("/awards/:id", requireAuth, async (req, res) => {

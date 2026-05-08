@@ -410,11 +410,14 @@ CREATE TABLE IF NOT EXISTS member_awards (
     member_id UUID NOT NULL REFERENCES members(id) ON DELETE CASCADE,
     award_type_id UUID REFERENCES award_types(id) ON DELETE SET NULL,
     title TEXT NOT NULL,
+    description TEXT,
+    company_id UUID REFERENCES companies(id) ON DELETE SET NULL,
     award_type TEXT,
     awarded_at TIMESTAMPTZ,
     status TEXT NOT NULL DEFAULT 'pending',
     requested_by_member_id UUID REFERENCES members(id) ON DELETE SET NULL,
     approved_by_member_id UUID REFERENCES members(id) ON DELETE SET NULL,
+    approved_at TIMESTAMPTZ,
     rejection_reason TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -568,3 +571,7 @@ ALTER TABLE role_permissions
 ALTER TABLE role_permissions
   ADD CONSTRAINT role_permissions_role_id_permission_id_key
   UNIQUE (role_id, permission_id);
+
+-- Sicherstellen, dass alle Felder für Auszeichnungen vorhanden sind
+ALTER TABLE member_awards ADD COLUMN IF NOT EXISTS is_regiment BOOLEAN DEFAULT TRUE;
+ALTER TABLE member_awards ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;

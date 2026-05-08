@@ -5,9 +5,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Calendar } from "@/components/ui/calendar";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CalendarIcon, Loader2, Medal, Award, Crown, Trophy, ScrollText, Star, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
@@ -35,6 +38,8 @@ interface Award {
   description: string | null;
   awarded_at: string;
   award_type: string;
+  company_id?: string | null;
+  is_regiment?: boolean; // Füge is_regiment zur Award-Schnittstelle hinzu
 }
 
 interface AwardDialogProps {
@@ -48,11 +53,31 @@ interface AwardDialogProps {
 
 const AwardDialog = ({ open, onOpenChange, memberId, clubId, award, onSave }: AwardDialogProps) => {
   const { toast } = useToast();
+  const { member: authMember } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [awardedAt, setAwardedAt] = useState<Date>(new Date());
   const [awardType, setAwardType] = useState<AwardType>("other");
+  const [isRegiment, setIsRegiment] = useState(true);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
+
+  // Kompanien laden, wenn der Dialog geöffnet wird
+  useEffect(() => {
+    const fetchCompanies = async () => {
+      if (!open || !clubId) return;
+      const { data, error } = await supabase
+        .from("companies")
+        .select("id, name")
+        .eq("club_id", clubId)
+        .order("name");
+      if (!error && data) {
+        setCompanies(data as { id: string; name: string }[]);
+      }
+    };
+    fetchCompanies();
+  }, [open, clubId]);
 
   useEffect(() => {
     if (award) {
@@ -60,11 +85,15 @@ const AwardDialog = ({ open, onOpenChange, memberId, clubId, award, onSave }: Aw
       setDescription(award.description || "");
       setAwardedAt(new Date(award.awarded_at));
       setAwardType(award.award_type as AwardType || "other");
+      setIsRegiment(award.is_regiment ?? !award.company_id); // Nutze is_regiment, falls vorhanden, sonst leite es von company_id ab
+      setSelectedCompanyId(award.company_id || null);
     } else {
       setTitle("");
       setDescription("");
       setAwardedAt(new Date());
       setAwardType("other");
+      setIsRegiment(true);
+      setSelectedCompanyId(null);
     }
   }, [award, open]);
 
@@ -73,6 +102,11 @@ const AwardDialog = ({ open, onOpenChange, memberId, clubId, award, onSave }: Aw
     
     if (!title.trim()) {
       toast({ title: "Titel ist erforderlich", variant: "destructive" });
+      return;
+    }
+
+    if (!isRegiment && !selectedCompanyId) { // Validierung hinzugefügt
+      toast({ title: "Bitte eine Kompanie auswählen", variant: "destructive" });
       return;
     }
 
@@ -87,6 +121,10 @@ const AwardDialog = ({ open, onOpenChange, memberId, clubId, award, onSave }: Aw
             description: description.trim() || null,
             awarded_at: format(awardedAt, "yyyy-MM-dd"),
             award_type: awardType,
+            company_id: isRegiment ? null : (selectedCompanyId || null),
+            is_regiment: isRegiment, // Sende is_regiment im Payload
+            requested_by_member_id: authMember?.id,
+            status: "approved",
           })
           .eq("id", award.id);
 
@@ -103,6 +141,10 @@ const AwardDialog = ({ open, onOpenChange, memberId, clubId, award, onSave }: Aw
             description: description.trim() || null,
             awarded_at: format(awardedAt, "yyyy-MM-dd"),
             award_type: awardType,
+            company_id: isRegiment ? null : (selectedCompanyId || null),
+            is_regiment: isRegiment, // Sende is_regiment im Payload
+            requested_by_member_id: authMember?.id,
+            status: "approved",
           });
 
         if (error) throw error;
@@ -166,6 +208,31 @@ const AwardDialog = ({ open, onOpenChange, memberId, clubId, award, onSave }: Aw
               required
             />
           </div>
+
+          <div className="flex items-center space-x-2 pt-2">
+            <Checkbox 
+              id="is_regiment" 
+              checked={isRegiment} 
+              onCheckedChange={(checked) => setIsRegiment(!!checked)} 
+            />
+            <Label htmlFor="is_regiment" className="cursor-pointer font-medium">Vom Regiment / Bruderschaft</Label>
+          </div>
+
+          {!isRegiment && (
+            <div className="space-y-2 animate-in fade-in slide-in-from-top-1">
+              <Label>Ausstellende Kompanie *</Label>
+              <Select value={selectedCompanyId || ""} onValueChange={setSelectedCompanyId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Wähle eine Kompanie..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {companies.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="description">Beschreibung</Label>
