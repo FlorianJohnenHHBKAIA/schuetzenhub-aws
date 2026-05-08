@@ -118,7 +118,7 @@ router.post("/", requireAuth, async (req, res) => {
 router.put("/:id", requireAuth, async (req, res) => {
   const {
     first_name, last_name, email, phone, street, zip, city, status,
-    birthday, member_since,
+    birthday, member_since, title, bio, avatar_url, cover_url
   } = req.body;
 
   try {
@@ -127,16 +127,27 @@ router.put("/:id", requireAuth, async (req, res) => {
         first_name = COALESCE($1, first_name),
         last_name = COALESCE($2, last_name),
         email = COALESCE($3, email),
-        phone = $4, street = $5, zip = $6, city = $7,
-        status = COALESCE($8, status),
+        phone = $4, 
+        street = $5, 
+        zip = $6, 
+        city = $7,
+        status = COALESCE($8, status::text)::member_status,
         birthday = $9,
         member_since = $10,
+        title = $11,
+        bio = $12,
+        avatar_url = $13,
+        cover_url = $14,
         updated_at = now()
-       WHERE id = $11 AND club_id = $12
+       WHERE id = $15 AND club_id = $16
        RETURNING *`,
-      [first_name, last_name, email, phone || null, street || null,
-       zip || null, city || null, status, birthday || null,
-       member_since || null, req.params.id, req.clubId]
+      [
+        first_name || null, last_name || null, email || null,
+        phone || null, street || null, zip || null, city || null,
+        status || null, birthday || null, member_since || null,
+        title || null, bio || null, avatar_url || null, cover_url || null,
+        req.params.id, req.clubId
+      ]
     );
     if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
     res.json(result.rows[0]);

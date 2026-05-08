@@ -1178,14 +1178,17 @@ router.get("/storage-url", (req, res) => {
 // POST /api/upload - universeller File-Upload (ersetzt supabase.storage.from(bucket).upload())
 router.post("/upload", requireAuth, upload.single("file"), async (req, res) => {
   try {
+    console.log("[API] /upload - Request received.");
     if (!req.file) return res.status(400).json({ error: "Keine Datei" });
-    const { bucket, path: filePath } = req.body;
+    const { bucket, path: filePathFromClient } = req.body; // path ist hier filePathFromClient
     if (!bucket) return res.status(400).json({ error: "Bucket fehlt" });
 
-    const savedPath = await saveFile(req.file, bucket, filePath || req.file.originalname);
+    const filePath = filePathFromClient || req.file.originalname;
+    console.log(`[API] /upload - Bucket: ${bucket}, FilePath: ${filePath}`);
+    const savedPath = await saveFile(req.file, bucket, filePath);
     const publicUrl = getPublicUrl(bucket, savedPath);
 
-    res.json({ path: savedPath, publicUrl });
+    res.json({ path: savedPath, publicUrl, bucket, filePath });
   } catch (err) {
     console.error("Upload error:", err);
     res.status(500).json({ error: "Upload fehlgeschlagen" });

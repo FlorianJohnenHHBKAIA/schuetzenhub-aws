@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { supabase, apiUpload, getStorageUrl } from "@/integrations/api/client";
+import { api, apiUpload, getStorageUrl } from "@/integrations/api/client";
 import {
   Dialog,
   DialogContent,
@@ -64,7 +64,7 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
 
     try {
       const fileExt = file.name.split(".").pop();
-      const bucket = isAvatar ? "avatars" : "covers";
+      const bucket = "avatars"; // Verwende den 'avatars' Bucket auch für Titelbilder
       const fileName = `${member.id}/${type}-${Date.now()}.${fileExt}`;
       
       await apiUpload(`/api/upload`, file, { bucket, path: fileName });
@@ -93,9 +93,9 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
     setIsSubmitting(true);
 
     try {
-      const { error } = await supabase
-        .from("members")
-        .update({
+      await api.json(`/api/members/${member.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
           title: title || null,
           bio: bio || null,
           phone: phone || null,
@@ -104,10 +104,8 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
           city: city || null,
           avatar_url: avatarUrl || null,
           cover_url: coverUrl || null,
-        })
-        .eq("id", member.id);
-
-      if (error) throw error;
+        }),
+      });
       
       toast({ title: "Profil aktualisiert" });
       onSave();

@@ -61,6 +61,8 @@ interface MemberDetailDialogProps {
     zip?: string | null;
     city?: string | null;
     status: string;
+    title?: string | null;
+    bio?: string | null;
   } | null;
   clubId: string;
 }
@@ -235,10 +237,21 @@ const MemberDetailDialog = ({
         <DialogHeader>
           <DialogTitle className="font-display">
             {member.first_name} {member.last_name}
+            {member.title && (
+              <span className="block text-sm font-normal text-muted-foreground mt-1">
+                {member.title}
+              </span>
+            )}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-6">
+          
+          {member.bio && (
+            <div className="text-sm text-muted-foreground italic bg-muted/30 p-3 rounded-lg">
+              "{member.bio}"
+            </div>
+          )}
 
           {/* ── Basisdaten ── */}
           <div className="space-y-3">

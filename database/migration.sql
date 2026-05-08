@@ -575,3 +575,8 @@ ALTER TABLE role_permissions
 -- Sicherstellen, dass alle Felder für Auszeichnungen vorhanden sind
 ALTER TABLE member_awards ADD COLUMN IF NOT EXISTS is_regiment BOOLEAN DEFAULT TRUE;
 ALTER TABLE member_awards ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
+
+-- Zusätzliche Felder für das Mitgliederprofil
+ALTER TABLE members ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS bio TEXT;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS cover_url TEXT;
