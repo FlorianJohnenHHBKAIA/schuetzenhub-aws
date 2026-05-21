@@ -152,7 +152,7 @@ const adminMagazineItems: NavItem[] = [
 // Einstellungen & System
 const adminSystemItems: NavItem[] = [
   { label: "Rollen & Rechte", href: "/portal/permissions", icon: Key, permission: "club.roles.manage", keywords: ["permission", "berechtigung", "recht", "rolle"] },
-  { label: "Delegierte Rechte", href: "/portal/delegations", icon: UserCog, permission: "company.delegations.manage", keywords: ["delegation", "berechtigung", "weitergabe"] },
+  // { label: "Delegierte Rechte", href: "/portal/delegations", icon: UserCog, permission: "company.delegations.manage", keywords: ["delegation", "berechtigung", "weitergabe"] },
   { label: "Jahresübersicht", href: "/portal/reports/yearly", icon: BarChart3, permission: "club.admin.full", keywords: ["report", "auswertung", "jahresbericht", "statistik"] },
   { label: "Einstellungen", href: "/portal/settings", icon: Settings, permission: "club.settings.manage", keywords: ["settings", "konfiguration"] },
 ];

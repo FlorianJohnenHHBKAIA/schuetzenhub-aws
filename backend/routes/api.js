@@ -212,10 +212,13 @@ router.post("/companies", requireAuth, async (req, res) => {
 });
 
 router.put("/companies/:id", requireAuth, async (req, res) => {
-  const { name, description, founded_year } = req.body;
+  const { name, description, founded_year, logo_path, cover_path } = req.body;
   const result = await pool.query(
-    "UPDATE companies SET name = COALESCE($1,name), description = $2, founded_year = $3 WHERE id = $4 AND club_id = $5 RETURNING *",
-    [name, description || null, founded_year || null, req.params.id, req.clubId]
+    `UPDATE companies SET 
+       name = COALESCE($1, name), description = $2, founded_year = $3,
+       logo_url = COALESCE($4, logo_url), cover_url = COALESCE($5, cover_url)
+     WHERE id = $6 AND club_id = $7 RETURNING *`,
+    [name, description || null, founded_year || null, logo_path || null, cover_path || null, req.params.id, req.clubId]
   );
   if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
   res.json(result.rows[0]);

@@ -1,16 +1,17 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Loader2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { supabase, apiUpload, getStorageUrl } from "@/integrations/api/client";
+import { api, apiUpload, getStorageUrl } from "@/integrations/api/client";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
 
@@ -32,12 +33,27 @@ interface CompanyEditDialogProps {
 const CompanyEditDialog = ({ open, onOpenChange, company, onSave }: CompanyEditDialogProps) => {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [name, setName] = useState(company.name);
-  const [description, setDescription] = useState(company.description || "");
-  const [logoUrl, setLogoUrl] = useState(company.logo_url || "");
-  const [coverUrl, setCoverUrl] = useState(company.cover_url || "");
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [logoUrl, setLogoUrl] = useState(""); // URL für die lokale Anzeige (Preview)
+  const [coverUrl, setCoverUrl] = useState(""); // URL für die lokale Anzeige (Preview)
+  const [logoPath, setLogoPath] = useState(""); // Relativer Pfad für die Datenbank
+  const [coverPath, setCoverPath] = useState(""); // Relativer Pfad für die Datenbank
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const [isUploadingCover, setIsUploadingCover] = useState(false);
+
+  useEffect(() => {
+    if (open && company) {
+      setName(company.name);
+      setDescription(company.description || "");
+      const lp = company.logo_url || "";
+      const cp = company.cover_url || "";
+      setLogoPath(lp);
+      setCoverPath(cp);
+      setLogoUrl(lp ? getStorageUrl("company-assets", lp) : "");
+      setCoverUrl(cp ? getStorageUrl("company-assets", cp) : "");
+    }
+  }, [open, company]);
   
   const logoInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
@@ -55,12 +71,14 @@ const CompanyEditDialog = ({ open, onOpenChange, company, onSave }: CompanyEditD
       const fileName = `${company.id}/${type}-${Date.now()}.${fileExt}`;
       
       await apiUpload(`/api/upload`, file, { bucket: "company-assets", path: fileName });
-      const publicUrl = getStorageUrl("company-assets", fileName) || "";
+      const publicUrl = getStorageUrl("company-assets", fileName);
 
       if (isLogo) {
-        setLogoUrl(publicUrl);
+        setLogoPath(fileName);
+        setLogoUrl(publicUrl || "");
       } else {
-        setCoverUrl(publicUrl);
+        setCoverPath(fileName);
+        setCoverUrl(publicUrl || "");
       }
 
       toast({ title: `${isLogo ? "Logo" : "Titelbild"} hochgeladen` });
@@ -81,20 +99,23 @@ const CompanyEditDialog = ({ open, onOpenChange, company, onSave }: CompanyEditD
     setIsSubmitting(true);
 
     try {
-      const { error } = await supabase
-        .from("companies")
-        .update({
+      // Wir nutzen api.json für einen direkten REST-Call an dein Node.js Backend.
+      // Wir senden beide Varianten (_url und _path), damit das Backend flexibel ist.
+      await api.json(`/api/companies/${company.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
           name,
           description: description || null,
-          logo_url: logoUrl || null,
-          cover_url: coverUrl || null,
-        })
-        .eq("id", company.id);
-
-      if (error) throw error;
+          logo_url: logoPath || null,
+          logo_path: logoPath || null,
+          cover_url: coverPath || null,
+          cover_path: coverPath || null,
+        }),
+      });
       
       toast({ title: "Kompanie aktualisiert" });
       onSave();
+      onOpenChange(false);
     } catch (error: unknown) {
       console.error("Save error:", error);
       toast({ title: "Speichern fehlgeschlagen", variant: "destructive" });
@@ -108,6 +129,9 @@ const CompanyEditDialog = ({ open, onOpenChange, company, onSave }: CompanyEditD
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Kompanie bearbeiten</DialogTitle>
+          <DialogDescription>
+            Passen Sie die Informationen und das Erscheinungsbild Ihrer Kompanie an.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
@@ -233,7 +257,7 @@ const CompanyEditDialog = ({ open, onOpenChange, company, onSave }: CompanyEditD
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Abbrechen
           </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting}>
+          <Button onClick={handleSubmit} disabled={isSubmitting || isUploadingLogo || isUploadingCover}>
             {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Speichern"}
           </Button>
         </DialogFooter>
