@@ -135,6 +135,7 @@ export default function MyAwards() {
             </CardContent>
           </Card>
 
+          {/* AUSKOMMENTIERT: Arbeitsdienst-Stunden in der Schnellübersicht */}
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-3">

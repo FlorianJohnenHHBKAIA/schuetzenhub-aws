@@ -258,6 +258,8 @@ class TableQuery {
       work_shift_assignments: "/api/work-shifts",
       member_company_memberships: "/api/memberships",
       member_awards: "/api/awards",
+      award_requests: "/api/awards",
+      "award-requests": "/api/awards",
       award_types: "/api/award-types",
       roles: "/api/roles",
       permissions: "/api/permissions",

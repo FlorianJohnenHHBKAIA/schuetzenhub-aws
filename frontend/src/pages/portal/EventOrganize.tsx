@@ -51,6 +51,7 @@ import { supabase, apiJson } from "@/integrations/api/client";
 import { toast } from "sonner";
 import EventPostsSection from "@/components/portal/EventPostsSection";
 import EventQuickActions from "@/components/portal/EventQuickActions";
+import EventPublicPreview from "@/components/portal/EventPublicPreview";
 import { notifyNewShift, notifyEventNotesChanged } from "@/lib/eventNotifications";
 
 type EventAudience = "company_only" | "club_internal" | "public";
@@ -119,6 +120,14 @@ interface RawAssignment {
   member: { id: string; first_name: string; last_name: string } | { id: string; first_name: string; last_name: string }[] | null;
 }
 
+const categoryLabels: Record<string, { label: string; color: string }> = {
+  training: { label: "Training", color: "bg-blue-500/10 text-blue-500" },
+  meeting: { label: "Versammlung", color: "bg-purple-500/10 text-purple-500" },
+  fest: { label: "Fest/Feier", color: "bg-amber-500/10 text-amber-500" },
+  work: { label: "Arbeitsdienst", color: "bg-green-500/10 text-green-500" },
+  other: { label: "Sonstiges", color: "bg-muted text-muted-foreground" },
+};
+
 const audienceLabels: Record<EventAudience, { label: string; icon: React.ElementType; color: string }> = {
   company_only: { label: "Kompanie-intern", icon: Building2, color: "bg-orange-500/10 text-orange-600" },
   club_internal: { label: "Schützen-intern", icon: Users, color: "bg-blue-500/10 text-blue-600" },
@@ -144,6 +153,20 @@ const EventOrganize = () => {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [clubSlug, setClubSlug] = useState<string>("");
+  const [userCompanyId, setUserCompanyId] = useState<string | null>(null);
+  const [editOwnerId, setEditOwnerId] = useState("");
+
+  // Edit Event States
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editLocation, setEditLocation] = useState("");
+  const [editStartAt, setEditStartAt] = useState("");
+  const [editEndAt, setEditEndAt] = useState("");
+  const [editCategory, setEditCategory] = useState<string>("other");
+  const [editOwnerType, setEditOwnerType] = useState<OwnerType>("club");
+  const [editAudience, setEditAudience] = useState<EventAudience>("club_internal");
 
   const [internalNotes, setInternalNotes] = useState("");
   const [responsibleMemberId, setResponsibleMemberId] = useState<string | null>(null);
@@ -160,6 +183,9 @@ const EventOrganize = () => {
   const [formOwnerId, setFormOwnerId] = useState("");
 
   const canManageClubEvents = hasPermission("club.events.manage") || hasPermission("club.admin.full");
+  const userCompanyScope = permissions.find(
+    (p) => p.permission_key === "company.events.manage" && p.scope_type === "company"
+  )?.scope_id;
 
   const canManageEvent = useCallback((evt: Event | null) => {
     if (!evt) return false;
@@ -200,6 +226,21 @@ const EventOrganize = () => {
       const membersList = await apiJson<Member[]>("/api/members") || [];
       setMembers(membersList);
 
+      const { data: clubData } = (await supabase
+        .from("clubs")
+        .select("slug")
+        .eq("id", member.club_id)
+        .single()) as { data: { slug: string } | null };
+      setClubSlug(clubData?.slug || "");
+
+      const { data: membershipData } = (await supabase
+        .from("member_company_memberships")
+        .select("company_id")
+        .eq("member_id", member.id)
+        .is("valid_to", null)
+        .maybeSingle()) as { data: { company_id: string } | null };
+      setUserCompanyId(membershipData?.company_id || null);
+
       const shiftsList = await apiJson<WorkShift[]>(`/api/work-shifts?event_id=${id}`) || [];
       setShifts(shiftsList);
 
@@ -211,6 +252,54 @@ const EventOrganize = () => {
       navigate("/portal/events");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const openEditDialog = () => {
+    if (!event) return;
+    setEditTitle(event.title);
+    setEditDescription(event.description || "");
+    setEditLocation(event.location || "");
+    setEditStartAt(event.start_at.slice(0, 16));
+    setEditEndAt(event.end_at?.slice(0, 16) || "");
+    setEditCategory(event.category);
+    setEditOwnerType(event.owner_type);
+    setEditOwnerId(event.owner_id);
+    setEditAudience(event.audience);
+    setIsEditDialogOpen(true);
+  };
+
+  const handleSaveEvent = async () => {
+    if (!event || !member || !editTitle.trim() || !editStartAt) return;
+    setIsSaving(true);
+
+    try {
+      const ownerId = editOwnerType === "club" 
+        ? member.club_id 
+        : (canManageClubEvents ? editOwnerId : (userCompanyScope || userCompanyId));
+
+      await apiJson(`/api/events/${event.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          title: editTitle.trim(),
+          description: editDescription.trim() || null,
+          location: editLocation.trim() || null,
+          start_at: new Date(editStartAt).toISOString(),
+          end_at: editEndAt ? new Date(editEndAt).toISOString() : null,
+          category: editCategory,
+          owner_type: editOwnerType,
+          owner_id: ownerId,
+          audience: editAudience,
+        }),
+      });
+      
+      toast.success("Termin aktualisiert");
+      setIsEditDialogOpen(false);
+      fetchData();
+    } catch (error: unknown) {
+      toast.error("Fehler beim Speichern");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -481,11 +570,9 @@ const EventOrganize = () => {
             </div>
 
             {canEdit && (
-              <Button variant="outline" asChild>
-                <Link to={`/portal/events?edit=${event.id}`}>
-                  <Edit className="w-4 h-4 mr-2" />
-                  Bearbeiten
-                </Link>
+              <Button variant="outline" onClick={openEditDialog}>
+                <Edit className="w-4 h-4 mr-2" />
+                Bearbeiten
               </Button>
             )}
           </div>
@@ -671,6 +758,103 @@ const EventOrganize = () => {
             </CardContent>
           </Card>
         </motion.div>
+
+        <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+          <DialogContent className={`${editAudience === "public" && editOwnerType === "club" ? "sm:max-w-2xl" : "sm:max-w-md"} max-h-[90vh] flex flex-col`}>
+            <DialogHeader className="flex-shrink-0">
+              <DialogTitle>Termin bearbeiten</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 overflow-y-auto flex-1 pr-2">
+              <div>
+                <Label>Bereich</Label>
+                <Select value={editOwnerType} onValueChange={(v) => { setEditOwnerType(v as OwnerType); setEditAudience(v === "company" ? "company_only" : "club_internal"); }}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {canManageClubEvents && <SelectItem value="club"><span className="flex items-center gap-2"><Shield className="w-4 h-4" /> Hauptverein</span></SelectItem>}
+                    <SelectItem value="company">
+                      <span className="flex items-center gap-2">
+                        <Building2 className="w-4 h-4" /> {hasPermission("club.admin.full") ? "Kompanie" : "Meine Kompanie"}
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {editOwnerType === "company" && canManageClubEvents && (
+                <div>
+                  <Label>Kompanie auswählen *</Label>
+                  <Select value={editOwnerId} onValueChange={setEditOwnerId}>
+                    <SelectTrigger><SelectValue placeholder="Kompanie wählen..." /></SelectTrigger>
+                    <SelectContent>
+                      {companies.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {editOwnerType === "club" && (
+                <div>
+                  <Label>Zielgruppe</Label>
+                  <Select value={editAudience} onValueChange={(v) => setEditAudience(v as EventAudience)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="club_internal"><span className="flex items-center gap-2"><Users className="w-4 h-4" /> Schützen-intern</span></SelectItem>
+                      <SelectItem value="public"><span className="flex items-center gap-2"><Globe className="w-4 h-4" /> Öffentlich (Homepage)</span></SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {editAudience === "public" && (
+                    <div className="mt-4">
+                      <EventPublicPreview title={editTitle} description={editDescription} location={editLocation} startAt={editStartAt} endAt={editEndAt} category={editCategory} eventId={event.id} clubSlug={clubSlug} />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {editOwnerType === "company" && (
+                <div>
+                  <Label>Zielgruppe</Label>
+                  <Select value={editAudience} onValueChange={(v) => setEditAudience(v as EventAudience)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="company_only"><span className="flex items-center gap-2"><Building2 className="w-4 h-4" /> Kompanie-intern</span></SelectItem>
+                      <SelectItem value="club_internal"><span className="flex items-center gap-2"><Users className="w-4 h-4" /> Schützen-intern</span></SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <div>
+                <Label>Titel *</Label>
+                <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div><Label>Start *</Label><Input type="datetime-local" value={editStartAt} onChange={(e) => setEditStartAt(e.target.value)} /></div>
+                <div><Label>Ende</Label><Input type="datetime-local" value={editEndAt} onChange={(e) => setEditEndAt(e.target.value)} /></div>
+              </div>
+              <div><Label>Ort</Label><Input value={editLocation} onChange={(e) => setEditLocation(e.target.value)} /></div>
+              <div>
+                <Label>Kategorie</Label>
+                <Select value={editCategory} onValueChange={setEditCategory}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(categoryLabels).map(([key, { label }]) => (
+                      <SelectItem key={key} value={key}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div><Label>Beschreibung</Label><Textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} rows={3} /></div>
+            </div>
+            <DialogFooter className="flex-shrink-0 pt-4 border-t">
+              <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>Abbrechen</Button>
+              <Button onClick={handleSaveEvent} disabled={isSaving || !editTitle.trim() || !editStartAt || (editOwnerType === "company" && !editOwnerId)}>
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Speichern"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={shiftDialogOpen} onOpenChange={setShiftDialogOpen}>
           <DialogContent>

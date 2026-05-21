@@ -250,7 +250,7 @@ const AdminHome = () => {
         id: "award-requests",
         label: "Auszeichnungs-Anträge",
         description: `${pendingAwardRequests} ${pendingAwardRequests === 1 ? "Antrag wartet" : "Anträge warten"} auf Entscheidung`,
-        href: "/portal/award-requests",
+        href: "/portal/awards/requests",
         icon: Award,
         variant: "warning",
       });

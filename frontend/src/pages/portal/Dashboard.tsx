@@ -266,7 +266,6 @@ const Dashboard = () => {
           isLoading={isLoading}
           companyName={companyInfo?.name || null}
         />
-
         <CompanyUpdatesSection
           latestPost={latestPost}
           upcomingShifts={upcomingShifts}

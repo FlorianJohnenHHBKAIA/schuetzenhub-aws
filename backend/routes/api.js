@@ -669,10 +669,18 @@ router.post("/work-shift-assignments/bulk-status", requireAuth, async (req, res)
 
 // ─── Awards ───────────────────────────────────────────────────────────────────
 
-router.get("/awards", requireAuth, async (req, res) => {
+router.get(["/awards", "/member_awards", "/awards/requests", "/award-requests"], requireAuth, async (req, res) => {
   try {
-    const { member_id } = req.query;
-    let query = "SELECT ma.*, at.name as award_type_name FROM member_awards ma LEFT JOIN award_types at ON at.id = ma.award_type_id WHERE ma.club_id = $1";
+    const { member_id, status } = req.query;
+    let query = `
+      SELECT ma.*, at.name as award_type_name,
+             m.first_name, m.last_name, m.avatar_url,
+             r.first_name as requester_first_name, r.last_name as requester_last_name
+      FROM member_awards ma 
+      LEFT JOIN award_types at ON at.id = ma.award_type_id 
+      LEFT JOIN members m ON m.id = ma.member_id
+      LEFT JOIN members r ON r.id = ma.requested_by_member_id
+      WHERE ma.club_id = $1`;
     const params = [req.clubId];
 
     if (member_id) {
@@ -680,13 +688,36 @@ router.get("/awards", requireAuth, async (req, res) => {
       query += ` AND ma.member_id = $${params.length}`;
     }
 
+    if (status) {
+      params.push(status);
+      query += ` AND ma.status = $${params.length}`;
+    }
+
     query += " ORDER BY ma.awarded_at DESC, ma.created_at DESC";
     const result = await pool.query(query, params);
-    res.json(result.rows);
-  } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
+    
+    // Wir mappen die flachen DB-Zeilen in die verschachtelte Struktur, die das Frontend erwartet
+    const awards = result.rows.map(row => ({
+      ...row,
+      member: row.first_name ? {
+        first_name: row.first_name,
+        last_name: row.last_name,
+        avatar_url: row.avatar_url
+      } : null,
+      requester: row.requester_first_name ? {
+        first_name: row.requester_first_name,
+        last_name: row.requester_last_name
+      } : null
+    }));
+    
+    res.json(awards);
+  } catch (err) { 
+    console.error("GET /awards error:", err);
+    res.status(500).json({ error: "Serverfehler" }); 
+  }
 });
 
-router.get("/award-types", requireAuth, async (req, res) => {
+router.get(["/award-types", "/award_types", "/awards/types"], requireAuth, async (req, res) => {
   const result = await pool.query(
     "SELECT * FROM award_types WHERE club_id = $1 ORDER BY name",
     [req.clubId]
@@ -760,18 +791,28 @@ router.post("/awards", requireAuth, async (req, res) => {
 
 router.put("/awards/:id", requireAuth, async (req, res) => {
   try {
-    const { title, description, awarded_at, award_type, company_id, is_regiment } = req.body;
+    const {
+      title, description, awarded_at, award_type, company_id, is_regiment,
+      status, rejection_reason, approved_by_member_id, approved_at
+    } = req.body;
     const result = await pool.query(
       `UPDATE member_awards SET 
         title = COALESCE($1, title),
         description = $2, 
         awarded_at = COALESCE($3, awarded_at),
         award_type = COALESCE($4, award_type),
-        company_id = $5,
-        is_regiment = COALESCE($6, is_regiment)
-       WHERE id=$7 AND club_id=$8 RETURNING *`,
-      [title, description || null, awarded_at, award_type, company_id || null, is_regiment, req.params.id, req.clubId]
+        company_id = $5, 
+        is_regiment = COALESCE($6, is_regiment),
+        status = COALESCE($7, status),
+        rejection_reason = $8,
+        approved_by_member_id = $9,
+        approved_at = $10
+       WHERE id=$11 AND club_id=$12 RETURNING *`,
+      [title || null, description || null, awarded_at || null, award_type || null, company_id || null, is_regiment !== undefined ? is_regiment : null,
+       status || null, rejection_reason || null, approved_by_member_id || null, approved_at || null,
+       req.params.id, req.clubId]
     );
+    if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
     res.json(result.rows[0]);
   } catch (err) { 
     console.error("PUT /awards error:", err);
@@ -1167,6 +1208,47 @@ router.delete("/magazine-items/:id", requireAuth, async (req, res) => {
     await pool.query("DELETE FROM magazine_items WHERE id=$1", [req.params.id]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
+});
+
+// ─── Magazine Ads ─────────────────────────────────────────────────────────────
+
+router.get("/magazine-ads", requireAuth, async (req, res) => {
+  try {
+    const { magazine_id } = req.query;
+    let query = "SELECT * FROM magazine_ads WHERE club_id = $1";
+    const params = [req.clubId];
+    if (magazine_id) {
+      params.push(magazine_id);
+      query += ` AND magazine_id = $${params.length}`;
+    }
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+router.post("/magazine-ads", requireAuth, async (req, res) => {
+  try {
+    const { magazine_id, title, advertiser_name, status, price } = req.body;
+    const id = uuidv4();
+    const result = await pool.query(
+      "INSERT INTO magazine_ads (id, club_id, magazine_id, title, advertiser_name, status, price) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *",
+      [id, req.clubId, magazine_id, title, advertiser_name, status || 'pending', price || 0]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+router.delete("/magazine-ads/:id", requireAuth, async (req, res) => {
+  try {
+    await pool.query("DELETE FROM magazine_ads WHERE id = $1 AND club_id = $2", [req.params.id, req.clubId]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Serverfehler" });
+  }
 });
 
 // ─── Public URLs helper ───────────────────────────────────────────────────────

@@ -69,12 +69,11 @@ export interface NavGroup {
 
 // Start - Mein Überblick (Dashboard mit Kompanie im Mittelpunkt)
 const memberStartItems: NavItem[] = [
-  { label: "Mein Überblick", href: "/portal", icon: Home, keywords: ["start", "home", "dashboard", "übersicht"] },
+  { label: "Dashboard", href: "/portal", icon: Home, keywords: ["start", "home", "dashboard", "übersicht"] },
 ];
 
 // Meine Kompanie - Alles rund um die eigene Kompanie
 const memberCompanyItems: NavItem[] = [
-  { label: "Kompanie-Termine", href: "/portal/events?scope=company", icon: Calendar, keywords: ["event", "veranstaltung", "kompanie", "termin"] },
   { label: "Kompanie-Aushang", href: "/portal/posts?scope=company", icon: Megaphone, keywords: ["beitrag", "news", "kompanie", "mitteilung"] },
   { label: "Arbeitsdienste", href: "/portal/workshifts", icon: HandHelping, keywords: ["schicht", "dienst", "helfer", "einsatz"] },
   { label: "Kompanie-Galerie", href: "/portal/shared-gallery?scope=company", icon: Images, keywords: ["foto", "bilder", "kompanie", "galerie"] },
@@ -127,7 +126,6 @@ const adminMembersOrgItems: NavItem[] = [
 // Termine & Einsätze
 const adminEventsItems: NavItem[] = [
   { label: "Termine", href: "/portal/events", icon: Calendar, keywords: ["event", "veranstaltung", "kalender"] },
-  { label: "Termin-Freigaben", href: "/portal/event-approvals", icon: CheckCircle, permission: "club.events.approve_publication", keywords: ["freigabe", "genehmigung", "event"] },
   { label: "Arbeitsdienste", href: "/portal/workshifts", icon: ClipboardList, keywords: ["schicht", "dienst", "helfer"] },
   { label: "Arbeitsdienste-Übersicht", href: "/portal/workshifts/overview", icon: BarChart3, permission: "club.members.manage", keywords: ["auswertung", "statistik", "schichten"] },
 ];

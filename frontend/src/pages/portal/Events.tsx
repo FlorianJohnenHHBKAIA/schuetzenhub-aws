@@ -8,6 +8,9 @@ import {
   Trash2,
   Loader2,
   Calendar,
+  CheckCircle,
+  XCircle,
+  Clock,
   MapPin,
   Building2,
   Shield,
@@ -159,7 +162,10 @@ const Events = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [deletingEvent, setDeletingEvent] = useState<Event | null>(null);
+  const [rejectingEvent, setRejectingEvent] = useState<Event | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formOwnerId, setFormOwnerId] = useState("");
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -172,11 +178,13 @@ const Events = () => {
 
   const [filterOwner, setFilterOwner] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [filterStatus, setFilterStatus] = useState<string>("all");
 
   const canManageClubEvents = hasPermission("club.events.manage") || hasPermission("club.admin.full");
+  const canApprove = hasPermission("club.events.approve_publication") || hasPermission("club.admin.full");
   const canManageCompanyEvents = permissions.some(
     (p) => p.permission_key === "company.events.manage" && p.scope_type === "company"
-  );
+  ) || hasPermission("club.admin.full");
   const userCompanyScope = permissions.find(
     (p) => p.permission_key === "company.events.manage" && p.scope_type === "company"
   )?.scope_id;
@@ -251,6 +259,7 @@ const Events = () => {
     setCategory("other");
     setOwnerType(canManageClubEvents ? "club" : "company");
     setAudience("club_internal");
+    setFormOwnerId(userCompanyScope || userCompanyId || "");
     setEditingEvent(null);
   };
 
@@ -265,6 +274,7 @@ const Events = () => {
     setEndAt(event.end_at?.slice(0, 16) || "");
     setCategory(event.category);
     setOwnerType(event.owner_type);
+    setFormOwnerId(event.owner_id);
     setAudience(event.audience);
     setIsDialogOpen(true);
   };
@@ -280,7 +290,7 @@ const Events = () => {
     setIsSubmitting(true);
 
     try {
-      const ownerId = ownerType === "club" ? member.club_id : (userCompanyScope || userCompanyId);
+      const ownerId = ownerType === "club" ? member.club_id : (canManageClubEvents ? formOwnerId : (userCompanyScope || userCompanyId));
       if (!ownerId) throw new Error("Keine Kompanie-Zuordnung gefunden");
 
       const effectiveAudience: EventAudience = ownerType === "club"
@@ -404,6 +414,53 @@ const Events = () => {
     }
   };
 
+  const handleApprove = async (event: Event) => {
+    if (!member) return;
+    setIsSubmitting(true);
+    try {
+      await apiJson(`/api/events/${event.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          audience: "public",
+          publication_status: "approved",
+          approved_at: new Date().toISOString(),
+          approved_by_member_id: member.id,
+        }),
+      });
+      toast.success("Termin freigegeben und öffentlich geschaltet");
+      fetchData();
+    } catch (error: unknown) {
+      toast.error("Fehler beim Freigeben");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!rejectingEvent || !rejectionReason.trim()) {
+      toast.error("Bitte geben Sie einen Ablehnungsgrund ein");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      await apiJson(`/api/events/${rejectingEvent.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          publication_status: "rejected",
+          rejection_reason: rejectionReason.trim(),
+        }),
+      });
+      toast.success("Termin abgelehnt");
+      setRejectingEvent(null);
+      setRejectionReason("");
+      fetchData();
+    } catch (error: unknown) {
+      toast.error("Fehler beim Ablehnen");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const canEditEvent = (event: Event) => {
     if (event.owner_type === "club") return canManageClubEvents;
     return permissions.some(
@@ -417,6 +474,7 @@ const Events = () => {
       if (filterOwner === "company" && e.owner_type !== "company") return false;
     }
     if (filterCategory !== "all" && e.category !== filterCategory) return false;
+    if (filterStatus !== "all" && e.publication_status !== filterStatus) return false;
     return true;
   });
 
@@ -447,6 +505,18 @@ const Events = () => {
               </SelectContent>
             </Select>
           </div>
+          {canApprove && (
+            <Select value={filterStatus} onValueChange={setFilterStatus}>
+              <SelectTrigger className="w-[160px]"><SelectValue placeholder="Alle Status" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Alle Status</SelectItem>
+                <SelectItem value="approved">Freigegeben</SelectItem>
+                <SelectItem value="submitted">Eingereicht</SelectItem>
+                <SelectItem value="draft">Entwurf</SelectItem>
+                <SelectItem value="rejected">Abgelehnt</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
           <Select value={filterCategory} onValueChange={setFilterCategory}>
             <SelectTrigger className="w-[160px]"><SelectValue placeholder="Alle Kategorien" /></SelectTrigger>
             <SelectContent>
@@ -510,6 +580,29 @@ const Events = () => {
                           </div>
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
+                          {event.publication_status === "submitted" && canApprove && (
+                            <div className="flex gap-1 mr-2 border-r pr-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                                onClick={() => setRejectingEvent(event)}
+                                disabled={isSubmitting}
+                              >
+                                <XCircle className="w-4 h-4 mr-1" />
+                                Ablehnen
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => handleApprove(event)}
+                                disabled={isSubmitting}
+                                className="bg-green-600 hover:bg-green-700"
+                              >
+                                <CheckCircle className="w-4 h-4 mr-1" />
+                                Freigeben
+                              </Button>
+                            </div>
+                          )}
                           <Link to={`/portal/events/${event.id}/organize`} title="Organisieren">
                             <Button variant="ghost" size="sm"><Eye className="w-4 h-4 mr-1" />Organisieren</Button>
                           </Link>
@@ -553,7 +646,30 @@ const Events = () => {
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {canManageClubEvents && <SelectItem value="club"><span className="flex items-center gap-2"><Shield className="w-4 h-4" /> Hauptverein</span></SelectItem>}
-                    {canManageCompanyEvents && <SelectItem value="company"><span className="flex items-center gap-2"><Building2 className="w-4 h-4" /> Meine Kompanie</span></SelectItem>}
+                    {canManageCompanyEvents && (
+                      <SelectItem value="company">
+                        <span className="flex items-center gap-2">
+                          <Building2 className="w-4 h-4" /> {hasPermission("club.admin.full") ? "Kompanie" : "Meine Kompanie"}
+                        </span>
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {ownerType === "company" && canManageClubEvents && (
+              <div className="space-y-2">
+                <Label>Kompanie auswählen *</Label>
+                <Select 
+                  value={formOwnerId} 
+                  onValueChange={setFormOwnerId}
+                >
+                  <SelectTrigger><SelectValue placeholder="Kompanie wählen..." /></SelectTrigger>
+                  <SelectContent>
+                    {companies.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -618,8 +734,36 @@ const Events = () => {
           </div>
           <DialogFooter className="flex-shrink-0 pt-4 border-t">
             <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Abbrechen</Button>
-            <Button onClick={handleSave} disabled={isSubmitting || !title.trim() || !startAt}>
+            <Button onClick={handleSave} disabled={isSubmitting || !title.trim() || !startAt || (ownerType === "company" && !formOwnerId)}>
               {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Speichern"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!rejectingEvent} onOpenChange={() => setRejectingEvent(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Termin ablehnen</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Bitte geben Sie einen Grund für die Ablehnung von „{rejectingEvent?.title}" an.
+            </p>
+            <div>
+              <Label>Ablehnungsgrund *</Label>
+              <Textarea
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+                placeholder="z.B. Bitte genauere Beschreibung hinzufügen..."
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectingEvent(null)}>Abbrechen</Button>
+            <Button variant="destructive" onClick={handleReject} disabled={isSubmitting || !rejectionReason.trim()}>
+              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Ablehnen"}
             </Button>
           </DialogFooter>
         </DialogContent>
