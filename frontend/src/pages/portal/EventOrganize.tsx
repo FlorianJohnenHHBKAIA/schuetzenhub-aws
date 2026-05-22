@@ -578,12 +578,13 @@ const EventOrganize = () => {
           </div>
         </motion.div>
 
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {/* AUSKOMMENTIERT: Arbeitsdienst-Statistiken (Kann später wieder aktiviert werden) */}
+        {/* <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Card><CardContent className="p-4"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-primary/10"><ClipboardList className="w-5 h-5 text-primary" /></div><div><p className="text-2xl font-bold">{shifts.length}</p><p className="text-sm text-muted-foreground">Schichten</p></div></div></CardContent></Card>
           <Card><CardContent className="p-4"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-amber-500/10"><AlertCircle className="w-5 h-5 text-amber-600" /></div><div><p className="text-2xl font-bold">{getOpenSlots()}</p><p className="text-sm text-muted-foreground">Offene Plätze</p></div></div></CardContent></Card>
           <Card><CardContent className="p-4"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-green-500/10"><UserCheck className="w-5 h-5 text-green-600" /></div><div><p className="text-2xl font-bold">{getFilledSlots()}</p><p className="text-sm text-muted-foreground">Eingeteilt</p></div></div></CardContent></Card>
           <Card><CardContent className="p-4"><div className="flex items-center gap-3"><div className="p-2 rounded-lg bg-blue-500/10"><Shield className="w-5 h-5 text-blue-600" /></div><div><p className="text-2xl font-bold">{myAssignments.length}</p><p className="text-sm text-muted-foreground">Meine Einsätze</p></div></div></CardContent></Card>
-        </motion.div>
+        </motion.div> */}
 
         <EventQuickActions
           eventId={event.id}
@@ -649,7 +650,8 @@ const EventOrganize = () => {
           <EventPostsSection eventId={event.id} clubId={event.club_id} canManage={canEdit} />
         </motion.div>
 
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+        {/* AUSKOMMENTIERT: Arbeitsdienst-Verwaltung (Kann später wieder aktiviert werden) */}
+        {/* <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-3">
               <CardTitle className="text-lg flex items-center gap-2"><ClipboardList className="w-5 h-5" />Arbeitsdienste ({shifts.length})</CardTitle>
@@ -659,7 +661,6 @@ const EventOrganize = () => {
                     <CheckCheck className="w-4 h-4 mr-2" />Alle erledigt
                   </Button>
                 )}
-                {canEdit && <Button size="sm" onClick={openNewShiftDialog}><Plus className="w-4 h-4 mr-2" />Schicht anlegen</Button>}
               </div>
             </CardHeader>
             <CardContent>
@@ -667,7 +668,6 @@ const EventOrganize = () => {
                 <div className="text-center py-8 text-muted-foreground">
                   <ClipboardList className="w-12 h-12 mx-auto mb-4 opacity-50" />
                   <p>Noch keine Schichten angelegt</p>
-                  {canEdit && <Button variant="outline" className="mt-4" onClick={openNewShiftDialog}><Plus className="w-4 h-4 mr-2" />Erste Schicht anlegen</Button>}
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -757,7 +757,7 @@ const EventOrganize = () => {
               )}
             </CardContent>
           </Card>
-        </motion.div>
+        </motion.div> */}
 
         <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
           <DialogContent className={`${editAudience === "public" && editOwnerType === "club" ? "sm:max-w-2xl" : "sm:max-w-md"} max-h-[90vh] flex flex-col`}>

@@ -77,8 +77,8 @@ export const EventQuickActions = ({
         </CardHeader>
         <CardContent>
           <div className="grid sm:grid-cols-2 gap-3">
-            {/* Work Shifts Action */}
-            <Link
+            {/* AUSKOMMENTIERT: Arbeitsdienst-Quick-Action (Kann später wieder aktiviert werden) */}
+            {/* <Link
               to={`/portal/workshifts?event=${eventId}`}
               className="block"
             >
@@ -106,7 +106,7 @@ export const EventQuickActions = ({
                   )}
                 </div>
               </Button>
-            </Link>
+            </Link> */}
 
             {/* Create Post Action */}
             {canCreatePosts && (

@@ -99,7 +99,8 @@ const memberClubItems: NavItem[] = [
   { label: "Vereinskalender", href: "/portal/events", icon: Calendar, keywords: ["kalender", "termin", "verein", "event"] },
   { label: "Vereins-News", href: "/portal/posts", icon: Megaphone, keywords: ["news", "aktuelles", "beitrag", "aushang"] },
   { label: "Dokumente", href: "/portal/documents", icon: FolderOpen, keywords: ["datei", "protokoll", "download", "dokument"] },
-  { label: "Schützenheft", href: "/portal/magazine", icon: Book, keywords: ["magazin", "festbuch", "heft"] },
+  // AUSKOMMENTIERT: Schützenheft (Kann später wieder aktiviert werden)
+  // { label: "Schützenheft", href: "/portal/magazine", icon: Book, keywords: ["magazin", "festbuch", "heft"] },
   { label: "Über den Verein", href: "/portal/club-profile", icon: Globe, keywords: ["verein", "profil", "info", "über"] },
 ];
 
@@ -120,14 +121,17 @@ const adminMembersOrgItems: NavItem[] = [
   { label: "Ämter & Besetzungen", href: "/portal/roles", icon: Award, permission: "club.roles.manage", keywords: ["rolle", "position", "funktion", "besetzung", "amt"] },
   { label: "Auszeichnungs-Anträge", href: "/portal/awards/requests", icon: Award, permission: "club.members.manage", keywords: ["antrag", "award", "ehrung"] },
   { label: "Auszeichnungstypen", href: "/portal/awards/types", icon: Award, permission: "club.admin.full", keywords: ["award", "auszeichnung", "typ", "kategorie"] },
-  { label: "Automatische Ehrungen", href: "/portal/awards/rules", icon: Zap, permission: "club.admin.full", keywords: ["regel", "automatisch", "meilenstein", "gamification"] },
+  // AUSKOMMENTIERT: Automatische Ehrungen (Kann später wieder aktiviert werden)
+  // { label: "Automatische Ehrungen", href: "/portal/awards/rules", icon: Zap, permission: "club.admin.full", keywords: ["regel", "automatisch", "meilenstein", "gamification"] },
 ];
 
 // Termine & Einsätze
 const adminEventsItems: NavItem[] = [
   { label: "Termine", href: "/portal/events", icon: Calendar, keywords: ["event", "veranstaltung", "kalender"] },
-  { label: "Arbeitsdienste", href: "/portal/workshifts", icon: ClipboardList, keywords: ["schicht", "dienst", "helfer"] },
-  { label: "Arbeitsdienste-Übersicht", href: "/portal/workshifts/overview", icon: BarChart3, permission: "club.members.manage", keywords: ["auswertung", "statistik", "schichten"] },
+  // AUSKOMMENTIERT: Arbeitsdienste (Kann später wieder aktiviert werden)
+  // { label: "Arbeitsdienste", href: "/portal/workshifts", icon: ClipboardList, keywords: ["schicht", "dienst", "helfer"] },
+  // AUSKOMMENTIERT: Arbeitsdienste-Übersicht (Kann später wieder aktiviert werden)
+  // { label: "Arbeitsdienste-Übersicht", href: "/portal/workshifts/overview", icon: BarChart3, permission: "club.members.manage", keywords: ["auswertung", "statistik", "schichten"] },
 ];
 
 // Inhalte & Öffentlichkeit
@@ -141,11 +145,12 @@ const adminContentItems: NavItem[] = [
 ];
 
 // Schützenheft & Sponsoren
-const adminMagazineItems: NavItem[] = [
-  { label: "Schützenhefte", href: "/portal/magazine", icon: Book, permission: "club.magazine.manage", keywords: ["magazin", "festbuch", "heft", "pdf"] },
-  { label: "Anzeigen", href: "/portal/magazine/ads", icon: FileText, permission: "club.magazine.ads.manage", keywords: ["anzeige", "werbung", "inserat"] },
-  { label: "Sponsoren", href: "/portal/magazine/sponsors", icon: Building2, permission: "club.magazine.ads.manage", keywords: ["sponsor", "werbepartner", "unterstützer"] },
-];
+// AUSKOMMENTIERT: Schützenheft & Sponsoren (Kann später wieder aktiviert werden)
+// const adminMagazineItems: NavItem[] = [
+//   { label: "Schützenhefte", href: "/portal/magazine", icon: Book, permission: "club.magazine.manage", keywords: ["magazin", "festbuch", "heft", "pdf"] },
+//   { label: "Anzeigen", href: "/portal/magazine/ads", icon: FileText, permission: "club.magazine.ads.manage", keywords: ["anzeige", "werbung", "inserat"] },
+//   { label: "Sponsoren", href: "/portal/magazine/sponsors", icon: Building2, permission: "club.magazine.ads.manage", keywords: ["sponsor", "werbepartner", "unterstützer"] },
+// ];
 
 // Einstellungen & System
 const adminSystemItems: NavItem[] = [
@@ -194,7 +199,8 @@ export function SidebarNavigation({ onNavigate, onRestartOnboarding }: SidebarNa
           { id: "members-org", label: "Organisation", items: filterByPermission(adminMembersOrgItems), icon: Users },
           { id: "events", label: "Planung", items: filterByPermission(adminEventsItems), icon: Calendar },
           { id: "content", label: "Inhalte", items: filterByPermission(adminContentItems), icon: Megaphone },
-          { id: "magazine", label: "Schützenheft", items: filterByPermission(adminMagazineItems), icon: Book },
+          // AUSKOMMENTIERT: Schützenheft-Gruppe (Kann später wieder aktiviert werden)
+          // { id: "magazine", label: "Schützenheft", items: filterByPermission(adminMagazineItems), icon: Book },
           { id: "system", label: "System", items: filterByPermission(adminSystemItems), icon: Cog },
         ].filter((g) => g.items.length > 0),
       };
