@@ -14,7 +14,8 @@ import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/lib/auth";
 import { usePostComments, usePostReactions } from "@/hooks/usePostInteractions";
 import { createNotification } from "@/hooks/useNotifications";
-import { supabase, getStorageUrl } from "@/integrations/api/client";
+import { supabase, getStorageUrl, api } from "@/integrations/api/client";
+import { toast } from "sonner";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import {
@@ -23,7 +24,7 @@ import {
   Send,
   Trash2,
   Clock,
-  CheckCircle,
+  CheckCircle2,
   XCircle,
   Shield,
   Building2,
@@ -83,6 +84,7 @@ const PostDetailDialog = ({ open, onOpenChange, post }: PostDetailDialogProps) =
   const [newComment, setNewComment] = useState('');
   const [canComment, setCanComment] = useState(false);
   const [canModerate, setCanModerate] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
   const {
     comments,
@@ -153,6 +155,37 @@ const PostDetailDialog = ({ open, onOpenChange, post }: PostDetailDialogProps) =
     toggleReaction(post.club_id, 'like');
   };
 
+  const handleStatusUpdate = async (newStatus: Post['publication_status']) => {
+    if (!post || !member) return;
+    setIsUpdatingStatus(true);
+    try {
+      const updatePayload: Partial<Post> = {
+        publication_status: newStatus,
+      };
+
+      if (newStatus === 'approved') {
+        updatePayload.approved_at = new Date().toISOString();
+        updatePayload.approved_by_member_id = member.id;
+      } else if (newStatus === 'submitted') {
+        updatePayload.submitted_at = new Date().toISOString();
+      }
+
+      await api.json(`/api/posts/${post.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(updatePayload),
+      });
+
+      toast.success(newStatus === 'approved' ? "Beitrag freigegeben" : "Beitrag eingereicht");
+      onOpenChange(false);
+      window.location.reload(); // Seite neu laden, um die Liste zu aktualisieren
+    } catch (error) {
+      console.error("Error updating post status:", error);
+      toast.error("Fehler beim Aktualisieren des Status");
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'draft':
@@ -160,7 +193,7 @@ const PostDetailDialog = ({ open, onOpenChange, post }: PostDetailDialogProps) =
       case 'submitted':
         return <Badge variant="outline" className="gap-1 border-yellow-500 text-yellow-600"><Send className="w-3 h-3" />Eingereicht</Badge>;
       case 'approved':
-        return <Badge variant="default" className="gap-1 bg-green-600"><CheckCircle className="w-3 h-3" />Freigegeben</Badge>;
+        return <Badge variant="default" className="gap-1 bg-green-600"><CheckCircle2 className="w-3 h-3" />Freigegeben</Badge>;
       case 'rejected':
         return <Badge variant="destructive" className="gap-1"><XCircle className="w-3 h-3" />Abgelehnt</Badge>;
       default:
@@ -210,6 +243,41 @@ const PostDetailDialog = ({ open, onOpenChange, post }: PostDetailDialogProps) =
                 {CATEGORIES.find(c => c.value === post.category)?.label}
               </Badge>
             </div>
+
+            {/* Status-Aktionen für Entwürfe oder eingereichte Beiträge */}
+            {((canModerate && (post.publication_status as string) !== 'approved') || 
+               (post.created_by_member_id === member?.id && post.publication_status === 'draft')) && (
+              <div className="p-4 bg-muted/50 rounded-lg border border-dashed border-primary/20 flex flex-col gap-3">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Shield className="w-4 h-4 text-primary" />
+                  Status-Aktionen
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  {canModerate && (post.publication_status as string) !== 'approved' && (
+                    <Button 
+                      size="sm" 
+                      className="bg-green-600 hover:bg-green-700 text-white"
+                      onClick={() => handleStatusUpdate('approved')}
+                      disabled={isUpdatingStatus}
+                    >
+                      {isUpdatingStatus ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                      Beitrag freigeben
+                    </Button>
+                  )}
+                  {post.created_by_member_id === member?.id && post.publication_status === 'draft' && (
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      onClick={() => handleStatusUpdate('submitted')}
+                      disabled={isUpdatingStatus}
+                    >
+                      {isUpdatingStatus ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
+                      Zur Freigabe einreichen
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Cover Image */}
             {post.cover_image_path && (
