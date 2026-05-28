@@ -110,6 +110,11 @@ const AwardDialog = ({ open, onOpenChange, memberId, clubId, award, onSave }: Aw
       return;
     }
 
+    if (!clubId) {
+      toast({ title: "Vereins-ID fehlt", description: "Bitte versuchen Sie es erneut.", variant: "destructive" });
+      return;
+    }
+
     setIsLoading(true);
     try {
       if (award) {
@@ -129,7 +134,7 @@ const AwardDialog = ({ open, onOpenChange, memberId, clubId, award, onSave }: Aw
           .eq("id", award.id);
 
         if (error) throw error;
-        toast({ title: "Auszeichnung aktualisiert" });
+        toast({ title: "Gespeichert", description: "Die Auszeichnung wurde aktualisiert." });
       } else {
         // Create new award
         const { error } = await supabase
@@ -148,11 +153,11 @@ const AwardDialog = ({ open, onOpenChange, memberId, clubId, award, onSave }: Aw
           });
 
         if (error) throw error;
-        toast({ title: "Auszeichnung hinzugefügt" });
+        toast({ title: "Erfolgreich", description: "Die Auszeichnung wurde hinzugefügt." });
       }
 
-      onSave();
       onOpenChange(false);
+      onSave();
     } catch (error) {
       console.error("Error saving award:", error);
       toast({ title: "Fehler beim Speichern", variant: "destructive" });

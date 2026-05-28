@@ -4,7 +4,7 @@ import { de } from "date-fns/locale";
 import { 
   Building2, Calendar, Loader2, Award, Shield, UserCog, Plus, 
   Edit, Trash2, X, Medal, KeyRound, Check, Eye, EyeOff, Trophy,
-  Crown, Star, Sparkles, ScrollText, CheckCircle2
+  Crown, Star, Sparkles, ScrollText, CheckCircle
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -174,97 +174,90 @@ const MemberManagementDialog = ({
     if (!member) return;
     setIsLoading(true);
 
-    const [
-      membershipRes,
-      appointmentRes,
-      awardsRes,
-      companiesRes,
-      rolesRes,
-      awardTypesRes,
-    ] = await Promise.all([
-      supabase
-        .from("member_company_memberships")
-        .select("id, company_id, valid_from, valid_to")
-        .eq("member_id", member.id)
-        .order("valid_from", { ascending: false }),
-      supabase
-        .from("appointments")
-        .select("id, role_id, scope_type, scope_id, valid_from, valid_to")
-        .eq("member_id", member.id)
-        .order("valid_from", { ascending: false }),
-      supabase
-        .from("member_awards")
-        .select("id, title, description, awarded_at, award_type, award_type_id, company_id, is_regiment") // Lade is_regiment aus der Datenbank
-        .eq("member_id", member.id)
-        .order("awarded_at", { ascending: false }),
-      supabase.from("companies").select("id, name").eq("club_id", clubId),
-      supabase.from("roles").select("id, name, level").eq("club_id", clubId),
-      supabase
-        .from("award_types")
-        .select("id, name, description, icon, badge_color, scope_type, scope_id")
-        .eq("club_id", clubId)
-        .eq("is_active", true)
-        .order("name", { ascending: true }),
-    ]);
+    try {
+      // Lade alle relevanten Daten parallel
+      const [
+        awardTypesRes,
+        awardsRes,
+        membershipsRes,
+        appointmentsData,
+        companiesRes,
+        rolesData
+      ] = await Promise.all([
+        supabase
+          .from("award_types")
+          .select("id, name, description, scope_type, scope_id")
+          .eq("club_id", clubId)
+          .order("name", { ascending: true }),
+        supabase
+          .from("member_awards")
+          .select("*")
+          .eq("member_id", member.id)
+          .order("awarded_at", { ascending: false }),
+        supabase
+          .from("member_company_memberships")
+          .select(`
+            id,
+            company_id,
+            valid_from,
+            valid_to,
+            companies:companies (name)
+          `)
+          .eq("member_id", member.id)
+          .order("valid_from", { ascending: false }),
+        apiJson<AppointmentInfo[]>(`/api/appointments?member_id=${member.id}`),
+        supabase
+          .from("companies")
+          .select("id, name")
+          .eq("club_id", clubId)
+          .order("name", { ascending: true }),
+        apiJson<Role[]>("/api/roles")
+      ]);
 
-    const companiesData = (companiesRes.data as Company[]) || [];
-    const rolesData = (rolesRes.data as Role[]) || [];
+      // Auszeichnungstypen verarbeiten
+      const awardTypesWithDefaults = (awardTypesRes.data || []).map((type: any) => ({
+        ...type,
+        icon: type.icon || 'medal',
+        badge_color: type.badge_color || 'gold'
+      }));
 
-    const companyMap = new Map<string, string>(companiesData.map((c) => [c.id, c.name]));
-    const roleMap = new Map<string, string>(rolesData.map((r) => [r.id, r.name]));
+      // Daten sicher in die States schreiben (mit Fallbacks für null/undefined)
+      setAwardTypes(awardTypesWithDefaults || []);
+      setAwards((awardsRes?.data as MemberAward[]) || []);
+      setCompanies((companiesRes?.data as Company[]) || []);
+      setRoles(Array.isArray(rolesData) ? rolesData : []);
+      setAppointments(Array.isArray(appointmentsData) ? appointmentsData : []);
 
-    setCompanies(companiesData);
-    setRoles(rolesData);
-
-    if (membershipRes.data) {
-      const membershipData = membershipRes.data as Array<{
-        id: string;
-        company_id: string;
-        valid_from: string;
-        valid_to: string | null;
-      }>;
-      setMemberships(membershipData.map((m) => ({
-        ...m,
-        company_name: companyMap.get(m.company_id) || "Unbekannt",
-      })));
+      const processedMemberships = (membershipsRes?.data || []).map((m: any) => ({
+        id: m?.id,
+        company_id: m?.company_id,
+        company_name: m?.companies?.name || "Unbekannt",
+        valid_from: m?.valid_from,
+        valid_to: m?.valid_to
+      }));
+      setMemberships(processedMemberships);
+    } catch (error) {
+      console.error("Error fetching member management data:", error);
+      toast({ title: "Fehler beim Laden", description: "Daten konnten nicht vollständig geladen werden.", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
     }
-
-    if (appointmentRes.data) {
-      const appointmentData = appointmentRes.data as Array<{
-        id: string;
-        role_id: string;
-        scope_type: "club" | "company";
-        scope_id: string;
-        valid_from: string;
-        valid_to: string | null;
-      }>;
-      setAppointments(appointmentData.map((a) => ({
-        id: a.id,
-        role_id: a.role_id,
-        role_name: roleMap.get(a.role_id) || "Unbekannt",
-        scope_type: a.scope_type,
-        scope_id: a.scope_id,
-        scope_name: a.scope_type === "club" ? "Hauptverein" : companyMap.get(a.scope_id) || "Unbekannt",
-        valid_from: a.valid_from,
-        valid_to: a.valid_to,
-      })));
-    }
-
-    setAwards((awardsRes.data as MemberAward[]) || []);
-    setAwardTypes((awardTypesRes.data as AwardType[]) || []);
-    setIsLoading(false);
   };
 
-  const getAwardTypeIcon = (iconName: string) => {
+  const getAwardTypeIcon = (iconName: string | null | undefined) => {
     const icons: Record<string, typeof Medal> = {
       medal: Medal,
-      award: Award,
-      trophy: Trophy,
+      order: Award,
+      honor: Sparkles,
+      certificate: ScrollText,
       crown: Crown,
-      star: Star,
-      sparkles: Sparkles,
-      scroll: ScrollText,
+      trophy: Trophy,
+      shield: Shield,
+      gem: Award,
+      heart: Award,
+      award: Award,
     };
+    if (!iconName) return Medal;
     return icons[iconName.toLowerCase()] || Medal;
   };
 
@@ -558,7 +551,10 @@ const MemberManagementDialog = ({
                         const IconComponent = getAwardTypeIcon(awardType.icon);
                         const colorClasses = getBadgeColorClasses(awardType.badge_color);
                         const isGranting = grantingAwardTypeId === awardType.id;
-                        const alreadyGranted = awards.some(a => a.award_type_id === awardType.id);
+                        const alreadyGranted = Array.isArray(awards) && awards.some(a => 
+                          (a?.award_type_id === awardType.id) || 
+                          (!a?.award_type_id && a?.title === awardType.name)
+                        );
                         
                         return (
                           <button
@@ -570,13 +566,13 @@ const MemberManagementDialog = ({
                                 ? "border-green-500/50 bg-green-500/10 cursor-default" 
                                 : "border-transparent bg-muted/50 hover:bg-muted hover:border-primary/30 cursor-pointer"
                             }`}
-                            title={alreadyGranted ? "Bereits vergeben" : `${awardType.name} vergeben`}
+                            title={alreadyGranted ? "Bereits verliehen" : `${awardType.name} verleihen`}
                           >
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${colorClasses.bg}`}>
                               {isGranting ? (
                                 <Loader2 className="w-5 h-5 animate-spin text-primary" />
                               ) : alreadyGranted ? (
-                                <CheckCircle2 className="w-5 h-5 text-green-500" />
+                                <CheckCircle className="w-5 h-5 text-green-500" />
                               ) : (
                                 <IconComponent className={`w-5 h-5 ${colorClasses.text}`} />
                               )}

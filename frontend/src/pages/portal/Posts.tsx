@@ -538,12 +538,12 @@ const PostGrid = ({ posts, loading, onView, onEdit, onDelete, onSubmit, canManag
           <CardContent className="p-4">
             <div className="flex flex-wrap gap-1 mb-2">{getStatusBadge(post.publication_status)}{getAudienceBadge(post.audience)}</div>
             <div className="flex items-start gap-2 mb-2">{getCategoryIcon(post.category)}<h3 className="font-semibold line-clamp-2">{post.title}</h3></div>
-            <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{post.content}</p>
+            <p className="text-sm text-muted-foreground line-clamp-2 mb-3 whitespace-pre-wrap">{post.content}</p>
             <div className="text-xs text-muted-foreground">{format(new Date(post.created_at), 'dd.MM.yyyy', { locale: de })}</div>
             {canManage(post) && (
               <div className="flex gap-2 mt-3 pt-3 border-t" onClick={(e) => e.stopPropagation()}>
                 <Button variant="ghost" size="sm" onClick={() => onEdit(post)}><Edit className="w-4 h-4" /></Button>
-                {post.publication_status === 'draft' && canSubmit(post) && post.audience === 'public' && (
+                {post.publication_status === 'draft' && canSubmit(post) && (
                   <Button variant="ghost" size="sm" onClick={() => onSubmit(post)}><Send className="w-4 h-4" /></Button>
                 )}
                 <Button variant="ghost" size="sm" onClick={() => onDelete(post)} className="text-destructive"><Trash2 className="w-4 h-4" /></Button>

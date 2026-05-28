@@ -133,6 +133,7 @@ const MemberProfile = () => {
         .from("member_awards")
         .select("*")
         .eq("member_id", id)
+        .eq("status", "approved")
         .order("awarded_at", { ascending: false });
       setAwards((awardsData as MemberAward[]) || []);
 

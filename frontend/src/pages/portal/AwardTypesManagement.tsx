@@ -13,7 +13,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { 
@@ -44,7 +43,6 @@ interface AwardType {
   badge_color: string;
   scope_type: string;
   scope_id: string | null;
-  is_active: boolean;
   created_at: string;
 }
 
@@ -87,7 +85,6 @@ interface AwardTypeFormData {
   badge_color: string;
   scope_type: "club" | "company";
   scope_id: string | null;
-  is_active: boolean;
 }
 
 export default function AwardTypesManagement() {
@@ -108,7 +105,6 @@ export default function AwardTypesManagement() {
     badge_color: "gold",
     scope_type: "club",
     scope_id: null,
-    is_active: true,
   });
 
   const { data: awardTypes, isLoading: typesLoading } = useQuery({
@@ -153,7 +149,7 @@ export default function AwardTypesManagement() {
         badge_color: data.badge_color,
         scope_type: data.scope_type,
         scope_id: data.scope_type === "company" ? data.scope_id : null,
-        is_active: data.is_active,
+        is_active: true,
       };
 
       if (editingType) {
@@ -209,7 +205,6 @@ export default function AwardTypesManagement() {
       badge_color: "gold",
       scope_type: scopeType,
       scope_id: null,
-      is_active: true,
     });
     setDialogOpen(true);
   };
@@ -223,7 +218,6 @@ export default function AwardTypesManagement() {
       badge_color: awardType.badge_color,
       scope_type: awardType.scope_type as "club" | "company",
       scope_id: awardType.scope_id,
-      is_active: awardType.is_active,
     });
     setDialogOpen(true);
   };
@@ -486,20 +480,6 @@ export default function AwardTypesManagement() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="is_active">Aktiv</Label>
-                <p className="text-sm text-muted-foreground">
-                  Deaktivierte Typen können nicht beantragt werden
-                </p>
-              </div>
-              <Switch
-                id="is_active"
-                checked={formData.is_active}
-                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, is_active: checked }))}
-              />
-            </div>
-
             <div className="flex justify-end gap-3 pt-4">
               <Button type="button" variant="outline" onClick={closeDialog}>
                 Abbrechen
@@ -551,7 +531,7 @@ function AwardTypeCard({
   const Icon = iconConfig.icon;
 
   return (
-    <Card className={cn(!awardType.is_active && "opacity-60")}>
+    <Card>
       <CardContent className="pt-6">
         <div className="flex items-start gap-3">
           <div className={cn("p-3 rounded-full", iconConfig.bgColor)}>
@@ -560,9 +540,6 @@ function AwardTypeCard({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <h3 className="font-semibold truncate">{awardType.name}</h3>
-              {!awardType.is_active && (
-                <Badge variant="secondary" className="text-xs">Inaktiv</Badge>
-              )}
             </div>
             {awardType.description && (
               <p className="text-sm text-muted-foreground line-clamp-2 mt-1">

@@ -73,6 +73,7 @@ export default function Awards() {
           )
         `)
         .eq('club_id', clubId)
+        .eq('status', 'approved')
         .order('awarded_at', { ascending: false });
 
       if (error) throw error;

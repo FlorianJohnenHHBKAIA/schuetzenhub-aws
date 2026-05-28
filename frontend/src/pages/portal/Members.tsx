@@ -246,13 +246,15 @@ const Members = () => {
         onSave={handleSave}
       />
 
-      <MemberManagementDialog
-        open={!!managingMember}
-        onOpenChange={(open) => { if (!open) setManagingMember(null); }}
-        member={managingMember}
-        clubId={currentMember?.club_id || ""}
-        onRefresh={fetchData}
-      />
+      {currentMember?.club_id && (
+        <MemberManagementDialog
+          open={!!managingMember}
+          onOpenChange={(open) => { if (!open) setManagingMember(null); }}
+          member={managingMember}
+          clubId={currentMember.club_id}
+          onRefresh={fetchData}
+        />
+      )}
 
       <AlertDialog open={!!deletingMember} onOpenChange={() => setDeletingMember(null)}>
         <AlertDialogContent>

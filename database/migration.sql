@@ -390,8 +390,11 @@ CREATE TABLE IF NOT EXISTS award_types (
     club_id UUID NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     description TEXT,
+    icon TEXT NOT NULL DEFAULT 'medal',
+    badge_color TEXT NOT NULL DEFAULT 'gold',
     scope_type TEXT NOT NULL DEFAULT 'club',
     scope_id UUID,
+    is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -580,3 +583,11 @@ ALTER TABLE member_awards ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
 ALTER TABLE members ADD COLUMN IF NOT EXISTS title TEXT;
 ALTER TABLE members ADD COLUMN IF NOT EXISTS bio TEXT;
 ALTER TABLE members ADD COLUMN IF NOT EXISTS cover_url TEXT;
+
+-- Add missing columns to award_types table
+ALTER TABLE award_types ADD COLUMN IF NOT EXISTS icon TEXT NOT NULL DEFAULT 'medal';
+ALTER TABLE award_types ADD COLUMN IF NOT EXISTS badge_color TEXT NOT NULL DEFAULT 'gold';
+ALTER TABLE award_types ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
+
+-- Set all existing award types to active
+UPDATE award_types SET is_active = true WHERE is_active IS NULL;

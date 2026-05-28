@@ -13,9 +13,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
-import { CalendarIcon, Loader2, Award, Building2 } from "lucide-react";
+import { CalendarIcon, Loader2, Award, Building2, CheckCircle, Medal, Star, Sparkles, ScrollText, Crown, Trophy, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getIconConfig } from "@/pages/portal/AwardTypesManagement";
 
 interface AwardType {
   id: string;
@@ -37,6 +36,20 @@ interface AwardRequestDialogProps {
   onSuccess: () => void;
 }
 
+const getAwardIcon = (name: string | null | undefined) => {
+  const icons: Record<string, { icon: typeof Medal, color: string, bgColor: string }> = {
+    medal: { icon: Medal, color: "text-amber-500", bgColor: "bg-amber-500/10" },
+    order: { icon: Star, color: "text-blue-500", bgColor: "bg-blue-500/10" },
+    honor: { icon: Sparkles, color: "text-purple-500", bgColor: "bg-purple-500/10" },
+    certificate: { icon: ScrollText, color: "text-green-500", bgColor: "bg-green-500/10" },
+    crown: { icon: Crown, color: "text-yellow-500", bgColor: "bg-yellow-500/10" },
+    trophy: { icon: Trophy, color: "text-orange-500", bgColor: "bg-orange-500/10" },
+    shield: { icon: Shield, color: "text-slate-500", bgColor: "bg-slate-500/10" },
+    other: { icon: Award, color: "text-primary", bgColor: "bg-primary/10" },
+  };
+  return icons[name?.toLowerCase() || "other"] || icons.other;
+};
+
 export default function AwardRequestDialog({
   open,
   onOpenChange,
@@ -52,20 +65,37 @@ export default function AwardRequestDialog({
   const [description, setDescription] = useState("");
   const [awardedAt, setAwardedAt] = useState<Date>(new Date());
 
-  const { data: awardTypes, isLoading } = useQuery({
+  const { data: awardTypes, isLoading: isTypesLoading } = useQuery({
     queryKey: ["available-award-types", clubId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("award_types")
-        .select("*")
+        .select("id, name, description, icon, badge_color, scope_type, scope_id, is_active, club_id")
         .eq("club_id", clubId)
-        .eq("is_active", true)
-        .order("name");
+        // Wir zeigen alle an, sofern sie nicht explizit deaktiviert wurden
+        .neq("is_active", false)
+        .order("name", { ascending: true });
       if (error) throw error;
       return data as AwardType[];
     },
     enabled: open && !!clubId,
   });
+
+  // Fetch existing awards to check for duplicates or pending requests
+  const { data: existingAwards, isLoading: isAwardsLoading } = useQuery({
+    queryKey: ["member-awards-status-check", memberId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("member_awards")
+        .select("award_type_id, status, title, award_type, description")
+        .eq("member_id", memberId);
+      if (error) throw error;
+      return data;
+    },
+    enabled: open && !!memberId,
+  });
+
+  const isLoading = isTypesLoading || isAwardsLoading;
 
   const submitMutation = useMutation({
     mutationFn: async () => {
@@ -133,23 +163,63 @@ export default function AwardRequestDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {isLoading ? (
+          {isLoading || !existingAwards ? (
             <div className="space-y-2">
               {[1, 2, 3].map(i => <Skeleton key={i} className="h-16" />)}
             </div>
-          ) : awardTypes?.length === 0 ? (
+          ) : (awardTypes?.length === 0 && (!existingAwards || existingAwards.length === 0)) ? (
             <div className="text-center py-8 text-muted-foreground">
               <Award className="w-12 h-12 mx-auto mb-4 opacity-50" />
               <p>Keine Auszeichnungstypen verfügbar.</p>
-              <p className="text-sm">Bitte kontaktieren Sie einen Administrator.</p>
+              <p className="text-sm">Bisher wurden keine Auszeichnungstypen für diesen Verein definiert.</p>
+              <p className="text-xs mt-2 italic">Administratoren können diese unter "Einstellungen → Auszeichnungstypen" anlegen.</p>
             </div>
           ) : (
             <div className="space-y-4">
+              {/* Display manually added awards or awards that don't match a defined type */}
+              {existingAwards && (() => {
+                const manualAwards = existingAwards?.filter(ea => 
+                  !awardTypes?.some(at => at.id === ea.award_type_id || at.name === ea.title)
+                ) || [];
+                
+                if (manualAwards.length === 0) return null;
+                
+                return (
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2 text-muted-foreground">
+                      <CheckCircle className="w-4 h-4" />
+                      Bereits verliehene Auszeichnungen
+                    </Label>
+                    <div className="grid gap-2">
+                      {manualAwards.map((award, idx) => (
+                        <AwardTypeOption
+                          key={`manual-${idx}`}
+                          type={{
+                            id: `manual-${idx}`,
+                            name: award.title || "Unbenannte Auszeichnung",
+                            description: award.description,
+                            icon: award.award_type || 'medal',
+                            badge_color: 'gold',
+                            scope_type: 'club',
+                            scope_id: null,
+                            is_active: true,
+                            club_id: clubId
+                          }}
+                          selected={false}
+                          onSelect={() => {}}
+                          status={award.status}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {clubTypes.length > 0 && (
                 <div className="space-y-2">
                   <Label className="flex items-center gap-2 text-muted-foreground">
                     <Award className="w-4 h-4" />
-                    Vereinsauszeichnungen
+                    Verfügbare Vereinsauszeichnungen
                   </Label>
                   <div className="grid gap-2">
                     {clubTypes.map(type => (
@@ -158,6 +228,10 @@ export default function AwardRequestDialog({
                         type={type}
                         selected={selectedType?.id === type.id}
                         onSelect={() => setSelectedType(type)}
+                        status={existingAwards?.find(ea => 
+                          (ea?.award_type_id === type.id) || 
+                          (!ea?.award_type_id && ea?.title === type.name)
+                        )?.status}
                       />
                     ))}
                   </div>
@@ -168,7 +242,7 @@ export default function AwardRequestDialog({
                 <div className="space-y-2">
                   <Label className="flex items-center gap-2 text-muted-foreground">
                     <Building2 className="w-4 h-4" />
-                    Kompanieauszeichnungen
+                    Verfügbare Kompanieauszeichnungen
                   </Label>
                   <div className="grid gap-2">
                     {companyTypes.map(type => (
@@ -177,6 +251,10 @@ export default function AwardRequestDialog({
                         type={type}
                         selected={selectedType?.id === type.id}
                         onSelect={() => setSelectedType(type)}
+                        status={existingAwards?.find(ea => 
+                          (ea?.award_type_id === type.id) || 
+                          (!ea?.award_type_id && ea?.title === type.name)
+                        )?.status}
                       />
                     ))}
                   </div>
@@ -248,25 +326,32 @@ export default function AwardRequestDialog({
 function AwardTypeOption({ 
   type, 
   selected, 
-  onSelect 
+  onSelect,
+  status
 }: { 
   type: AwardType; 
   selected: boolean; 
   onSelect: () => void;
+  status?: string;
 }) {
-  const iconConfig = getIconConfig(type.icon);
-  const Icon = iconConfig.icon;
+  const iconConfig = getAwardIcon(type.icon);
+  
+  // Fallback, falls ein Icon-Name in lucide-react nicht existiert (verhindert White-Screen)
+  const Icon = iconConfig.icon || Award;
+
+  const isAlreadyOwned = status === "approved";
+  const isPending = status === "pending";
 
   return (
     <button
       type="button"
-      onClick={onSelect}
+      onClick={isAlreadyOwned || isPending ? undefined : onSelect}
       className={cn(
         "flex items-center gap-3 p-3 rounded-lg border-2 text-left transition-all w-full",
-        selected
-          ? "border-primary bg-primary/5"
-          : "border-transparent bg-muted/50 hover:bg-muted"
+        selected ? "border-primary bg-primary/5" : "border-transparent bg-muted/50",
+        (isAlreadyOwned || isPending) ? "opacity-60 cursor-default" : "hover:bg-muted cursor-pointer"
       )}
+      disabled={isAlreadyOwned || isPending}
     >
       <div className={cn("p-2 rounded-full shrink-0", iconConfig.bgColor)}>
         <Icon className={cn("w-4 h-4", iconConfig.color)} />
@@ -277,7 +362,11 @@ function AwardTypeOption({
           <p className="text-sm text-muted-foreground truncate">{type.description}</p>
         )}
       </div>
-      {selected && (
+      {isAlreadyOwned ? (
+        <Badge variant="secondary" className="shrink-0 bg-green-500/10 text-green-600 border-green-500/20">Verliehen</Badge>
+      ) : isPending ? (
+        <Badge variant="secondary" className="shrink-0 bg-amber-500/10 text-amber-600 border-amber-500/20">Beantragt</Badge>
+      ) : selected && (
         <Badge variant="default" className="shrink-0">Ausgewählt</Badge>
       )}
     </button>

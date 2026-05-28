@@ -718,40 +718,42 @@ router.get(["/awards", "/member_awards", "/awards/requests", "/award-requests"],
 });
 
 router.get(["/award-types", "/award_types", "/awards/types"], requireAuth, async (req, res) => {
-  const result = await pool.query(
-    "SELECT * FROM award_types WHERE club_id = $1 ORDER BY name",
-    [req.clubId]
-  );
-  res.json(result.rows);
+  try {
+    const result = await pool.query(
+      "SELECT * FROM award_types WHERE club_id = $1 ORDER BY name",
+      [req.clubId]
+    );
+    res.json(result.rows);
+  } catch (err) { console.error("Award types fetch error:", err); res.status(500).json({ error: "Serverfehler" }); }
 });
 
 router.post("/award-types", requireAuth, async (req, res) => {
   try {
-    const { name, description, icon } = req.body;
+    const { name, description } = req.body;
     const result = await pool.query(
-      "INSERT INTO award_types (id, club_id, name, description, icon) VALUES (gen_random_uuid(), $1, $2, $3, $4) RETURNING *",
-      [req.clubId, name, description || null, icon || null]
+      "INSERT INTO award_types (id, club_id, name, description) VALUES (gen_random_uuid(), $1, $2, $3) RETURNING *",
+      [req.clubId, name, description || null]
     );
     res.json(result.rows[0]);
-  } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
+  } catch (err) { console.error("Award type creation error:", err); res.status(500).json({ error: "Serverfehler" }); }
 });
 
 router.put("/award-types/:id", requireAuth, async (req, res) => {
   try {
-    const { name, description, icon } = req.body;
+    const { name, description } = req.body;
     const result = await pool.query(
-      "UPDATE award_types SET name=$1, description=$2, icon=$3 WHERE id=$4 AND club_id=$5 RETURNING *",
-      [name, description || null, icon || null, req.params.id, req.clubId]
+      "UPDATE award_types SET name=$1, description=$2 WHERE id=$3 AND club_id=$4 RETURNING *",
+      [name, description || null, req.params.id, req.clubId]
     );
     res.json(result.rows[0]);
-  } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
+  } catch (err) { console.error("Award type update error:", err); res.status(500).json({ error: "Serverfehler" }); }
 });
 
 router.delete("/award-types/:id", requireAuth, async (req, res) => {
   try {
     await pool.query("DELETE FROM award_types WHERE id=$1 AND club_id=$2", [req.params.id, req.clubId]);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
+  } catch (err) { console.error("Award type deletion error:", err); res.status(500).json({ error: "Serverfehler" }); }
 });
 
 router.post("/awards", requireAuth, async (req, res) => {

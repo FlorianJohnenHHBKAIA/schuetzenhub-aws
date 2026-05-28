@@ -143,7 +143,7 @@ const MemberDetailDialog = ({
         api.json<ApiCompany[]>("/api/companies").catch((): ApiCompany[] => []),
         api.json<ApiRole[]>("/api/roles").catch((): ApiRole[] => []),
         api.json<ApiDelegation[]>(`/api/delegations?to_member_id=${member.id}`).catch((): ApiDelegation[] => []),
-        api.json<ApiAward[]>(`/api/awards?member_id=${member.id}`).catch((): ApiAward[] => []),
+        api.json<ApiAward[]>(`/api/awards?member_id=${member.id}&status=approved`).catch((): ApiAward[] => []),
       ]);
 
       const companyMap = new Map<string, string>(companies.map((c): [string, string] => [c.id, c.name]));
