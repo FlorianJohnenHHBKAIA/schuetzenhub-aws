@@ -185,7 +185,7 @@ class TableQuery {
   private _lte: Record<string, string> = {};
   private _in: Record<string, unknown[]> = {};
   private _is: Record<string, null | boolean> = {};
-  private _not: Record<string, unknown> = {};
+  private _neq: Record<string, unknown> = {};
 
   constructor(table: string) {
     this.table = table;
@@ -198,7 +198,7 @@ class TableQuery {
   }
 
   eq(col: string, val: unknown) { this.filters[col] = val; return this; }
-  neq(col: string, val: unknown) { this._not[col] = val; return this; }
+  neq(col: string, val: unknown) { this._neq[col] = val; return this; }
   gte(col: string, val: string) { this._gte[col] = val; return this; }
   lte(col: string, val: string) { this._lte[col] = val; return this; }
   in(col: string, vals: unknown[]) { this._in[col] = vals; return this; }
@@ -252,9 +252,10 @@ class TableQuery {
       posts: "/api/posts",
       notifications: "/api/notifications",
       gallery_images: "/api/gallery",
+      member_gallery_images: "/api/member-gallery",
       documents: "/api/documents",
       work_shifts: "/api/work-shifts",
-      work_shift_assignments: "/api/work-shifts",
+      work_shift_assignments: "/api/work-shift-assignments",
       member_company_memberships: "/api/memberships",
       member_awards: "/api/awards",
       award_requests: "/api/awards",
@@ -283,6 +284,7 @@ class TableQuery {
         Object.entries(this._gte).forEach(([k, v]) => params.set(`gte_${k}`, v));
         Object.entries(this._lte).forEach(([k, v]) => params.set(`lte_${k}`, v));
         Object.entries(this._is).forEach(([k, v]) => params.set(`is_${k}`, v === null ? "null" : String(v)));
+        Object.entries(this._neq).forEach(([k, v]) => params.set(`neq_${k}`, String(v)));
         if (this._order) params.set("order", this._order);
         if (this._limit) params.set("limit", String(this._limit));
         if (this._count) params.set("count", this._count);
@@ -296,6 +298,11 @@ class TableQuery {
         if (Object.keys(this.filters).length > 0) {
           result = result.filter((row: Record<string, unknown>) =>
             Object.entries(this.filters).every(([k, v]) => row[k] === v)
+          );
+        }
+        if (Object.keys(this._neq).length > 0) {
+          result = result.filter((row: Record<string, unknown>) =>
+            Object.entries(this._neq).every(([k, v]) => row[k] !== v)
           );
         }
         if (Object.keys(this._gte).length > 0) {

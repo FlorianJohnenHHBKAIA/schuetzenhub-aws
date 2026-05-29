@@ -591,3 +591,9 @@ ALTER TABLE award_types ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFA
 
 -- Set all existing award types to active
 UPDATE award_types SET is_active = true WHERE is_active IS NULL;
+-- Falls die Spalte komplett fehlt:
+ALTER TABLE award_types ADD COLUMN IF NOT EXISTS icon TEXT;
+
+-- Falls die Spalte fälschlicherweise 'award_type' heißt:
+-- ALTER TABLE award_types RENAME COLUMN award_type TO icon;
+

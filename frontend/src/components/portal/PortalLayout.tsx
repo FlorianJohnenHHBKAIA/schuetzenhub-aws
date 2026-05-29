@@ -187,7 +187,11 @@ const PortalLayout = ({ children }: PortalLayoutProps) => {
             >
               <div className="w-9 h-9 rounded-full bg-sidebar-accent flex items-center justify-center text-sidebar-accent-foreground text-sm font-medium group-hover:ring-2 group-hover:ring-sidebar-primary transition-all overflow-hidden shrink-0">
                 {member?.avatar_url ? (
-                  <img src={member.avatar_url} alt="Profilbild" className="w-full h-full object-cover" />
+                  <img 
+                    src={member.avatar_url.startsWith('http') || member.avatar_url.startsWith('/') ? member.avatar_url : getStorageUrl('avatars', member.avatar_url)} 
+                    alt="Profilbild" 
+                    className="w-full h-full object-cover" 
+                  />
                 ) : (
                   <>{member?.first_name?.[0]}{member?.last_name?.[0]}</>
                 )}

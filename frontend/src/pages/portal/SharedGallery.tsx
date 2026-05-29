@@ -92,7 +92,11 @@ const SharedGallery = () => {
               {image.title && <p className="font-medium text-sm truncate mb-1">{image.title}</p>}
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 {image.member?.avatar_url ? (
-                  <img src={image.member.avatar_url} alt="" className="w-4 h-4 rounded-full object-cover" />
+                  <img 
+                    src={image.member.avatar_url.startsWith('http') || image.member.avatar_url.startsWith('/') ? image.member.avatar_url : getStorageUrl('avatars', image.member.avatar_url)} 
+                    alt="" 
+                    className="w-4 h-4 rounded-full object-cover" 
+                  />
                 ) : (
                   <div className="w-4 h-4 rounded-full bg-muted flex items-center justify-center"><span className="text-[8px]">{image.member?.first_name?.[0]}{image.member?.last_name?.[0]}</span></div>
                 )}

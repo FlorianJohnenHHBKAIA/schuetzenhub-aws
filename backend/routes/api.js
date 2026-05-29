@@ -678,24 +678,26 @@ router.get(["/awards", "/member_awards", "/awards/requests", "/award-requests"],
   try {
     const { member_id, status } = req.query;
     let query = `
-      SELECT ma.*, at.name as award_type_name,
+      SELECT ma.*, at.name as award_type_name, at.icon as award_type_icon,
              m.first_name, m.last_name, m.avatar_url,
-             r.first_name as requester_first_name, r.last_name as requester_last_name
+             r.first_name as requester_first_name, r.last_name as requester_last_name,
+             appr.first_name as approver_first_name, appr.last_name as approver_last_name
       FROM member_awards ma 
       LEFT JOIN award_types at ON at.id = ma.award_type_id 
       LEFT JOIN members m ON m.id = ma.member_id
       LEFT JOIN members r ON r.id = ma.requested_by_member_id
+      LEFT JOIN members appr ON appr.id = ma.approved_by_member_id
       WHERE ma.club_id = $1`;
     const params = [req.clubId];
 
     if (member_id) {
+      query += ` AND ma.member_id = $${params.length + 1}`;
       params.push(member_id);
-      query += ` AND ma.member_id = $${params.length}`;
     }
 
     if (status) {
+      query += ` AND ma.status = $${params.length + 1}`;
       params.push(status);
-      query += ` AND ma.status = $${params.length}`;
     }
 
     query += " ORDER BY ma.awarded_at DESC, ma.created_at DESC";
@@ -705,13 +707,25 @@ router.get(["/awards", "/member_awards", "/awards/requests", "/award-requests"],
     const awards = result.rows.map(row => ({
       ...row,
       member: row.first_name ? {
+        id: row.member_id,
         first_name: row.first_name,
         last_name: row.last_name,
         avatar_url: row.avatar_url
       } : null,
-      requester: row.requester_first_name ? {
+      requested_by: row.requester_first_name ? {
+        id: row.requested_by_member_id,
         first_name: row.requester_first_name,
         last_name: row.requester_last_name
+      } : null,
+      approved_by: row.approver_first_name ? {
+        id: row.approved_by_member_id,
+        first_name: row.approver_first_name,
+        last_name: row.approver_last_name
+      } : null,
+      award_type_info: row.award_type_id ? {
+        id: row.award_type_id,
+        name: row.award_type_name,
+        icon: row.award_type_icon
       } : null
     }));
     
@@ -725,7 +739,7 @@ router.get(["/awards", "/member_awards", "/awards/requests", "/award-requests"],
 router.get(["/award-types", "/award_types", "/awards/types"], requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT * FROM award_types WHERE club_id = $1 ORDER BY name",
+      "SELECT id, club_id, name, description, icon, badge_color, scope_type, scope_id, is_active FROM award_types WHERE club_id = $1 AND is_active = true ORDER BY name",
       [req.clubId]
     );
     res.json(result.rows);
@@ -737,7 +751,7 @@ router.post("/award-types", requireAuth, async (req, res) => {
     const { name, description, icon, badge_color, scope_type, scope_id } = req.body;
     const result = await pool.query(
       `INSERT INTO award_types (id, club_id, name, description, icon, badge_color, scope_type, scope_id)
-       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7) RETURNING id, club_id, name, description, icon, badge_color, scope_type, scope_id, is_active`,
       [
         req.clubId,
         name,
@@ -758,7 +772,7 @@ router.put("/award-types/:id", requireAuth, async (req, res) => {
     const result = await pool.query(
       `UPDATE award_types
        SET name=$1, description=$2, icon=$3, badge_color=$4, scope_type=$5, scope_id=$6
-       WHERE id=$7 AND club_id=$8 RETURNING *`,
+       WHERE id=$7 AND club_id=$8 RETURNING id, club_id, name, description, icon, badge_color, scope_type, scope_id, is_active`,
       [
         name,
         description || null,
@@ -1849,21 +1863,15 @@ router.delete("/role-permissions/:id", requireAuth, async (req, res) => {
 // POST /api/notifications – einzelne oder mehrere Notifications anlegen
 router.post("/notifications", requireAuth, async (req, res) => {
   try {
-    const records = Array.isArray(req.body) ? req.body : [req.body];
-    for (const n of records) {
-      const id = uuidv4();
-      await pool.query(
-        `INSERT INTO notifications
-           (id, recipient_member_id, type, reference_id, reference_type, payload, is_read, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, false, now())`,
-        [id, n.recipient_member_id, n.type,
-         n.reference_id || null, n.reference_type || null,
-         JSON.stringify(n.payload || {})]
-      );
-    }
-    res.json({ success: true });
+    const { recipient_member_id, type, title, message, related_entity_type, related_entity_id } = req.body;
+    const result = await pool.query(
+      `INSERT INTO notifications (id, recipient_member_id, type, title, message, related_entity_type, related_entity_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [uuidv4(), recipient_member_id, type, title, message || null, related_entity_type || null, related_entity_id || null]
+    );
+    res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error("notifications POST error:", err);
+    console.error("POST /notifications error:", err);
     res.status(500).json({ error: "Serverfehler" });
   }
 });

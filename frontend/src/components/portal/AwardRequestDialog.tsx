@@ -297,7 +297,19 @@ export default function AwardRequestDialog({
                       selected={awardedAt}
                       onSelect={(date) => date && setAwardedAt(date)}
                       initialFocus
+                      captionLayout="dropdown"
+                      fromYear={1900}
+                      toYear={new Date().getFullYear() + 1}
                       locale={de}
+                      className="p-3"
+                      classNames={{
+                        caption: "flex justify-center pt-2 relative items-center h-10",
+                        caption_label: "hidden",
+                        caption_dropdowns: "flex justify-center gap-2 w-full",
+                        vhidden: "hidden",
+                        dropdown: "bg-transparent font-semibold hover:text-primary transition-colors cursor-pointer focus:outline-none appearance-none px-1 rounded-md",
+                        nav: "hidden",
+                      }}
                     />
                   </PopoverContent>
                 </Popover>

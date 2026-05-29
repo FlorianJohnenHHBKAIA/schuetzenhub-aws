@@ -179,7 +179,7 @@ const AwardDialog = ({ open, onOpenChange, memberId, clubId, award, onSave }: Aw
           {/* Award Type Selection */}
           <div className="space-y-2">
             <Label>Typ</Label>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {AWARD_TYPES.map((type) => {
                 const Icon = type.icon;
                 const isSelected = awardType === type.value;
@@ -189,13 +189,13 @@ const AwardDialog = ({ open, onOpenChange, memberId, clubId, award, onSave }: Aw
                     type="button"
                     onClick={() => setAwardType(type.value)}
                     className={cn(
-                      "flex flex-col items-center justify-center p-3 rounded-lg border-2 transition-all",
+                      "flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all duration-200",
                       isSelected
-                        ? `border-primary ${type.bgColor}`
-                        : "border-transparent bg-muted/50 hover:bg-muted"
+                        ? `border-primary shadow-sm ${type.bgColor}`
+                        : "border-muted/20 bg-muted/30 hover:bg-muted/60"
                     )}
                   >
-                    <Icon className={cn("w-5 h-5 mb-1", type.color)} />
+                    <Icon className={cn("w-6 h-6 mb-1.5", type.color)} />
                     <span className="text-xs font-medium">{type.label}</span>
                   </button>
                 );
@@ -203,28 +203,31 @@ const AwardDialog = ({ open, onOpenChange, memberId, clubId, award, onSave }: Aw
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="title">Titel *</Label>
-            <Input
-              id="title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="z.B. Schützenkönig"
-              required
-            />
-          </div>
+          <div className="grid gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="title">Titel *</Label>
+              <Input
+                id="title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="z.B. Schützenkönig"
+                required
+                className="bg-muted/30"
+              />
+            </div>
 
-          <div className="flex items-center space-x-2 pt-2">
-            <Checkbox 
-              id="is_regiment" 
-              checked={isRegiment} 
-              onCheckedChange={(checked) => setIsRegiment(!!checked)} 
-            />
-            <Label htmlFor="is_regiment" className="cursor-pointer font-medium">Vom Regiment / Bruderschaft</Label>
+            <div className="flex items-center space-x-2 p-3 rounded-lg bg-muted/20 border border-muted/30">
+              <Checkbox 
+                id="is_regiment" 
+                checked={isRegiment} 
+                onCheckedChange={(checked) => setIsRegiment(!!checked)} 
+              />
+              <Label htmlFor="is_regiment" className="cursor-pointer text-sm font-medium">Vom Regiment / Bruderschaft</Label>
+            </div>
           </div>
 
           {!isRegiment && (
-            <div className="space-y-2 animate-in fade-in slide-in-from-top-1">
+            <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
               <Label>Ausstellende Kompanie *</Label>
               <Select value={selectedCompanyId || ""} onValueChange={setSelectedCompanyId}>
                 <SelectTrigger>
@@ -247,6 +250,7 @@ const AwardDialog = ({ open, onOpenChange, memberId, clubId, award, onSave }: Aw
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Optionale Beschreibung..."
               rows={3}
+              className="bg-muted/30"
             />
           </div>
 
@@ -257,7 +261,7 @@ const AwardDialog = ({ open, onOpenChange, memberId, clubId, award, onSave }: Aw
                 <Button
                   variant="outline"
                   className={cn(
-                    "w-full justify-start text-left font-normal",
+                    "w-full justify-start text-left font-normal bg-muted/30",
                     !awardedAt && "text-muted-foreground"
                   )}
                 >
@@ -271,7 +275,19 @@ const AwardDialog = ({ open, onOpenChange, memberId, clubId, award, onSave }: Aw
                   selected={awardedAt}
                   onSelect={(date) => date && setAwardedAt(date)}
                   initialFocus
+                  captionLayout="dropdown"
+                  fromYear={1900}
+                  toYear={new Date().getFullYear() + 1}
                   locale={de}
+                  className="p-3"
+                  classNames={{
+                    caption: "flex justify-center pt-2 relative items-center h-10",
+                    caption_label: "hidden", // Entfernt das statische "Monat Jahr"
+                    caption_dropdowns: "flex justify-center gap-2 w-full",
+                    vhidden: "hidden",
+                    dropdown: "bg-transparent font-semibold hover:text-primary transition-colors cursor-pointer focus:outline-none appearance-none px-1 rounded-md",
+                    nav: "hidden", // Entfernt die Pfeile für ein cleanes Dropdown-Menü
+                  }}
                 />
               </PopoverContent>
             </Popover>

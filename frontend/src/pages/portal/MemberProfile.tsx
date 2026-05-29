@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/integrations/api/client";
+import { supabase, getStorageUrl } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
 import { useWorkShiftStats } from "@/hooks/useWorkShiftStats";
 import MemberProfileEditDialog from "@/components/portal/MemberProfileEditDialog";
@@ -261,7 +261,11 @@ const MemberProfile = () => {
           <div className="relative">
             <div className="h-40 md:h-52 rounded-xl overflow-hidden bg-gradient-to-r from-primary/20 to-primary/5 border">
               {memberData.cover_url ? (
-                <img src={memberData.cover_url} alt="Titelbild" className="w-full h-full object-cover" />
+                <img 
+                  src={memberData.cover_url.startsWith('http') || memberData.cover_url.startsWith('/') ? memberData.cover_url : getStorageUrl('avatars', memberData.cover_url)} 
+                  alt="Titelbild" 
+                  className="w-full h-full object-cover" 
+                />
               ) : (
                 <div className="w-full h-full" />
               )}
@@ -269,7 +273,14 @@ const MemberProfile = () => {
 
             <div className="absolute bottom-0 translate-y-1/2 left-6">
               <Avatar className="w-24 h-24 md:w-32 md:h-32 border-4 border-background shadow-xl">
-                <AvatarImage src={memberData.avatar_url || undefined} alt={memberData.first_name} className="object-cover" />
+                <AvatarImage 
+                  src={memberData.avatar_url ? 
+                    (memberData.avatar_url.startsWith('http') || memberData.avatar_url.startsWith('/') ? memberData.avatar_url : getStorageUrl('avatars', memberData.avatar_url)) 
+                    : undefined
+                  } 
+                  alt={memberData.first_name} 
+                  className="object-cover" 
+                />
                 <AvatarFallback className="text-2xl md:text-4xl bg-primary text-primary-foreground">
                   {memberData.first_name[0]}{memberData.last_name[0]}
                 </AvatarFallback>

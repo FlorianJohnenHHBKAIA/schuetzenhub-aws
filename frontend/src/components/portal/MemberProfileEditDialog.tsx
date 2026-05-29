@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Loader2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,10 +46,33 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
   const [street, setStreet] = useState(member.street || "");
   const [zip, setZip] = useState(member.zip || "");
   const [city, setCity] = useState(member.city || "");
-  const [avatarUrl, setAvatarUrl] = useState(member.avatar_url || "");
-  const [coverUrl, setCoverUrl] = useState(member.cover_url || "");
+
+  // State for relative paths (saved to DB)
+  const [avatarPath, setAvatarPath] = useState(member.avatar_url || "");
+  const [coverPath, setCoverPath] = useState(member.cover_url || "");
+
+  // State for preview URLs (displayed in UI)
+  const [avatarPreview, setAvatarPreview] = useState("");
+  const [coverPreview, setCoverPreview] = useState("");
+
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [isUploadingCover, setIsUploadingCover] = useState(false);
+
+  const toPreviewUrl = (url: string | null): string => {
+    if (!url) return "";
+    if (url.startsWith("/") || url.startsWith("http")) return url;
+    if (url.includes("avatar-") || url.includes("cover-")) return getStorageUrl("avatars", url) || "";
+    return getStorageUrl("avatars", url) || "";
+  };
+
+  useEffect(() => {
+    if (open) {
+      setAvatarPath(member.avatar_url || "");
+      setCoverPath(member.cover_url || "");
+      setAvatarPreview(toPreviewUrl(member.avatar_url));
+      setCoverPreview(toPreviewUrl(member.cover_url));
+    }
+  }, [open, member]);
   
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
@@ -68,12 +91,14 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
       const fileName = `${member.id}/${type}-${Date.now()}.${fileExt}`;
       
       await apiUpload(`/api/upload`, file, { bucket, path: fileName });
-      const publicUrl = getStorageUrl(bucket, fileName) || "";
+      const publicUrl = getStorageUrl(bucket, fileName);
 
       if (isAvatar) {
-        setAvatarUrl(publicUrl);
+        setAvatarPath(fileName);
+        setAvatarPreview(publicUrl ? `${publicUrl}?t=${Date.now()}` : "");
       } else {
-        setCoverUrl(publicUrl);
+        setCoverPath(fileName);
+        setCoverPreview(publicUrl ? `${publicUrl}?t=${Date.now()}` : "");
       }
 
       toast({ title: `${isAvatar ? "Profilbild" : "Titelbild"} hochgeladen` });
@@ -102,8 +127,8 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
           street: street || null,
           zip: zip || null,
           city: city || null,
-          avatar_url: avatarUrl || null,
-          cover_url: coverUrl || null,
+          avatar_url: avatarPath || null,
+          cover_url: coverPath || null,
         }),
       });
       
@@ -130,7 +155,7 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
             <Label>Profilbild</Label>
             <div className="mt-2 flex items-center gap-4">
               <Avatar className="w-20 h-20">
-                <AvatarImage src={avatarUrl || undefined} alt={member.first_name} />
+                <AvatarImage src={avatarPreview || undefined} alt={member.first_name} />
                 <AvatarFallback className="text-lg bg-primary text-primary-foreground">
                   {member.first_name[0]}{member.last_name[0]}
                 </AvatarFallback>
@@ -150,12 +175,15 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
                   )}
                   Profilbild hochladen
                 </Button>
-                {avatarUrl && (
+                {avatarPreview && (
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => setAvatarUrl("")}
+                    onClick={() => {
+                      setAvatarPath("");
+                      setAvatarPreview("");
+                    }}
                   >
                     <X className="w-4 h-4 mr-2" />
                     Entfernen
@@ -177,8 +205,8 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
             <Label>Titelbild</Label>
             <div className="mt-2">
               <div className="w-full h-24 rounded-lg border bg-muted flex items-center justify-center overflow-hidden">
-                {coverUrl ? (
-                  <img src={coverUrl} alt="Cover" className="w-full h-full object-cover" />
+                {coverPreview ? (
+                  <img src={coverPreview} alt="Cover" className="w-full h-full object-cover" />
                 ) : (
                   <span className="text-xs text-muted-foreground">Kein Titelbild</span>
                 )}
@@ -198,12 +226,15 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
                   )}
                   Titelbild hochladen
                 </Button>
-                {coverUrl && (
+                {coverPreview && (
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => setCoverUrl("")}
+                    onClick={() => {
+                      setCoverPath("");
+                      setCoverPreview("");
+                    }}
                   >
                     <X className="w-4 h-4 mr-2" />
                     Entfernen
