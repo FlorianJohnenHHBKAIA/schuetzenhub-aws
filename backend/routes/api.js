@@ -192,10 +192,15 @@ router.get("/companies", requireAuth, async (req, res) => {
     "SELECT * FROM companies WHERE club_id = $1 ORDER BY name",
     [req.clubId]
   );
+  const toPublicUrl = (bucket, path) => {
+    if (!path) return null;
+    if (path.startsWith("/") || path.startsWith("http")) return path;
+    return getPublicUrl(bucket, path);
+  };
   const companies = result.rows.map((c) => ({
     ...c,
-    logo_url: c.logo_url ? getPublicUrl("company-assets", c.logo_url) : null,
-    cover_url: c.cover_url ? getPublicUrl("company-assets", c.cover_url) : null,
+    logo_url: toPublicUrl("company-assets", c.logo_url),
+    cover_url: toPublicUrl("company-assets", c.cover_url),
   }));
   res.json(companies);
 });
@@ -729,10 +734,19 @@ router.get(["/award-types", "/award_types", "/awards/types"], requireAuth, async
 
 router.post("/award-types", requireAuth, async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, icon, badge_color, scope_type, scope_id } = req.body;
     const result = await pool.query(
-      "INSERT INTO award_types (id, club_id, name, description) VALUES (gen_random_uuid(), $1, $2, $3) RETURNING *",
-      [req.clubId, name, description || null]
+      `INSERT INTO award_types (id, club_id, name, description, icon, badge_color, scope_type, scope_id)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [
+        req.clubId,
+        name,
+        description || null,
+        icon || 'medal',
+        badge_color || 'gold',
+        scope_type || 'club',
+        scope_type === 'company' ? (scope_id || null) : null,
+      ]
     );
     res.json(result.rows[0]);
   } catch (err) { console.error("Award type creation error:", err); res.status(500).json({ error: "Serverfehler" }); }
@@ -740,10 +754,21 @@ router.post("/award-types", requireAuth, async (req, res) => {
 
 router.put("/award-types/:id", requireAuth, async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, icon, badge_color, scope_type, scope_id } = req.body;
     const result = await pool.query(
-      "UPDATE award_types SET name=$1, description=$2 WHERE id=$3 AND club_id=$4 RETURNING *",
-      [name, description || null, req.params.id, req.clubId]
+      `UPDATE award_types
+       SET name=$1, description=$2, icon=$3, badge_color=$4, scope_type=$5, scope_id=$6
+       WHERE id=$7 AND club_id=$8 RETURNING *`,
+      [
+        name,
+        description || null,
+        icon || 'medal',
+        badge_color || 'gold',
+        scope_type || 'club',
+        scope_type === 'company' ? (scope_id || null) : null,
+        req.params.id,
+        req.clubId,
+      ]
     );
     res.json(result.rows[0]);
   } catch (err) { console.error("Award type update error:", err); res.status(500).json({ error: "Serverfehler" }); }

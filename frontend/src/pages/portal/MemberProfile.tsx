@@ -256,47 +256,59 @@ const MemberProfile = () => {
           <ArrowLeft className="w-4 h-4 mr-2" />Zurück
         </Button>
 
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="relative">
-          <div className="flex items-start gap-6 md:gap-8">
-            <Avatar className="w-28 h-28 md:w-40 md:h-40 border-4 border-primary/20 shadow-xl shrink-0">
-              <AvatarImage src={memberData.avatar_url || undefined} alt={memberData.first_name} className="object-contain" />
-              <AvatarFallback className="text-3xl md:text-5xl bg-primary text-primary-foreground">
-                {memberData.first_name[0]}{memberData.last_name[0]}
-              </AvatarFallback>
-            </Avatar>
-
-            <div className="flex-1 min-w-0 pt-2">
-              <div className="flex flex-wrap items-center gap-3">
-                <h1 className="font-display text-2xl md:text-4xl font-bold">{memberData.first_name} {memberData.last_name}</h1>
-                <Badge variant="secondary" className={status.className}>{status.label}</Badge>
-              </div>
-              {activeAppointments.length > 0 ? (
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {activeAppointments.map((apt, idx) => (
-                    <Badge key={idx} variant="secondary" className="bg-primary/10 text-primary text-sm font-medium">
-                      <Shield className="w-3.5 h-3.5 mr-1.5" />{apt.role_name}
-                      {apt.scope_type === "company" && apt.scope_name && <span className="ml-1 text-primary/70">({apt.scope_name})</span>}
-                    </Badge>
-                  ))}
-                </div>
-              ) : memberData.title ? (
-                <p className="text-lg text-primary font-medium mt-2 flex items-center gap-2"><Shield className="w-4 h-4" />{memberData.title}</p>
-              ) : null}
-              {memberData.bio && <p className="text-muted-foreground mt-3 max-w-2xl line-clamp-3">{memberData.bio}</p>}
-              {activeCompany && (
-                <div className="mt-4 inline-flex items-center gap-2 px-3 py-2 bg-card rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate(`/portal/company/${activeCompany.company_id}`)}>
-                  {activeCompany.company_logo_url ? (
-                    <img src={activeCompany.company_logo_url} alt={activeCompany.company_name} className="w-5 h-5 rounded object-cover" />
-                  ) : <Building2 className="w-4 h-4 text-primary" />}
-                  <span className="text-sm font-medium">{activeCompany.company_name}</span>
-                </div>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+          {/* Cover Banner */}
+          <div className="relative">
+            <div className="h-40 md:h-52 rounded-xl overflow-hidden bg-gradient-to-r from-primary/20 to-primary/5 border">
+              {memberData.cover_url ? (
+                <img src={memberData.cover_url} alt="Titelbild" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full" />
               )}
             </div>
 
+            <div className="absolute bottom-0 translate-y-1/2 left-6">
+              <Avatar className="w-24 h-24 md:w-32 md:h-32 border-4 border-background shadow-xl">
+                <AvatarImage src={memberData.avatar_url || undefined} alt={memberData.first_name} className="object-cover" />
+                <AvatarFallback className="text-2xl md:text-4xl bg-primary text-primary-foreground">
+                  {memberData.first_name[0]}{memberData.last_name[0]}
+                </AvatarFallback>
+              </Avatar>
+            </div>
+
             {canEdit && (
-              <Button size="sm" variant="secondary" className="shrink-0" onClick={() => setIsEditOpen(true)}>
+              <Button size="sm" variant="secondary" className="absolute top-4 right-4" onClick={() => setIsEditOpen(true)}>
                 <Edit className="w-4 h-4 mr-2" />Bearbeiten
               </Button>
+            )}
+          </div>
+
+          {/* Name & Info */}
+          <div className="mt-14 md:mt-16">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="font-display text-2xl md:text-4xl font-bold">{memberData.first_name} {memberData.last_name}</h1>
+              <Badge variant="secondary" className={status.className}>{status.label}</Badge>
+            </div>
+            {activeAppointments.length > 0 ? (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {activeAppointments.map((apt, idx) => (
+                  <Badge key={idx} variant="secondary" className="bg-primary/10 text-primary text-sm font-medium">
+                    <Shield className="w-3.5 h-3.5 mr-1.5" />{apt.role_name}
+                    {apt.scope_type === "company" && apt.scope_name && <span className="ml-1 text-primary/70">({apt.scope_name})</span>}
+                  </Badge>
+                ))}
+              </div>
+            ) : memberData.title ? (
+              <p className="text-lg text-primary font-medium mt-2 flex items-center gap-2"><Shield className="w-4 h-4" />{memberData.title}</p>
+            ) : null}
+            {memberData.bio && <p className="text-muted-foreground mt-3 max-w-2xl line-clamp-3">{memberData.bio}</p>}
+            {activeCompany && (
+              <div className="mt-4 inline-flex items-center gap-2 px-3 py-2 bg-card rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate(`/portal/company/${activeCompany.company_id}`)}>
+                {activeCompany.company_logo_url ? (
+                  <img src={activeCompany.company_logo_url} alt={activeCompany.company_name} className="w-5 h-5 rounded object-cover" />
+                ) : <Building2 className="w-4 h-4 text-primary" />}
+                <span className="text-sm font-medium">{activeCompany.company_name}</span>
+              </div>
             )}
           </div>
         </motion.div>

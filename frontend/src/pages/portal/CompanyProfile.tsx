@@ -175,47 +175,49 @@ const CompanyProfile = () => {
           Zurück
         </Button>
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="relative h-48 md:h-64 rounded-xl overflow-hidden bg-gradient-to-r from-primary/20 to-primary/5 border"
-        >
-          {company.cover_url ? (
-            <img src={company.cover_url} alt="Cover" className="w-full h-full object-cover" />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center">
-              <Shield className="w-16 h-16 text-muted-foreground/30" />
-            </div>
-          )}
-          
-          <div className="absolute -bottom-12 left-8">
-            <div className="w-24 h-24 md:w-32 md:h-32 rounded-xl border-4 border-background bg-card flex items-center justify-center shadow-lg overflow-visible">
+        <div className="relative">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="relative h-48 md:h-64 rounded-xl overflow-hidden bg-gradient-to-r from-primary/20 to-primary/5 border"
+          >
+            {company.cover_url ? (
+              <img src={company.cover_url} alt="Cover" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <Shield className="w-16 h-16 text-muted-foreground/30" />
+              </div>
+            )}
+
+            {canEdit && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="absolute top-4 right-4"
+                onClick={() => setIsEditOpen(true)}
+              >
+                <Edit className="w-4 h-4 mr-2" />
+                Bearbeiten
+              </Button>
+            )}
+          </motion.div>
+
+          <div className="absolute bottom-0 translate-y-1/2 left-8">
+            <div className="w-24 h-24 md:w-32 md:h-32 rounded-xl border-4 border-background bg-card flex items-center justify-center shadow-lg overflow-hidden">
               {company.logo_url ? (
-                <img src={company.logo_url} alt={company.name} className="w-full h-full object-contain" />
+                <img src={company.logo_url} alt={company.name} className="w-full h-full object-contain p-1" />
               ) : (
                 <Shield className="w-12 h-12 text-primary" />
               )}
             </div>
           </div>
-
-          {canEdit && (
-            <Button
-              size="sm"
-              variant="secondary"
-              className="absolute top-4 right-4"
-              onClick={() => setIsEditOpen(true)}
-            >
-              <Edit className="w-4 h-4 mr-2" />
-              Bearbeiten
-            </Button>
-          )}
-        </motion.div>
+        </div>
 
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="mt-16 md:mt-20"
+          className="mt-14 md:mt-16"
         >
           <h1 className="font-display text-3xl md:text-4xl font-bold">{company.name}</h1>
           {company.description && (

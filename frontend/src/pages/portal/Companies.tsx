@@ -192,16 +192,18 @@ const Companies = () => {
                 className="group relative bg-card rounded-2xl border overflow-hidden hover:shadow-lg hover:border-primary/20 transition-all duration-300 cursor-pointer"
                 onClick={() => navigate(`/portal/company/${c.id}`)}
               >
-                <div className="h-24 relative overflow-hidden">
-                  {c.cover_url ? (
-                    <img src={c.cover_url} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-primary/20 via-primary/10 to-transparent" />
-                  )}
+                <div className="h-24 relative">
+                  <div className="absolute inset-0 overflow-hidden">
+                    {c.cover_url ? (
+                      <img src={c.cover_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-gradient-to-br from-primary/20 via-primary/10 to-transparent" />
+                    )}
+                  </div>
                   <div className="absolute -bottom-10 left-5">
-                    <div className="w-20 h-20 rounded-xl bg-card border-4 border-card shadow-md flex items-center justify-center overflow-visible">
+                    <div className="w-20 h-20 rounded-xl bg-card border-4 border-card shadow-md flex items-center justify-center overflow-hidden">
                       {c.logo_url ? (
-                        <img src={c.logo_url} alt={c.name} className="w-full h-full object-contain" />
+                        <img src={c.logo_url} alt={c.name} className="w-full h-full object-contain p-1" />
                       ) : (
                         <Shield className="w-8 h-8 text-primary" />
                       )}

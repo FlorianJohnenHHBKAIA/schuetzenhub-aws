@@ -196,13 +196,7 @@ const MemberManagementDialog = ({
           .order("awarded_at", { ascending: false }),
         supabase
           .from("member_company_memberships")
-          .select(`
-            id,
-            company_id,
-            valid_from,
-            valid_to,
-            companies:companies (name)
-          `)
+          .select("id, company_id, valid_from, valid_to")
           .eq("member_id", member.id)
           .order("valid_from", { ascending: false }),
         apiJson<AppointmentInfo[]>(`/api/appointments?member_id=${member.id}`),
@@ -228,10 +222,13 @@ const MemberManagementDialog = ({
       setRoles(Array.isArray(rolesData) ? rolesData : []);
       setAppointments(Array.isArray(appointmentsData) ? appointmentsData : []);
 
+      const companyMap = new Map<string, string>(
+        (companiesRes?.data || []).map((c: any) => [c.id, c.name])
+      );
       const processedMemberships = (membershipsRes?.data || []).map((m: any) => ({
         id: m?.id,
         company_id: m?.company_id,
-        company_name: m?.companies?.name || "Unbekannt",
+        company_name: companyMap.get(m?.company_id) || "Unbekannt",
         valid_from: m?.valid_from,
         valid_to: m?.valid_to
       }));

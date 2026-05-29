@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Plus, Search, Edit, Trash2, Loader2, User, Settings2, Eye, Building2 } from "lucide-react";
+import { Plus, Search, Edit, Trash2, Loader2, User, Settings2, Eye, Building2, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import PortalLayout from "@/components/portal/PortalLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/lib/auth";
-import { supabase, apiJson } from "@/integrations/api/client";
+import { supabase, apiJson, getStorageUrl } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
 import MemberDialog from "@/components/portal/MemberDialog";
 import MemberManagementDialog from "@/components/portal/MemberManagementDialog";
@@ -42,7 +43,11 @@ interface Member {
   current_role_title: string | null;
   company_ids: string[] | null;
   user_id: string | null;
+  avatar_url: string | null;
 }
+
+type SortField = "name" | "email" | "phone" | "role" | "status";
+type SortDir = "asc" | "desc";
 
 interface Company {
   id: string;
@@ -68,6 +73,8 @@ const Members = () => {
   const [editingMember, setEditingMember] = useState<Member | null>(null);
   const [deletingMember, setDeletingMember] = useState<Member | null>(null);
   const [managingMember, setManagingMember] = useState<Member | null>(null);
+  const [sortField, setSortField] = useState<SortField | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   useEffect(() => {
     if (currentMember?.club_id) fetchData();
@@ -121,6 +128,21 @@ const Members = () => {
     setEditingMember(null);
   };
 
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortDir("asc");
+    }
+  };
+
+  const getAvatarUrl = (avatar_url: string | null): string | undefined => {
+    if (!avatar_url) return undefined;
+    if (avatar_url.startsWith("/") || avatar_url.startsWith("http")) return avatar_url;
+    return getStorageUrl("avatars", avatar_url) || undefined;
+  };
+
   const filteredMembers = members.filter((member) => {
     const searchLower = searchTerm.toLowerCase();
     const matchesSearch =
@@ -135,6 +157,18 @@ const Members = () => {
         : memberCompanyMap.get(member.id)?.includes(companyFilter));
 
     return matchesSearch && matchesCompany;
+  }).sort((a, b) => {
+    if (!sortField) return 0;
+    const dir = sortDir === "asc" ? 1 : -1;
+    const vals: Record<SortField, [string, string]> = {
+      name:   [`${a.last_name} ${a.first_name}`.toLowerCase(), `${b.last_name} ${b.first_name}`.toLowerCase()],
+      email:  [(a.email || "").toLowerCase(), (b.email || "").toLowerCase()],
+      phone:  [a.phone || "", b.phone || ""],
+      role:   [(a.current_role_title || "").toLowerCase(), (b.current_role_title || "").toLowerCase()],
+      status: [a.status, b.status],
+    };
+    const [av, bv] = vals[sortField];
+    return av < bv ? -dir : av > bv ? dir : 0;
   });
 
   const statusLabels: Record<string, { label: string; className: string }> = {
@@ -201,11 +235,22 @@ const Members = () => {
                 <table className="w-full">
                   <thead className="bg-muted/50 border-b border-border">
                     <tr>
-                      <th className="text-left px-6 py-4 text-sm font-medium text-muted-foreground">Name</th>
-                      <th className="text-left px-6 py-4 text-sm font-medium text-muted-foreground">E-Mail</th>
-                      <th className="text-left px-6 py-4 text-sm font-medium text-muted-foreground">Telefon</th>
-                      <th className="text-left px-6 py-4 text-sm font-medium text-muted-foreground">Amt</th>
-                      <th className="text-left px-6 py-4 text-sm font-medium text-muted-foreground">Status</th>
+                      {(["name", "email", "phone", "role", "status"] as SortField[]).map((field, i) => {
+                        const labels: Record<SortField, string> = { name: "Name", email: "E-Mail", phone: "Telefon", role: "Amt", status: "Status" };
+                        const isActive = sortField === field;
+                        const Icon = isActive ? (sortDir === "asc" ? ChevronUp : ChevronDown) : ChevronsUpDown;
+                        return (
+                          <th key={field} className={`text-left px-6 py-4 text-sm font-medium text-muted-foreground ${i === 0 ? "" : ""}`}>
+                            <button
+                              className="flex items-center gap-1 hover:text-foreground transition-colors select-none"
+                              onClick={() => handleSort(field)}
+                            >
+                              {labels[field]}
+                              <Icon className={`w-3.5 h-3.5 ${isActive ? "text-primary" : "opacity-40"}`} />
+                            </button>
+                          </th>
+                        );
+                      })}
                       <th className="text-right px-6 py-4 text-sm font-medium text-muted-foreground">Aktionen</th>
                     </tr>
                   </thead>
@@ -214,7 +259,17 @@ const Members = () => {
                       const status = statusLabels[member.status] || statusLabels.prospect;
                       return (
                         <tr key={member.id} className="hover:bg-muted/30 transition-colors">
-                          <td className="px-6 py-4"><span className="font-medium text-foreground">{member.last_name}, {member.first_name}</span></td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <Avatar className="w-8 h-8 shrink-0">
+                                <AvatarImage src={getAvatarUrl(member.avatar_url)} className="object-cover" />
+                                <AvatarFallback className="text-xs bg-primary/10 text-primary font-medium">
+                                  {member.first_name[0]}{member.last_name[0]}
+                                </AvatarFallback>
+                              </Avatar>
+                              <span className="font-medium text-foreground">{member.last_name}, {member.first_name}</span>
+                            </div>
+                          </td>
                           <td className="px-6 py-4 text-muted-foreground">{member.email}</td>
                           <td className="px-6 py-4 text-muted-foreground">{member.phone || "–"}</td>
                           <td className="px-6 py-4 text-muted-foreground">{member.current_role_title || "–"}</td>

@@ -11,11 +11,11 @@ export default defineConfig(({ mode }) => ({
     // Proxy: API-Anfragen werden im Entwicklungsmodus an das Backend weitergeleitet
     proxy: {
       "/api": {
-        target: "http://localhost:5000",
+        target: "http://localhost:5001",
         changeOrigin: true,
       },
       "/uploads": {
-        target: "http://localhost:5000",
+        target: "http://localhost:5001",
         changeOrigin: true,
       },
     },

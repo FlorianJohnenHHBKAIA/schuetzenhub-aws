@@ -607,9 +607,9 @@ const PublicClubProfile = () => {
 
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
               {companies.map((company, index) => {
-                const companyLogoUrl = company.logo_url 
-                  ? (company.logo_url.startsWith('http') 
-                      ? company.logo_url 
+                const companyLogoUrl = company.logo_url
+                  ? (company.logo_url.startsWith('/') || company.logo_url.startsWith('http')
+                      ? company.logo_url
                       : (getStorageUrl("company-assets", company.logo_url) || ""))
                   : null;
                 

@@ -120,18 +120,18 @@ const PublicCompanyProfile = () => {
       setCompany(company);
 
       if (company.logo_url) {
-        if (company.logo_url.startsWith('http')) {
-          setCompanyLogoUrl(company.logo_url);
-        } else {
-          setCompanyLogoUrl(getStorageUrl("company-assets", company.logo_url) || "");
-        }
+        setCompanyLogoUrl(
+          company.logo_url.startsWith('/') || company.logo_url.startsWith('http')
+            ? company.logo_url
+            : (getStorageUrl("company-assets", company.logo_url) || "")
+        );
       }
       if (company.cover_url) {
-        if (company.cover_url.startsWith('http')) {
-          setCompanyCoverUrl(company.cover_url);
-        } else {
-          setCompanyCoverUrl(getStorageUrl("company-assets", company.cover_url) || "");
-        }
+        setCompanyCoverUrl(
+          company.cover_url.startsWith('/') || company.cover_url.startsWith('http')
+            ? company.cover_url
+            : (getStorageUrl("company-assets", company.cover_url) || "")
+        );
       }
 
       // Fetch public events for this company

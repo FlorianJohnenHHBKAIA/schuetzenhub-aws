@@ -42,16 +42,26 @@ const CompanyEditDialog = ({ open, onOpenChange, company, onSave }: CompanyEditD
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const [isUploadingCover, setIsUploadingCover] = useState(false);
 
+  const toRawPath = (url: string | null): string => {
+    if (!url) return "";
+    const prefix = "/uploads/company-assets/";
+    return url.startsWith(prefix) ? url.slice(prefix.length) : url;
+  };
+
+  const toPreviewUrl = (url: string | null): string => {
+    if (!url) return "";
+    if (url.startsWith("/") || url.startsWith("http")) return url;
+    return getStorageUrl("company-assets", url) || "";
+  };
+
   useEffect(() => {
     if (open && company) {
       setName(company.name);
       setDescription(company.description || "");
-      const lp = company.logo_url || "";
-      const cp = company.cover_url || "";
-      setLogoPath(lp);
-      setCoverPath(cp);
-      setLogoUrl(lp ? getStorageUrl("company-assets", lp) : "");
-      setCoverUrl(cp ? getStorageUrl("company-assets", cp) : "");
+      setLogoPath(toRawPath(company.logo_url));
+      setCoverPath(toRawPath(company.cover_url));
+      setLogoUrl(toPreviewUrl(company.logo_url));
+      setCoverUrl(toPreviewUrl(company.cover_url));
     }
   }, [open, company]);
   

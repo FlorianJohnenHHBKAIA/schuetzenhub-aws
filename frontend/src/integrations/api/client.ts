@@ -69,8 +69,7 @@ async function apiUpload(path: string, file: File, extraFields?: Record<string, 
   if (extraFields) {
     Object.entries(extraFields).forEach(([k, v]) => formData.append(k, v));
   }
-  // Relativer Pfad → Vite-Proxy leitet an Backend weiter (kein CORS-Problem)
-  const url = path.startsWith("http") ? path : `${path}`;
+  const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
   const res = await fetch(url, {
     method,
     headers: token ? { Authorization: `Bearer ${token}` } : {},
