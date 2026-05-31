@@ -144,7 +144,7 @@ const statusLabels: Record<PublicationStatus, { label: string; color: string }> 
 const EventOrganize = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { member, hasPermission, permissions } = useAuth();
+  const { member, hasPermission, permissions, isAdmin } = useAuth();
 
   const [event, setEvent] = useState<Event | null>(null);
   const [shifts, setShifts] = useState<WorkShift[]>([]);
@@ -182,20 +182,22 @@ const EventOrganize = () => {
   const [formOwnerType, setFormOwnerType] = useState<OwnerType>("club");
   const [formOwnerId, setFormOwnerId] = useState("");
 
-  const canManageClubEvents = hasPermission("club.events.manage") || hasPermission("club.admin.full");
+  const canManageClubEvents = isAdmin;
   const userCompanyScope = permissions.find(
     (p) => p.permission_key === "company.events.manage" && p.scope_type === "company"
   )?.scope_id;
 
   const canManageEvent = useCallback((evt: Event | null) => {
+    if (!isAdmin) return false;
     if (!evt) return false;
     if (evt.owner_type === "club") return canManageClubEvents;
     return permissions.some(
       (p) => p.permission_key === "company.events.manage" && p.scope_type === "company" && p.scope_id === evt.owner_id
     ) || hasPermission("club.admin.full");
-  }, [canManageClubEvents, permissions, hasPermission]);
+  }, [canManageClubEvents, permissions, hasPermission, isAdmin]);
 
   const canManageShift = useCallback((shift: WorkShift) => {
+    if (!isAdmin) return false;
     if (shift.owner_type === "club") return canManageClubEvents;
     return permissions.some(
       (p) =>
@@ -203,7 +205,7 @@ const EventOrganize = () => {
         p.scope_type === "company" &&
         p.scope_id === shift.owner_id
     ) || hasPermission("club.admin.full");
-  }, [canManageClubEvents, permissions, hasPermission]);
+  }, [canManageClubEvents, permissions, hasPermission, isAdmin]);
 
   useEffect(() => {
     if (member?.club_id && id) fetchData();

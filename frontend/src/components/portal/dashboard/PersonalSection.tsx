@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { User, Bell, ClipboardCheck, Sparkles, ChevronRight } from "lucide-react";
+import { User, Bell, Sparkles, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 
@@ -10,20 +10,20 @@ interface PersonalSectionProps {
 }
 
 const PersonalSection = ({ 
-  openShifts, 
   unreadNotifications, 
   pendingAwardRequests 
 }: PersonalSectionProps) => {
   const items = [
-    {
-      label: "Meine Arbeitsdienste",
-      href: "/portal/workshifts",
-      icon: ClipboardCheck,
-      count: openShifts,
-      countLabel: openShifts === 1 ? "anstehend" : "anstehend",
-      color: "text-forest",
-      bgColor: "bg-forest/10",
-    },
+    // Zum Reaktivieren ClipboardCheck wieder aus lucide-react importieren.
+    // {
+    //   label: "Meine Arbeitsdienste",
+    //   href: "/portal/workshifts",
+    //   icon: ClipboardCheck,
+    //   count: openShifts,
+    //   countLabel: openShifts === 1 ? "anstehend" : "anstehend",
+    //   color: "text-forest",
+    //   bgColor: "bg-forest/10",
+    // },
     {
       label: "Benachrichtigungen",
       href: "/portal/notifications",

@@ -295,7 +295,8 @@ const AdminHome = () => {
   const eventsShiftsTiles: SectionTile[] = useMemo(
     () => [
       { label: "Termine", href: "/portal/events", icon: Calendar },
-      { label: "Arbeitsdienste", href: "/portal/workshifts", icon: ClipboardList },
+      // AUSKOMMENTIERT: Arbeitsdienste (Kann später wieder aktiviert werden)
+      // { label: "Arbeitsdienste", href: "/portal/workshifts", icon: ClipboardList },
     ],
     []
   );
@@ -448,7 +449,6 @@ const AdminHome = () => {
             </div>
           </motion.section>
         )}
-
         <motion.section
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -520,6 +520,7 @@ const AdminHome = () => {
           )}
         </motion.section>
 
+        {/* AUSKOMMENTIERT: Sektion "Schuetzenheft & Sponsoren" ist aktuell deaktiviert.
         {magazineTiles.length > 0 && (
           <motion.section
             initial={{ opacity: 0, y: 10 }}
@@ -556,6 +557,8 @@ const AdminHome = () => {
             </Card>
           </motion.section>
         )}
+
+        */}
 
         <motion.section
           initial={{ opacity: 0, y: 10 }}

@@ -697,7 +697,7 @@ const YearlyReports = () => {
               </CardContent>
             </Card>
 
-            {/* Work Shifts Section */}
+            {/* AUSKOMMENTIERT: Abschnitt "Arbeitsdienste" ist aktuell deaktiviert.
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <div>
@@ -722,6 +722,7 @@ const YearlyReports = () => {
                 </div>
               </CardContent>
             </Card>
+            */}
 
             {/* Content Section */}
             <Card>

@@ -75,7 +75,8 @@ const memberStartItems: NavItem[] = [
 // Meine Kompanie - Alles rund um die eigene Kompanie
 const memberCompanyItems: NavItem[] = [
   { label: "Kompanie-Aushang", href: "/portal/posts?scope=company", icon: Megaphone, keywords: ["beitrag", "news", "kompanie", "mitteilung"] },
-  { label: "Arbeitsdienste", href: "/portal/workshifts", icon: HandHelping, keywords: ["schicht", "dienst", "helfer", "einsatz"] },
+  // AUSKOMMENTIERT: Arbeitsdienste unter "Meine Kompanie" (Kann spaeter wieder aktiviert werden)
+  // { label: "Arbeitsdienste", href: "/portal/workshifts", icon: HandHelping, keywords: ["schicht", "dienst", "helfer", "einsatz"] },
   { label: "Kompanie-Galerie", href: "/portal/shared-gallery?scope=company", icon: Images, keywords: ["foto", "bilder", "kompanie", "galerie"] },
   { label: "Kameraden", href: "/portal/members?scope=company", icon: Users, keywords: ["mitglied", "kamerad", "kompanie", "person"] },
 ];
@@ -90,7 +91,8 @@ const memberCommunityItems: NavItem[] = [
 const memberPersonalItems: NavItem[] = [
   { label: "Mein Profil", href: "/portal/profile", icon: UserCircle, keywords: ["profil", "account", "ich", "daten"] },
   { label: "Meine Auszeichnungen", href: "/portal/my-awards", icon: Sparkles, keywords: ["orden", "ehren", "auszeichnung", "stolz"] },
-  { label: "Mein Engagement", href: "/portal/workshifts/overview", icon: BarChart3, keywords: ["einsatz", "stunden", "statistik", "engagement"] },
+  // AUSKOMMENTIERT: Mein Engagement unter "Mein Bereich" (Kann spaeter wieder aktiviert werden)
+  // { label: "Mein Engagement", href: "/portal/workshifts/overview", icon: BarChart3, keywords: ["einsatz", "stunden", "statistik", "engagement"] },
   { label: "Benachrichtigungen", href: "/portal/notifications", icon: Bell, keywords: ["notification", "meldung", "alarm"] },
 ];
 

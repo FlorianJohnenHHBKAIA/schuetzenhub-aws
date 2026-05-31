@@ -153,7 +153,7 @@ const statusLabels: Record<PublicationStatus, { label: string; color: string }> 
 };
 
 const Events = () => {
-  const { member, hasPermission, permissions } = useAuth();
+  const { member, hasPermission, permissions, isAdmin } = useAuth();
   const [events, setEvents] = useState<Event[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [clubSlug, setClubSlug] = useState<string>("");
@@ -180,24 +180,22 @@ const Events = () => {
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
 
-  const canManageClubEvents = hasPermission("club.events.manage") || hasPermission("club.admin.full");
-  const canApprove = hasPermission("club.events.approve_publication") || hasPermission("club.admin.full");
-  const canManageCompanyEvents = permissions.some(
-    (p) => p.permission_key === "company.events.manage" && p.scope_type === "company"
-  ) || hasPermission("club.admin.full");
+  const canManageClubEvents = isAdmin;
+  const canApprove = isAdmin;
+  const canManageCompanyEvents = isAdmin;
   const userCompanyScope = permissions.find(
     (p) => p.permission_key === "company.events.manage" && p.scope_type === "company"
   )?.scope_id;
 
   const canShareInternalForCompany = (companyId: string) =>
-    permissions.some(
+    isAdmin && (permissions.some(
       (p) => p.permission_key === "company.events.share_internal" && p.scope_type === "company" && p.scope_id === companyId
-    ) || hasPermission("club.admin.full");
+    ) || hasPermission("club.admin.full"));
 
   const canSubmitForPublicationForCompany = (companyId: string) =>
-    permissions.some(
+    isAdmin && (permissions.some(
       (p) => p.permission_key === "company.events.submit_publication" && p.scope_type === "company" && p.scope_id === companyId
-    ) || hasPermission("club.admin.full");
+    ) || hasPermission("club.admin.full"));
 
   useEffect(() => {
     if (member?.club_id) fetchData();
@@ -462,6 +460,7 @@ const Events = () => {
   };
 
   const canEditEvent = (event: Event) => {
+    if (!isAdmin) return false;
     if (event.owner_type === "club") return canManageClubEvents;
     return permissions.some(
       (p) => p.permission_key === "company.events.manage" && p.scope_type === "company" && p.scope_id === event.owner_id

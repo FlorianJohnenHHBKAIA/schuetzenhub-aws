@@ -71,7 +71,7 @@ const MemberDialog = ({ open, onOpenChange, member, clubId, onSave }: MemberDial
       setFormData({
         first_name: member.first_name,
         last_name: member.last_name,
-        email: member.email,
+        email: member.email || "",
         phone: member.phone || "",
         street: member.street || "",
         zip: member.zip || "",
@@ -107,6 +107,16 @@ const MemberDialog = ({ open, onOpenChange, member, clubId, onSave }: MemberDial
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const email = formData.email.trim();
+
+    if (!email) {
+      toast({
+        title: "E-Mail erforderlich",
+        description: "Bitte geben Sie eine E-Mail-Adresse für das Mitglied ein.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     if (!member && !formData.company_id) {
       toast({
@@ -126,7 +136,7 @@ const MemberDialog = ({ open, onOpenChange, member, clubId, onSave }: MemberDial
           .update({
             first_name: formData.first_name,
             last_name: formData.last_name,
-            email: formData.email,
+            email,
             phone: formData.phone || null,
             street: formData.street || null,
             zip: formData.zip || null,
@@ -148,7 +158,7 @@ const MemberDialog = ({ open, onOpenChange, member, clubId, onSave }: MemberDial
             club_id: clubId,
             first_name: formData.first_name,
             last_name: formData.last_name,
-            email: formData.email?.trim() || null,
+            email,
             phone: formData.phone || null,
             street: formData.street || null,
             zip: formData.zip || null,
@@ -226,13 +236,13 @@ const MemberDialog = ({ open, onOpenChange, member, clubId, onSave }: MemberDial
           </div>
 
           <div>
-            <Label htmlFor="email">E-Mail</Label>
+            <Label htmlFor="email">E-Mail *</Label>
             <Input
               id="email"
               type="email"
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              placeholder="Optional"
+              required
             />
           </div>
 

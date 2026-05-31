@@ -738,20 +738,26 @@ router.get(["/awards", "/member_awards", "/awards/requests", "/award-requests"],
 
 router.get(["/award-types", "/award_types", "/awards/types"], requireAuth, async (req, res) => {
   try {
-    const result = await pool.query(
-      "SELECT id, club_id, name, description, icon, badge_color, scope_type, scope_id, is_active FROM award_types WHERE club_id = $1 AND is_active = true ORDER BY name",
-      [req.clubId]
-    );
+    let query = "SELECT id, club_id, name, description, icon, badge_color, scope_type, scope_id, is_active FROM award_types WHERE club_id = $1";
+    const params = [req.clubId];
+
+    if (req.query.is_active !== undefined) {
+      params.push(req.query.is_active === "true");
+      query += ` AND is_active = $${params.length}`;
+    }
+
+    query += " ORDER BY name";
+    const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) { console.error("Award types fetch error:", err); res.status(500).json({ error: "Serverfehler" }); }
 });
 
 router.post("/award-types", requireAuth, async (req, res) => {
   try {
-    const { name, description, icon, badge_color, scope_type, scope_id } = req.body;
+    const { name, description, icon, badge_color, scope_type, scope_id, is_active } = req.body;
     const result = await pool.query(
-      `INSERT INTO award_types (id, club_id, name, description, icon, badge_color, scope_type, scope_id)
-       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7) RETURNING id, club_id, name, description, icon, badge_color, scope_type, scope_id, is_active`,
+      `INSERT INTO award_types (id, club_id, name, description, icon, badge_color, scope_type, scope_id, is_active)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, club_id, name, description, icon, badge_color, scope_type, scope_id, is_active`,
       [
         req.clubId,
         name,
@@ -760,6 +766,7 @@ router.post("/award-types", requireAuth, async (req, res) => {
         badge_color || 'gold',
         scope_type || 'club',
         scope_type === 'company' ? (scope_id || null) : null,
+        is_active !== false,
       ]
     );
     res.json(result.rows[0]);
@@ -768,11 +775,11 @@ router.post("/award-types", requireAuth, async (req, res) => {
 
 router.put("/award-types/:id", requireAuth, async (req, res) => {
   try {
-    const { name, description, icon, badge_color, scope_type, scope_id } = req.body;
+    const { name, description, icon, badge_color, scope_type, scope_id, is_active } = req.body;
     const result = await pool.query(
       `UPDATE award_types
-       SET name=$1, description=$2, icon=$3, badge_color=$4, scope_type=$5, scope_id=$6
-       WHERE id=$7 AND club_id=$8 RETURNING id, club_id, name, description, icon, badge_color, scope_type, scope_id, is_active`,
+       SET name=$1, description=$2, icon=$3, badge_color=$4, scope_type=$5, scope_id=$6, is_active=$7
+       WHERE id=$8 AND club_id=$9 RETURNING id, club_id, name, description, icon, badge_color, scope_type, scope_id, is_active`,
       [
         name,
         description || null,
@@ -780,6 +787,7 @@ router.put("/award-types/:id", requireAuth, async (req, res) => {
         badge_color || 'gold',
         scope_type || 'club',
         scope_type === 'company' ? (scope_id || null) : null,
+        is_active !== false,
         req.params.id,
         req.clubId,
       ]
@@ -804,6 +812,16 @@ router.post("/awards", requireAuth, async (req, res) => {
 
     if (!title || !member_id) {
       return res.status(400).json({ error: "Titel und Mitglied-ID sind erforderlich" });
+    }
+
+    if (award_type_id) {
+      const typeResult = await pool.query(
+        "SELECT id FROM award_types WHERE id = $1 AND club_id = $2 AND is_active = true",
+        [award_type_id, req.clubId]
+      );
+      if (!typeResult.rows[0]) {
+        return res.status(400).json({ error: "Dieser Auszeichnungstyp ist nicht aktiv und kann nicht verliehen werden" });
+      }
     }
 
     const id = uuidv4();

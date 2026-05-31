@@ -189,15 +189,9 @@ const PublicClubProfile = () => {
 
       setCompanies((companiesData as Company[]) || []);
 
-      const { data: galleryData } = await supabase
-        .from("gallery_images")
-        .select("id, title, description, image_path")
-        .eq("club_id", club.id)
-        .eq("is_visible", true)
-        .order("sort_order", { ascending: true })
-        .limit(6);
-
-      setGalleryImages((galleryData as GalleryImage[]) || []);
+      const galleryRes = await fetch(`/api/public/gallery/${slug}`);
+      const galleryData = galleryRes.ok ? await galleryRes.json() : [];
+      setGalleryImages(((galleryData as GalleryImage[]) || []).slice(0, 6));
 
       // Get member count
       const { count } = await supabase

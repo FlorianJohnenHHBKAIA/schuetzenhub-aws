@@ -14,7 +14,7 @@ interface Post {
   id: string;
   club_id: string;
   title: string;
-  content: string;
+  content: string | null;
   cover_image_path: string | null;
   category: string;
   created_at: string;
@@ -38,6 +38,8 @@ const PublicNews = () => {
   const [loading, setLoading] = useState(true);
   const [posts, setPosts] = useState<Post[]>([]);
   const [clubSlug, setClubSlug] = useState<string | null>(slug || null);
+  const backUrl = slug ? `/verein/${slug}` : "/";
+  const backLabel = slug ? "Zur Vereinsseite" : "Zurueck zur Startseite";
 
   useEffect(() => {
     fetchPublicPosts();
@@ -79,8 +81,8 @@ const PublicNews = () => {
     <div className="min-h-screen bg-background">
       <header className="bg-card border-b">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors">
-            <ArrowLeft className="w-4 h-4" />Zurück zur Startseite
+          <Link to={backUrl} className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors">
+            <ArrowLeft className="w-4 h-4" />{backLabel}
           </Link>
         </div>
       </header>
@@ -100,6 +102,9 @@ const PublicNews = () => {
             {posts.map((post, index) => {
               const category = getCategoryInfo(post.category);
               const CategoryIcon = category.icon;
+              const postContent = post.content?.trim() || "";
+              const shareDescription = postContent.substring(0, 100);
+
               return (
                 <motion.div key={post.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }}>
                   <Card className="overflow-hidden hover:shadow-lg transition-shadow">
@@ -114,13 +119,15 @@ const PublicNews = () => {
                         <span className="text-sm text-muted-foreground">{format(new Date(post.created_at), 'dd. MMMM yyyy', { locale: de })}</span>
                       </div>
                       <h2 className="text-2xl font-bold mb-3">{post.title}</h2>
-                      <div className="prose prose-sm max-w-none mb-6">
-                        <p className="whitespace-pre-wrap text-muted-foreground">{post.content}</p>
-                      </div>
+                      {postContent && (
+                        <div className="prose prose-sm max-w-none mb-6">
+                          <p className="whitespace-pre-wrap text-muted-foreground">{postContent}</p>
+                        </div>
+                      )}
                       {clubSlug && (
                         <div className="pt-4 border-t flex items-center justify-between">
                           <span className="text-muted-foreground text-sm">Beitrag teilen:</span>
-                          <ShareButtons url={`/verein/${clubSlug}/beitrag/${post.id}`} title={post.title} description={post.content.substring(0, 100)} variant="compact" />
+                          <ShareButtons url={`/verein/${clubSlug}/beitrag/${post.id}`} title={post.title} description={shareDescription} variant="compact" />
                         </div>
                       )}
                     </CardContent>

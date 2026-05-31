@@ -76,6 +76,7 @@ interface AwardType {
   badge_color: string;
   scope_type: "club" | "company";
   scope_id: string | null;
+  is_active?: boolean;
 }
 
 interface Company {
@@ -186,8 +187,9 @@ const MemberManagementDialog = ({
       ] = await Promise.all([
         supabase
           .from("award_types")
-          .select("id, name, description, scope_type, scope_id")
+          .select("id, name, description, scope_type, scope_id, icon, badge_color, is_active")
           .eq("club_id", clubId)
+          .eq("is_active", true)
           .order("name", { ascending: true }),
         supabase
           .from("member_awards")
@@ -212,7 +214,8 @@ const MemberManagementDialog = ({
       const awardTypesWithDefaults = (awardTypesRes.data || []).map((type: any) => ({
         ...type,
         icon: type.icon || 'medal',
-        badge_color: type.badge_color || 'gold'
+        badge_color: type.badge_color || 'gold',
+        is_active: type.is_active !== false
       }));
 
       // Daten sicher in die States schreiben (mit Fallbacks für null/undefined)

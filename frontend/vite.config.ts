@@ -1,25 +1,29 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { VitePWA } from "vite-plugin-pwa";
 
-export default defineConfig(({ mode }) => ({
-  server: {
-    host: "::",
-    port: 8080,
-    hmr: { overlay: false },
-    // Proxy: API-Anfragen werden im Entwicklungsmodus an das Backend weitergeleitet
-    proxy: {
-      "/api": {
-        target: "http://localhost:5001",
-        changeOrigin: true,
-      },
-      "/uploads": {
-        target: "http://localhost:5001",
-        changeOrigin: true,
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  const apiTarget = (env.VITE_API_URL || "http://localhost:5000").replace(/\/$/, "");
+
+  return {
+    server: {
+      host: "::",
+      port: 8080,
+      hmr: { overlay: false },
+      // Proxy: API- und Upload-Anfragen werden im Entwicklungsmodus an das Backend weitergeleitet
+      proxy: {
+        "/api": {
+          target: apiTarget,
+          changeOrigin: true,
+        },
+        "/uploads": {
+          target: apiTarget,
+          changeOrigin: true,
+        },
       },
     },
-  },
   plugins: [
     react(),
     VitePWA({
@@ -72,7 +76,8 @@ export default defineConfig(({ mode }) => ({
       },
     }),
   ].filter(Boolean),
-  resolve: {
-    alias: { "@": path.resolve(__dirname, "./src") },
-  },
-}));
+    resolve: {
+      alias: { "@": path.resolve(__dirname, "./src") },
+    },
+  };
+});
