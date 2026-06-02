@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { ShareButtons } from "@/components/ui/share-buttons";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
-import { ArrowLeft, Calendar, Info, Bell, AlertTriangle, Megaphone, Loader2 } from "lucide-react";
+import { ArrowLeft, CalendarDays, Info, Bell, AlertTriangle, Megaphone, Loader2, Hammer, Trophy, Users, Heart } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 interface Post {
@@ -26,11 +26,15 @@ interface RawPost extends Post {
 }
 
 const CATEGORIES: Record<string, { label: string; icon: LucideIcon }> = {
-  announcement: { label: 'Ankündigung', icon: Bell },
-  info: { label: 'Information', icon: Info },
-  event: { label: 'Veranstaltung', icon: Calendar },
-  warning: { label: 'Wichtig', icon: AlertTriangle },
-  other: { label: 'Sonstiges', icon: Megaphone },
+  event:        { label: 'Termine & Veranstaltungen',  icon: CalendarDays },
+  info:         { label: 'Vereinsinformation',          icon: Info },
+  announcement: { label: 'Vereinsinformation',          icon: Info },
+  warning:      { label: 'Wichtige Mitteilung',         icon: AlertTriangle },
+  other:        { label: 'Sonstiges',                   icon: Megaphone },
+  arbeit:       { label: 'Arbeitseinsatz',              icon: Hammer },
+  ehrung:       { label: 'Ehrungen & Auszeichnungen',   icon: Trophy },
+  jugend:       { label: 'Jugend',                      icon: Users },
+  nachruf:      { label: 'Nachruf',                     icon: Heart },
 };
 
 const PublicNews = () => {

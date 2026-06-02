@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
-import { ArrowRight, Bell, Info, Calendar, AlertTriangle, Megaphone, Loader2, Newspaper } from "lucide-react";
+import { ArrowRight, Bell, Info, CalendarDays, AlertTriangle, Megaphone, Loader2, Newspaper, Hammer, Trophy, Users, Heart } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 interface Post {
@@ -20,11 +20,15 @@ interface Post {
 }
 
 const CATEGORIES: Record<string, { label: string; icon: LucideIcon; color: string }> = {
-  announcement: { label: 'Ankündigung', icon: Bell, color: 'bg-blue-500/10 text-blue-600' },
-  info: { label: 'Information', icon: Info, color: 'bg-emerald-500/10 text-emerald-600' },
-  event: { label: 'Veranstaltung', icon: Calendar, color: 'bg-purple-500/10 text-purple-600' },
-  warning: { label: 'Wichtig', icon: AlertTriangle, color: 'bg-amber-500/10 text-amber-600' },
-  other: { label: 'Sonstiges', icon: Megaphone, color: 'bg-slate-500/10 text-slate-600' },
+  event:        { label: 'Termine & Veranstaltungen',  icon: CalendarDays, color: 'bg-purple-500/10 text-purple-600' },
+  info:         { label: 'Vereinsinformation',          icon: Info,         color: 'bg-emerald-500/10 text-emerald-600' },
+  announcement: { label: 'Vereinsinformation',          icon: Info,         color: 'bg-emerald-500/10 text-emerald-600' },
+  warning:      { label: 'Wichtige Mitteilung',         icon: AlertTriangle, color: 'bg-amber-500/10 text-amber-600' },
+  other:        { label: 'Sonstiges',                   icon: Megaphone,    color: 'bg-slate-500/10 text-slate-600' },
+  arbeit:       { label: 'Arbeitseinsatz',              icon: Hammer,       color: 'bg-orange-500/10 text-orange-600' },
+  ehrung:       { label: 'Ehrungen & Auszeichnungen',   icon: Trophy,       color: 'bg-yellow-500/10 text-yellow-600' },
+  jugend:       { label: 'Jugend',                      icon: Users,        color: 'bg-blue-500/10 text-blue-600' },
+  nachruf:      { label: 'Nachruf',                     icon: Heart,        color: 'bg-rose-500/10 text-rose-600' },
 };
 
 const NewsSection = () => {

@@ -18,14 +18,12 @@ import { useOfflineStatus } from "@/components/pwa/OfflineBanner";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import {
-  ThumbsUp,
   MessageSquare,
   Send,
   Trash2,
   ArrowLeft,
-  Calendar,
   Clock,
-  CheckCircle,
+  CheckCircle2,
   XCircle,
   Building2,
   Globe,
@@ -33,8 +31,14 @@ import {
   Loader2,
   AlertTriangle,
   Info,
+  CalendarDays,
   Bell,
   Megaphone,
+  Hammer,
+  Trophy,
+  Heart,
+  Eye,
+  ChevronDown,
 } from "lucide-react";
 
 interface Post {
@@ -45,9 +49,10 @@ interface Post {
   title: string;
   content: string;
   cover_image_path: string | null;
-  category: 'announcement' | 'info' | 'event' | 'warning' | 'other';
+  category: 'announcement' | 'info' | 'event' | 'warning' | 'other' | 'arbeit' | 'ehrung' | 'jugend' | 'nachruf';
   audience: 'company_only' | 'club_internal' | 'public';
   publication_status: 'draft' | 'submitted' | 'approved' | 'rejected';
+  comments_enabled?: boolean | null;
   submitted_at: string | null;
   approved_at: string | null;
   approved_by_member_id: string | null;
@@ -64,13 +69,23 @@ interface RawPermission {
   scope_id?: string;
 }
 
-const CATEGORIES = [
-  { value: 'announcement', label: 'Ankündigung', icon: Bell },
-  { value: 'info', label: 'Information', icon: Info },
-  { value: 'event', label: 'Veranstaltung', icon: Calendar },
-  { value: 'warning', label: 'Wichtig', icon: AlertTriangle },
-  { value: 'other', label: 'Sonstiges', icon: Megaphone },
-];
+const CATEGORY_META: Record<string, { label: string; icon: React.ElementType }> = {
+  event:        { label: 'Termine & Veranstaltungen',  icon: CalendarDays },
+  info:         { label: 'Vereinsinformation',          icon: Info },
+  announcement: { label: 'Vereinsinformation',          icon: Info },
+  warning:      { label: 'Wichtige Mitteilung',         icon: AlertTriangle },
+  other:        { label: 'Sonstiges',                   icon: Megaphone },
+  arbeit:       { label: 'Arbeitseinsatz',              icon: Hammer },
+  ehrung:       { label: 'Ehrungen & Auszeichnungen',   icon: Trophy },
+  jugend:       { label: 'Jugend',                      icon: Users },
+  nachruf:      { label: 'Nachruf',                     icon: Heart },
+};
+
+const REACTION_CONFIG = [
+  { type: 'attending', label: 'Ich nehme teil', activeLabel: 'Nehme teil', icon: CheckCircle2, countLabel: 'Teilnehmer', activeClass: 'bg-green-600 hover:bg-green-700 text-white' },
+  { type: 'helping',   label: 'Ich helfe mit',  activeLabel: 'Helfe mit',  icon: Hammer,       countLabel: 'Helfer',     activeClass: 'bg-orange-600 hover:bg-orange-700 text-white' },
+  { type: 'read',      label: 'Gelesen',         activeLabel: 'Gelesen',    icon: Eye,          countLabel: 'Gelesen',    activeClass: 'bg-blue-600 hover:bg-blue-700 text-white' },
+] as const;
 
 export default function PostDetail() {
   const { id } = useParams<{ id: string }>();
@@ -105,7 +120,8 @@ export default function PostDetail() {
   });
 
   const { comments, loading: commentsLoading, submitting, addComment, deleteComment } = usePostComments(post?.id || null);
-  const { toggleReaction, hasReacted, reactionCount } = usePostReactions(post?.id || null);
+  const { reactions, toggleReaction, hasReacted, reactionCount } = usePostReactions(post?.id || null);
+  const [activeReactionList, setActiveReactionList] = useState<string | null>(null);
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -151,16 +167,11 @@ export default function PostDetail() {
     }
   };
 
-  const handleToggleLike = () => {
-    if (!post || isOffline) return;
-    toggleReaction(post.club_id, 'like');
-  };
-
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'draft': return <Badge variant="secondary" className="gap-1"><Clock className="w-3 h-3" />Entwurf</Badge>;
       case 'submitted': return <Badge variant="outline" className="gap-1 border-yellow-500 text-yellow-600"><Send className="w-3 h-3" />Eingereicht</Badge>;
-      case 'approved': return <Badge variant="default" className="gap-1 bg-green-600"><CheckCircle className="w-3 h-3" />Freigegeben</Badge>;
+      case 'approved': return <Badge variant="default" className="gap-1 bg-green-600"><CheckCircle2 className="w-3 h-3" />Freigegeben</Badge>;
       case 'rejected': return <Badge variant="destructive" className="gap-1"><XCircle className="w-3 h-3" />Abgelehnt</Badge>;
       default: return <Badge variant="secondary">{status}</Badge>;
     }
@@ -176,9 +187,10 @@ export default function PostDetail() {
   };
 
   const getCategoryBadge = (category: string) => {
-    const cat = CATEGORIES.find(c => c.value === category);
-    if (!cat) return null;
-    return <Badge variant="outline" className="gap-1"><cat.icon className="w-3 h-3" />{cat.label}</Badge>;
+    const meta = CATEGORY_META[category];
+    if (!meta) return null;
+    const Icon = meta.icon;
+    return <Badge variant="outline" className="gap-1"><Icon className="w-3 h-3" />{meta.label}</Badge>;
   };
 
   if (isLoading) {
@@ -217,8 +229,6 @@ export default function PostDetail() {
 
   if (!post) return null;
 
-  const likeCount = reactionCount('like');
-  const userHasLiked = hasReacted('like');
   const isInternal = post.audience !== 'public';
 
   return (
@@ -279,20 +289,73 @@ export default function PostDetail() {
         {isInternal && (
           <Card>
             <CardContent className="pt-6">
-              <div className="flex items-center gap-4 mb-4">
-                <Button variant={userHasLiked ? "default" : "outline"} size="sm" onClick={handleToggleLike} className="gap-2" disabled={isOffline}>
-                  <ThumbsUp className={`w-4 h-4 ${userHasLiked ? 'fill-current' : ''}`} />
-                  {likeCount > 0 && <span>{likeCount}</span>}
-                  Gefällt mir
-                </Button>
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <MessageSquare className="w-4 h-4" />
-                  <span>{comments.filter(c => !c.deleted_at).length} Kommentare</span>
+              <div className="space-y-2 mb-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  {REACTION_CONFIG.map(({ type, label, activeLabel, icon: Icon, activeClass }) => (
+                    <Button
+                      key={type}
+                      variant={hasReacted(type) ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => toggleReaction(post.club_id, type)}
+                      className={`gap-2 ${hasReacted(type) ? activeClass : ''}`}
+                      disabled={isOffline}
+                    >
+                      <Icon className="w-4 h-4" />
+                      {hasReacted(type) ? activeLabel : label}
+                      {reactionCount(type) > 0 && (
+                        <span className="ml-1 text-xs opacity-80">{reactionCount(type)}</span>
+                      )}
+                    </Button>
+                  ))}
+                  <div className="flex items-center gap-2 text-muted-foreground ml-2">
+                    <MessageSquare className="w-4 h-4" />
+                    <span className="text-sm">{comments.length} Kommentare</span>
+                  </div>
                 </div>
+                {REACTION_CONFIG.some(r => reactionCount(r.type) > 0) && (
+                  <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                    {REACTION_CONFIG.map(({ type, countLabel, icon: Icon }) => {
+                      const count = reactionCount(type);
+                      if (count === 0) return null;
+                      return (
+                        <button
+                          key={type}
+                          onClick={() => setActiveReactionList(activeReactionList === type ? null : type)}
+                          className="flex items-center gap-1 hover:text-foreground transition-colors"
+                        >
+                          <Icon className="w-3 h-3" />
+                          {count} {countLabel}
+                          <ChevronDown className={`w-3 h-3 transition-transform ${activeReactionList === type ? 'rotate-180' : ''}`} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {activeReactionList && (
+                  <div className="flex flex-wrap gap-2 p-3 bg-muted/50 rounded-lg">
+                    {reactions.filter(r => r.reaction === activeReactionList).map(r => (
+                      <div key={r.id} className="flex items-center gap-1 text-xs">
+                        <Avatar className="w-5 h-5">
+                          <AvatarImage src={r.member?.avatar_url || undefined} />
+                          <AvatarFallback className="text-xs">
+                            {r.member?.first_name?.[0]}{r.member?.last_name?.[0]}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span>{r.member?.first_name} {r.member?.last_name}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <Separator className="my-4" />
 
+              {post.comments_enabled === false ? (
+                <p className="text-sm text-muted-foreground text-center py-2 flex items-center justify-center gap-2">
+                  <MessageSquare className="w-4 h-4" />
+                  Kommentare sind für diesen Beitrag deaktiviert.
+                </p>
+              ) : (
               <div className="space-y-4">
                 <h3 className="font-semibold flex items-center gap-2"><MessageSquare className="w-5 h-5" />Kommentare</h3>
 
@@ -346,6 +409,7 @@ export default function PostDetail() {
                   </div>
                 )}
               </div>
+              )}
             </CardContent>
           </Card>
         )}

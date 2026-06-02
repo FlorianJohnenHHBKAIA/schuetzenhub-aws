@@ -50,6 +50,12 @@ import {
   MessageSquare,
   ArrowLeft,
   CalendarDays,
+  Archive,
+  ArchiveRestore,
+  Pin,
+  Hammer,
+  Trophy,
+  Heart,
 } from "lucide-react";
 
 interface Post {
@@ -60,9 +66,9 @@ interface Post {
   title: string;
   content: string;
   cover_image_path: string | null;
-  category: 'announcement' | 'info' | 'event' | 'warning' | 'other';
+  category: 'announcement' | 'info' | 'event' | 'warning' | 'other' | 'arbeit' | 'ehrung' | 'jugend' | 'nachruf';
   audience: 'company_only' | 'club_internal' | 'public';
-  publication_status: 'draft' | 'submitted' | 'approved' | 'rejected';
+  publication_status: 'draft' | 'submitted' | 'approved' | 'rejected' | 'archived';
   submitted_at: string | null;
   approved_at: string | null;
   approved_by_member_id: string | null;
@@ -70,6 +76,9 @@ interface Post {
   created_by_member_id: string | null;
   created_at: string;
   event_id: string | null;
+  visible_until?: string | null;
+  is_pinned?: boolean | null;
+  comments_enabled?: boolean | null;
   creator?: { first_name: string; last_name: string } | null;
   approver?: { first_name: string; last_name: string } | null;
 }
@@ -99,12 +108,31 @@ interface RawClub {
   slug: string;
 }
 
+type CategoryMeta = { label: string; icon: React.ElementType };
+
+const CATEGORY_META: Record<string, CategoryMeta> = {
+  event:        { label: 'Termine & Veranstaltungen',  icon: CalendarDays },
+  info:         { label: 'Vereinsinformation',          icon: Info },
+  announcement: { label: 'Vereinsinformation',          icon: Info },  // Legacy
+  warning:      { label: 'Wichtige Mitteilung',         icon: AlertTriangle },
+  other:        { label: 'Sonstiges',                   icon: Megaphone },
+  arbeit:       { label: 'Arbeitseinsatz',              icon: Hammer },
+  ehrung:       { label: 'Ehrungen & Auszeichnungen',   icon: Trophy },
+  jugend:       { label: 'Jugend',                      icon: Users },
+  nachruf:      { label: 'Nachruf',                     icon: Heart },
+};
+
+// Kategorien für Dropdown (nur speicherbare Werte)
 const CATEGORIES = [
-  { value: 'announcement', label: 'Ankündigung', icon: Bell },
-  { value: 'info', label: 'Information', icon: Info },
-  { value: 'event', label: 'Veranstaltung', icon: Calendar },
-  { value: 'warning', label: 'Wichtig', icon: AlertTriangle },
-  { value: 'other', label: 'Sonstiges', icon: Megaphone },
+  { value: 'event',   label: 'Termine & Veranstaltungen', icon: CalendarDays },
+  { value: 'info',    label: 'Vereinsinformation',         icon: Info },
+  { value: 'warning', label: 'Wichtige Mitteilung',        icon: AlertTriangle },
+  { value: 'other',   label: 'Sonstiges',                  icon: Megaphone },
+  // TODO: aktivieren nach: ALTER TABLE posts ALTER COLUMN category TYPE TEXT USING category::TEXT;
+  // { value: 'arbeit',  label: 'Arbeitseinsatz',             icon: Hammer },
+  // { value: 'ehrung',  label: 'Ehrungen & Auszeichnungen',  icon: Trophy },
+  // { value: 'jugend',  label: 'Jugend',                     icon: Users },
+  // { value: 'nachruf', label: 'Nachruf',                    icon: Heart },
 ];
 
 const Posts = () => {
@@ -145,6 +173,9 @@ const Posts = () => {
   const [formOwnerId, setFormOwnerId] = useState('');
   const [formEventId, setFormEventId] = useState<string | null>(null);
   const [formCoverImage, setFormCoverImage] = useState<File | null>(null);
+  const [formVisibleUntil, setFormVisibleUntil] = useState<string>('');
+  const [formIsPinned, setFormIsPinned] = useState(false);
+  const [formCommentsEnabled, setFormCommentsEnabled] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -251,13 +282,32 @@ const Posts = () => {
       const ownerId = formOwnerType === 'club' ? member.club_id : formOwnerId;
       const audienceTyped = formAudience as 'company_only' | 'club_internal' | 'public';
       const categoryTyped = formCategory as 'announcement' | 'info' | 'event' | 'warning' | 'other';
-      const statusTyped = (asDraft ? 'draft' : 'submitted') as 'draft' | 'submitted' | 'approved' | 'rejected';
+
+      // Kompanieinterne Beiträge (nicht-public) können direkt veröffentlicht werden
+      const canDirectPublish = formOwnerType === 'company'
+        && companyPostPermissions.includes(formOwnerId)
+        && formAudience !== 'public';
+      const statusTyped = (
+        asDraft ? 'draft' : canDirectPublish ? 'approved' : 'submitted'
+      ) as 'draft' | 'submitted' | 'approved' | 'rejected';
+      const now = new Date().toISOString();
 
       if (editingPost) {
         const { error } = await supabase.from('posts').update({
           title: formTitle.trim(), content: formContent.trim(), cover_image_path: coverPath,
           category: categoryTyped, audience: audienceTyped, publication_status: statusTyped,
-          submitted_at: asDraft ? null : new Date().toISOString(),
+          submitted_at: (!asDraft && !canDirectPublish) ? now : null,
+          approved_at: (canDirectPublish && !asDraft) ? now : null,
+          approved_by_member_id: (canDirectPublish && !asDraft) ? member.id : null,
+          // TODO: visible_until – aktivieren sobald DB-Spalte existiert:
+          //   ALTER TABLE posts ADD COLUMN visible_until TIMESTAMPTZ;
+          // visible_until: formVisibleUntil ? new Date(formVisibleUntil).toISOString() : null,
+          // TODO: is_pinned – aktivieren sobald DB-Spalte existiert:
+          //   ALTER TABLE posts ADD COLUMN is_pinned BOOLEAN NOT NULL DEFAULT FALSE;
+          // is_pinned: formIsPinned,
+          // TODO: comments_enabled – aktivieren sobald DB-Spalte existiert:
+          //   ALTER TABLE posts ADD COLUMN comments_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+          // comments_enabled: formCommentsEnabled,
         }).eq('id', editingPost.id);
         if (error) throw error;
         toast({ title: 'Beitrag aktualisiert' });
@@ -266,11 +316,19 @@ const Posts = () => {
           club_id: member.club_id, owner_type: formOwnerType, owner_id: ownerId,
           title: formTitle.trim(), content: formContent.trim(), cover_image_path: coverPath,
           category: categoryTyped, audience: audienceTyped, publication_status: statusTyped,
-          submitted_at: asDraft ? null : new Date().toISOString(),
+          submitted_at: (!asDraft && !canDirectPublish) ? now : null,
+          approved_at: (canDirectPublish && !asDraft) ? now : null,
+          approved_by_member_id: (canDirectPublish && !asDraft) ? member.id : null,
           created_by_member_id: member.id, event_id: formEventId,
+          // TODO: visible_until – aktivieren sobald DB-Spalte existiert (s. o.)
+          // visible_until: formVisibleUntil ? new Date(formVisibleUntil).toISOString() : null,
+          // TODO: is_pinned – aktivieren sobald DB-Spalte existiert (s. o.)
+          // is_pinned: formIsPinned,
+          // TODO: comments_enabled – aktivieren sobald DB-Spalte existiert (s. o.)
+          // comments_enabled: formCommentsEnabled,
         });
         if (error) throw error;
-        toast({ title: asDraft ? 'Entwurf gespeichert' : 'Beitrag eingereicht' });
+        toast({ title: asDraft ? 'Entwurf gespeichert' : canDirectPublish ? 'Beitrag veröffentlicht' : 'Beitrag eingereicht' });
       }
 
       setDialogOpen(false);
@@ -295,12 +353,30 @@ const Posts = () => {
   };
 
   const handleDelete = async (post: Post) => {
-    if (!confirm(`Beitrag "${post.title}" wirklich löschen?`)) return;
+    if (!confirm(`Beitrag „${post.title}" wirklich archivieren?`)) return;
     try {
-      if (post.cover_image_path) await supabase.storage.from('post-images').remove([post.cover_image_path]);
-      const { error } = await supabase.from('posts').delete().eq('id', post.id);
+      const { error } = await supabase.from('posts').update({ publication_status: 'archived' }).eq('id', post.id);
       if (error) throw error;
-      toast({ title: 'Beitrag gelöscht' });
+      toast({ title: 'Beitrag archiviert' });
+      fetchData();
+    } catch (error: unknown) {
+      toast({ title: 'Fehler', description: error instanceof Error ? error.message : undefined, variant: 'destructive' });
+    }
+  };
+
+  const handleRestore = async (post: Post) => {
+    if (post.visible_until && new Date(post.visible_until) < new Date()) {
+      toast({
+        title: 'Hinweis',
+        description: 'Das Ablaufdatum dieses Beitrags liegt in der Vergangenheit. Bitte nach der Wiederherstellung ein neues Ablaufdatum setzen.',
+        variant: 'destructive',
+      });
+    }
+    try {
+      const targetStatus = canManagePost(post) ? 'approved' : 'draft';
+      const { error } = await supabase.from('posts').update({ publication_status: targetStatus }).eq('id', post.id);
+      if (error) throw error;
+      toast({ title: 'Beitrag wiederhergestellt' });
       fetchData();
     } catch (error: unknown) {
       toast({ title: 'Fehler', description: error instanceof Error ? error.message : undefined, variant: 'destructive' });
@@ -309,7 +385,9 @@ const Posts = () => {
 
   const resetForm = () => {
     setFormTitle(''); setFormContent(''); setFormCategory('info'); setFormAudience('club_internal');
-    setFormOwnerType('club'); setFormCoverImage(null); setEditingPost(null);
+    setFormOwnerType('club'); setFormCoverImage(null); setFormCoverPreviewUrl(null);
+    setEditingPost(null); setFormEventId(null);
+    setFormVisibleUntil(''); setFormIsPinned(false); setFormCommentsEnabled(true);
   };
 
   const openCreateDialog = () => {
@@ -323,6 +401,10 @@ const Posts = () => {
     setEditingPost(post); setFormTitle(post.title); setFormContent(post.content);
     setFormCategory(post.category); setFormAudience(post.audience);
     setFormOwnerType(post.owner_type); setFormOwnerId(post.owner_id);
+    setFormEventId(post.event_id || null);
+    setFormVisibleUntil(post.visible_until ? post.visible_until.substring(0, 10) : '');
+    setFormIsPinned(!!post.is_pinned);
+    setFormCommentsEnabled(post.comments_enabled !== false);
     setDialogOpen(true);
   };
 
@@ -341,6 +423,7 @@ const Posts = () => {
       case 'submitted': return <Badge variant="outline" className="gap-1 border-yellow-500 text-yellow-600"><Send className="w-3 h-3" />Eingereicht</Badge>;
       case 'approved': return <Badge variant="default" className="gap-1 bg-green-600"><CheckCircle className="w-3 h-3" />Freigegeben</Badge>;
       case 'rejected': return <Badge variant="destructive" className="gap-1"><XCircle className="w-3 h-3" />Abgelehnt</Badge>;
+      case 'archived': return <Badge variant="secondary" className="gap-1 border-gray-400 text-gray-500"><Archive className="w-3 h-3" />Archiviert</Badge>;
       default: return <Badge variant="secondary">{status}</Badge>;
     }
   };
@@ -355,12 +438,16 @@ const Posts = () => {
   };
 
   const getCategoryIcon = (category: string) => {
-    const cat = CATEGORIES.find(c => c.value === category);
-    return cat ? <cat.icon className="w-4 h-4" /> : <Megaphone className="w-4 h-4" />;
+    const meta = CATEGORY_META[category];
+    if (!meta) return <Megaphone className="w-4 h-4" />;
+    const Icon = meta.icon;
+    return <Icon className="w-4 h-4" />;
   };
 
   const filteredPosts = useMemo(() => {
     return posts.filter(p => {
+      if (p.publication_status === 'archived' && statusFilter !== 'archived') return false;
+      if (p.visible_until && new Date(p.visible_until) < new Date() && p.publication_status !== 'archived' && statusFilter !== 'archived') return false;
       if (activeTab === 'club' && p.owner_type !== 'club') return false;
       if (activeTab === 'company') {
         if (p.owner_type !== 'company') return false;
@@ -373,6 +460,11 @@ const Posts = () => {
       if (categoryFilter !== 'all' && p.category !== categoryFilter) return false;
       if (statusFilter !== 'all' && p.publication_status !== statusFilter) return false;
       return true;
+    }).sort((a, b) => {
+      const aPinned = a.is_pinned ? 1 : 0;
+      const bPinned = b.is_pinned ? 1 : 0;
+      if (bPinned !== aPinned) return bPinned - aPinned;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
   }, [posts, activeTab, searchQuery, categoryFilter, statusFilter, userCompanyId, companyPostPermissions]);
 
@@ -414,6 +506,11 @@ const Posts = () => {
                     <SelectContent>
                       <SelectItem value="all">Alle</SelectItem>
                       {CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                      {/* TODO: aktivieren nach ALTER TABLE posts ALTER COLUMN category TYPE TEXT */}
+                      {/* <SelectItem value="arbeit">Arbeitseinsatz</SelectItem> */}
+                      {/* <SelectItem value="ehrung">Ehrungen & Auszeichnungen</SelectItem> */}
+                      {/* <SelectItem value="jugend">Jugend</SelectItem> */}
+                      {/* <SelectItem value="nachruf">Nachruf</SelectItem> */}
                     </SelectContent>
                   </Select>
                 </div>
@@ -427,6 +524,7 @@ const Posts = () => {
                       <SelectItem value="submitted">Eingereicht</SelectItem>
                       <SelectItem value="approved">Freigegeben</SelectItem>
                       <SelectItem value="rejected">Abgelehnt</SelectItem>
+                      <SelectItem value="archived">Archiviert</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -435,10 +533,10 @@ const Posts = () => {
           </Card>
 
           <TabsContent value="club" className="mt-4">
-            <PostGrid posts={filteredPosts} loading={loading} onView={(p) => { setSelectedPost(p); setDetailDialogOpen(true); }} onEdit={openEditDialog} onDelete={handleDelete} onSubmit={handleSubmit} canManage={canManagePost} canSubmit={canSubmitPost} getStatusBadge={getStatusBadge} getAudienceBadge={getAudienceBadge} getCategoryIcon={getCategoryIcon} getCompanyName={getCompanyName} />
+            <PostGrid posts={filteredPosts} loading={loading} onView={(p) => { setSelectedPost(p); setDetailDialogOpen(true); }} onEdit={openEditDialog} onDelete={handleDelete} onRestore={handleRestore} onSubmit={handleSubmit} canManage={canManagePost} canSubmit={canSubmitPost} getStatusBadge={getStatusBadge} getAudienceBadge={getAudienceBadge} getCategoryIcon={getCategoryIcon} getCompanyName={getCompanyName} />
           </TabsContent>
           <TabsContent value="company" className="mt-4">
-            <PostGrid posts={filteredPosts} loading={loading} onView={(p) => { setSelectedPost(p); setDetailDialogOpen(true); }} onEdit={openEditDialog} onDelete={handleDelete} onSubmit={handleSubmit} canManage={canManagePost} canSubmit={canSubmitPost} getStatusBadge={getStatusBadge} getAudienceBadge={getAudienceBadge} getCategoryIcon={getCategoryIcon} getCompanyName={getCompanyName} />
+            <PostGrid posts={filteredPosts} loading={loading} onView={(p) => { setSelectedPost(p); setDetailDialogOpen(true); }} onEdit={openEditDialog} onDelete={handleDelete} onRestore={handleRestore} onSubmit={handleSubmit} canManage={canManagePost} canSubmit={canSubmitPost} getStatusBadge={getStatusBadge} getAudienceBadge={getAudienceBadge} getCategoryIcon={getCategoryIcon} getCompanyName={getCompanyName} />
           </TabsContent>
         </Tabs>
       </div>
@@ -483,6 +581,48 @@ const Posts = () => {
               <Label>Titelbild (optional)</Label>
               <Input type="file" accept="image/*" onChange={(e) => { const file = e.target.files?.[0] || null; setFormCoverImage(file); setFormCoverPreviewUrl(file ? URL.createObjectURL(file) : null); }} />
             </div>
+            <div>
+              <Label>Sichtbar bis (optional)</Label>
+              <Input
+                type="date"
+                value={formVisibleUntil}
+                onChange={(e) => setFormVisibleUntil(e.target.value)}
+                min={format(new Date(), 'yyyy-MM-dd')}
+              />
+              {formVisibleUntil && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Beitrag wird nach dem {format(new Date(formVisibleUntil), 'dd.MM.yyyy', { locale: de })} aus der Aushang-Liste ausgeblendet.
+                </p>
+              )}
+            </div>
+            {(canManageClubPosts || companyPostPermissions.includes(formOwnerId)) && (
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="formCommentsEnabled"
+                  checked={formCommentsEnabled}
+                  onChange={(e) => setFormCommentsEnabled(e.target.checked)}
+                  className="w-4 h-4 cursor-pointer"
+                />
+                <Label htmlFor="formCommentsEnabled" className="cursor-pointer flex items-center gap-1">
+                  <MessageSquare className="w-3 h-3" />Kommentare erlauben
+                </Label>
+              </div>
+            )}
+            {(canManageClubPosts || companyPostPermissions.includes(formOwnerId)) && (
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="formIsPinned"
+                  checked={formIsPinned}
+                  onChange={(e) => setFormIsPinned(e.target.checked)}
+                  className="w-4 h-4 cursor-pointer"
+                />
+                <Label htmlFor="formIsPinned" className="cursor-pointer flex items-center gap-1">
+                  <Pin className="w-3 h-3" />Beitrag anheften (oben anzeigen)
+                </Label>
+              </div>
+            )}
             {formAudience === 'public' && (
               <PostPublicPreview title={formTitle} content={formContent} category={formCategory} coverImageUrl={formCoverPreviewUrl || (editingPost?.cover_image_path ? getStorageUrl("post-images", editingPost.cover_image_path) || "" : null)} postId={editingPost?.id} clubSlug={clubSlug} createdAt={editingPost?.created_at} />
             )}
@@ -492,9 +632,12 @@ const Posts = () => {
             <Button variant="secondary" onClick={() => handleSave(true)} disabled={saving || !formTitle.trim() || !formContent.trim()}>
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Als Entwurf speichern'}
             </Button>
-            {formAudience === 'public' && (
+            {(formOwnerType === 'company' || formAudience === 'public') && (
               <Button onClick={() => handleSave(false)} disabled={saving || !formTitle.trim() || !formContent.trim()}>
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Zur Freigabe einreichen'}
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> :
+                  (formOwnerType === 'company' && formAudience !== 'public'
+                    ? 'Veröffentlichen'
+                    : 'Zur Freigabe einreichen')}
               </Button>
             )}
           </DialogFooter>
@@ -512,6 +655,7 @@ interface PostGridProps {
   onView: (post: Post) => void;
   onEdit: (post: Post) => void;
   onDelete: (post: Post) => void;
+  onRestore: (post: Post) => void;
   onSubmit: (post: Post) => void;
   canManage: (post: Post) => boolean;
   canSubmit: (post: Post) => boolean;
@@ -521,7 +665,7 @@ interface PostGridProps {
   getCompanyName: (companyId: string) => string;
 }
 
-const PostGrid = ({ posts, loading, onView, onEdit, onDelete, onSubmit, canManage, canSubmit, getStatusBadge, getAudienceBadge, getCategoryIcon, getCompanyName }: PostGridProps) => {
+const PostGrid = ({ posts, loading, onView, onEdit, onDelete, onRestore, onSubmit, canManage, canSubmit, getStatusBadge, getAudienceBadge, getCategoryIcon, getCompanyName }: PostGridProps) => {
   if (loading) return <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
   if (posts.length === 0) return <Card><CardContent className="py-12 text-center"><Megaphone className="w-12 h-12 mx-auto mb-4 text-muted-foreground" /><p className="text-muted-foreground">Keine Beiträge gefunden</p></CardContent></Card>;
@@ -536,17 +680,33 @@ const PostGrid = ({ posts, loading, onView, onEdit, onDelete, onSubmit, canManag
             </div>
           )}
           <CardContent className="p-4">
-            <div className="flex flex-wrap gap-1 mb-2">{getStatusBadge(post.publication_status)}{getAudienceBadge(post.audience)}</div>
-            <div className="flex items-start gap-2 mb-2">{getCategoryIcon(post.category)}<h3 className="font-semibold line-clamp-2">{post.title}</h3></div>
+            <div className="flex flex-wrap gap-1 mb-2">
+              {post.is_pinned && <Badge variant="outline" className="gap-1 border-amber-500 text-amber-600"><Pin className="w-3 h-3" />Angeheftet</Badge>}
+              {getStatusBadge(post.publication_status)}{getAudienceBadge(post.audience)}
+              {(() => { const m = CATEGORY_META[post.category]; if (!m) return null; const Icon = m.icon; return <Badge variant="outline" className="gap-1"><Icon className="w-3 h-3" />{m.label}</Badge>; })()}
+            </div>
+            <div className="flex items-start gap-2 mb-2"><h3 className="font-semibold line-clamp-2">{post.title}</h3></div>
             <p className="text-sm text-muted-foreground line-clamp-2 mb-3 whitespace-pre-wrap">{post.content}</p>
             <div className="text-xs text-muted-foreground">{format(new Date(post.created_at), 'dd.MM.yyyy', { locale: de })}</div>
+            {post.visible_until && (
+              <div className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                <CalendarDays className="w-3 h-3" />
+                Sichtbar bis: {format(new Date(post.visible_until), 'dd.MM.yyyy', { locale: de })}
+              </div>
+            )}
             {canManage(post) && (
               <div className="flex gap-2 mt-3 pt-3 border-t" onClick={(e) => e.stopPropagation()}>
-                <Button variant="ghost" size="sm" onClick={() => onEdit(post)}><Edit className="w-4 h-4" /></Button>
+                {post.publication_status !== 'archived' && (
+                  <Button variant="ghost" size="sm" onClick={() => onEdit(post)}><Edit className="w-4 h-4" /></Button>
+                )}
                 {post.publication_status === 'draft' && canSubmit(post) && (
                   <Button variant="ghost" size="sm" onClick={() => onSubmit(post)}><Send className="w-4 h-4" /></Button>
                 )}
-                <Button variant="ghost" size="sm" onClick={() => onDelete(post)} className="text-destructive"><Trash2 className="w-4 h-4" /></Button>
+                {post.publication_status === 'archived' ? (
+                  <Button variant="ghost" size="sm" onClick={() => onRestore(post)} title="Wiederherstellen"><ArchiveRestore className="w-4 h-4" /></Button>
+                ) : (
+                  <Button variant="ghost" size="sm" onClick={() => onDelete(post)} title="Archivieren" className="text-destructive"><Trash2 className="w-4 h-4" /></Button>
+                )}
               </div>
             )}
           </CardContent>

@@ -258,6 +258,11 @@ router.post("/companies/:id/logo", requireAuth, upload.single("file"), async (re
 
 // ─── Events ───────────────────────────────────────────────────────────────────
 
+// TODO: event_participants Endpunkte (Tabelle muss zuerst erstellt werden — s. EventParticipantsSection.tsx):
+//   GET    /api/events/:id/participants   – alle Teilnehmer mit Status
+//   POST   /api/events/:id/participants   – RSVP setzen/ändern { status: 'attending'|'declined' }
+//   DELETE /api/events/:id/participants   – eigene RSVP entfernen
+
 router.get("/events", requireAuth, async (req, res) => {
   try {
     const { from, to, ids } = req.query;
@@ -360,10 +365,34 @@ router.delete("/events/:id", requireAuth, async (req, res) => {
 });
 
 // ─── Posts ────────────────────────────────────────────────────────────────────
+// TODO: visible_until – DB-Spalte fehlt noch in der posts-Tabelle.
+// Sobald die Spalte existiert (ALTER TABLE posts ADD COLUMN visible_until TIMESTAMPTZ),
+// muss visible_until in den Endpunkten aufgenommen werden:
+//   POST /posts:    visible_until aus req.body übernehmen, in INSERT-Query ergänzen
+//   PUT  /posts/:id: visible_until aus req.body übernehmen, in UPDATE SET ergänzen
+//   GET  /posts:    optional abgelaufene Beiträge serverseitig ausfiltern
+// TODO: is_pinned – DB-Spalte fehlt noch in der posts-Tabelle.
+// Sobald die Spalte existiert (ALTER TABLE posts ADD COLUMN is_pinned BOOLEAN NOT NULL DEFAULT FALSE):
+//   POST /posts:    is_pinned aus req.body übernehmen, in INSERT-Query ergänzen
+//   PUT  /posts/:id: is_pinned aus req.body übernehmen, in UPDATE SET ergänzen
+// TODO: post_category ENUM → TEXT (für Kategorien arbeit/ehrung/jugend/nachruf):
+//   ALTER TABLE posts ALTER COLUMN category TYPE TEXT USING category::TEXT;
+//   Danach: auskommentierte Einträge in CATEGORIES-Konstanten aller Frontend-Dateien aktivieren
+// TODO: Reaktions-Endpunkte (aktuell via Supabase-Client direkt, reaction_types: attending/helping/read):
+//   GET    /api/posts/:id/reactions      – Reaktionen mit Member-Daten
+//   POST   /api/posts/:id/reactions      – Reaktion hinzufügen
+//   DELETE /api/posts/:id/reactions/:rid – Reaktion entfernen
+// TODO: Kommentar-Endpunkte (aktuell via Supabase-Client direkt umgesetzt):
+//   GET    /api/posts/:id/comments       – alle Kommentare eines Beitrags
+//   POST   /api/posts/:id/comments       – neuen Kommentar erstellen
+//   DELETE /api/posts/:id/comments/:cid  – Kommentar löschen
+//   Voraussetzung: ALTER TABLE post_comments ADD COLUMN club_id UUID REFERENCES clubs(id) ON DELETE CASCADE;
+//                  ALTER TABLE post_comments ADD COLUMN deleted_at TIMESTAMPTZ;
 
 router.get("/posts", requireAuth, async (req, res) => {
+  const includeArchived = req.query.includeArchived === 'true';
   const result = await pool.query(
-    "SELECT * FROM posts WHERE club_id = $1 ORDER BY created_at DESC",
+    `SELECT * FROM posts WHERE club_id = $1${includeArchived ? '' : " AND publication_status != 'archived'"} ORDER BY created_at DESC`,
     [req.clubId]
   );
   const posts = result.rows.map((p) => ({
@@ -399,32 +428,39 @@ router.get("/posts/:id", requireAuth, async (req, res) => {
 });
 
 router.post("/posts", requireAuth, async (req, res) => {
-  const { title, content, category, audience, publication_status, owner_type, owner_id } = req.body;
+  const { title, content, category, audience, publication_status, owner_type, owner_id,
+          submitted_at, approved_at, approved_by_member_id, event_id, cover_image_path } = req.body;
   if (!title) return res.status(400).json({ error: "Titel erforderlich" });
   const id = uuidv4();
   const result = await pool.query(
     `INSERT INTO posts (id, club_id, title, content, category, audience, publication_status,
-      owner_type, owner_id, created_by_member_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      owner_type, owner_id, created_by_member_id, cover_image_path,
+      submitted_at, approved_at, approved_by_member_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
     [id, req.clubId, title, content || null, category || "other",
      audience || "club_internal", publication_status || "draft",
-     owner_type || "club", owner_id || req.clubId, req.member.id]
+     owner_type || "club", owner_id || req.clubId, req.member.id,
+     cover_image_path || null,
+     submitted_at || null, approved_at || null, approved_by_member_id || null]
   );
   res.status(201).json(result.rows[0]);
 });
 
 router.put("/posts/:id", requireAuth, async (req, res) => {
-  const { title, content, category, audience, publication_status, approved_at, approved_by_member_id, rejection_reason, submitted_at } = req.body;
+  const { title, content, category, audience, publication_status, approved_at, approved_by_member_id,
+          rejection_reason, submitted_at, cover_image_path } = req.body;
   const result = await pool.query(
     `UPDATE posts SET
       title = COALESCE($1, title), content = $2, category = COALESCE($3, category),
       audience = COALESCE($4, audience), publication_status = COALESCE($5, publication_status),
       approved_at = $6, approved_by_member_id = $7, rejection_reason = $8,
-      submitted_at = $9, updated_at = now()
-     WHERE id = $10 AND club_id = $11 RETURNING *`,
+      submitted_at = $9, cover_image_path = COALESCE($10, cover_image_path),
+      updated_at = now()
+     WHERE id = $11 AND club_id = $12 RETURNING *`,
     [title, content ?? null, category, audience, publication_status,
      approved_at ?? null, approved_by_member_id ?? null,
      rejection_reason ?? null, submitted_at ?? null,
+     cover_image_path ?? null,
      req.params.id, req.clubId]
   );
   if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
@@ -432,9 +468,11 @@ router.put("/posts/:id", requireAuth, async (req, res) => {
 });
 
 router.delete("/posts/:id", requireAuth, async (req, res) => {
-  const post = (await pool.query("SELECT * FROM posts WHERE id = $1 AND club_id = $2", [req.params.id, req.clubId])).rows[0];
-  if (post?.cover_image_path) await deleteFile("post-images", post.cover_image_path);
-  await pool.query("DELETE FROM posts WHERE id = $1 AND club_id = $2", [req.params.id, req.clubId]);
+  const result = await pool.query(
+    "UPDATE posts SET publication_status = 'archived', updated_at = now() WHERE id = $1 AND club_id = $2 RETURNING *",
+    [req.params.id, req.clubId]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
   res.json({ success: true });
 });
 
@@ -1510,10 +1548,22 @@ router.post("/appointments", requireAuth, async (req, res) => {
 
     const id = uuidv4();
     const result = await pool.query(
-      `INSERT INTO appointments (id, club_id, member_id, title, scope_type, scope_id, valid_from, valid_to, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now()) RETURNING *`,
-      [id, req.clubId, member_id, title || 'Mitglied', scope_type || "club", scope_id || req.clubId, valid_from || null, valid_to || null]
+      `INSERT INTO appointments (id, club_id, member_id, title, role_id, scope_type, scope_id, valid_from, valid_to, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now()) RETURNING *`,
+      [id, req.clubId, member_id, title || 'Mitglied', role_id || null, scope_type || "club", scope_id || req.clubId, valid_from || null, valid_to || null]
     );
+
+    // Berechtigungen für dieses Amt sofort verknüpfen
+    if (role_id && member_id) {
+      const mraScopeId = (scope_type === 'company' ? scope_id : req.clubId) || req.clubId;
+      await pool.query(
+        `INSERT INTO member_role_assignments (id, member_id, role_id, scope_type, scope_id)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (member_id, role_id, scope_type, scope_id) DO NOTHING`,
+        [uuidv4(), member_id, role_id, scope_type || 'club', mraScopeId]
+      );
+    }
+
     const newAppointment = {
       ...result.rows[0],
       role_name: result.rows[0].title,
@@ -1551,7 +1601,27 @@ router.put("/appointments/:id", requireAuth, async (req, res) => {
        valid_from || null, valid_to || null, req.params.id, req.clubId]
     );
     if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
-    
+
+    // member_role_assignments mit valid_to-Änderung synchronisieren
+    const apt = result.rows[0];
+    if (apt.role_id) {
+      const mraScopeId = apt.scope_type === 'company' ? apt.scope_id : req.clubId;
+      if (apt.valid_to) {
+        await pool.query(
+          `DELETE FROM member_role_assignments
+           WHERE member_id=$1 AND role_id=$2 AND scope_type=$3 AND scope_id=$4`,
+          [apt.member_id, apt.role_id, apt.scope_type, mraScopeId]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO member_role_assignments (id, member_id, role_id, scope_type, scope_id)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (member_id, role_id, scope_type, scope_id) DO NOTHING`,
+          [uuidv4(), apt.member_id, apt.role_id, apt.scope_type, mraScopeId]
+        );
+      }
+    }
+
     const updatedAppointment = {
       ...result.rows[0],
       role_name: result.rows[0].title,
@@ -1567,6 +1637,21 @@ router.put("/appointments/:id", requireAuth, async (req, res) => {
 // DELETE /api/appointments/:id
 router.delete("/appointments/:id", requireAuth, async (req, res) => {
   try {
+    // Erst Appointment lesen, um member_role_assignments bereinigen zu können
+    const aptRes = await pool.query(
+      "SELECT member_id, role_id, scope_type, scope_id FROM appointments WHERE id=$1 AND club_id=$2",
+      [req.params.id, req.clubId]
+    );
+    const apt = aptRes.rows[0];
+    if (apt?.role_id) {
+      const scopeId = apt.scope_type === 'company' ? apt.scope_id : req.clubId;
+      await pool.query(
+        `DELETE FROM member_role_assignments
+         WHERE member_id=$1 AND role_id=$2 AND scope_type=$3 AND scope_id=$4`,
+        [apt.member_id, apt.role_id, apt.scope_type, scopeId]
+      );
+    }
+
     await pool.query(
       "DELETE FROM appointments WHERE id = $1 AND club_id = $2",
       [req.params.id, req.clubId]

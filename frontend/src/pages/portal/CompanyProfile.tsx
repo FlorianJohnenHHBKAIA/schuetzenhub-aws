@@ -1,14 +1,18 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowLeft, Edit, Users, Shield, Camera, Loader2 } from "lucide-react";
+import { ArrowLeft, Edit, Users, Shield, Loader2 } from "lucide-react";
 import PortalLayout from "@/components/portal/PortalLayout";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/integrations/api/client";
+import { supabase, getStorageUrl } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
 import CompanyEditDialog from "@/components/portal/CompanyEditDialog";
+import CompanyPostsSection from "@/components/portal/CompanyPostsSection";
+import CompanyBirthdaysSection from "@/components/portal/CompanyBirthdaysSection";
+import CompanyLeadershipSection from "@/components/portal/CompanyLeadershipSection";
+import CompanyEventsSection from "@/components/portal/CompanyEventsSection";
 
 interface Company {
   id: string;
@@ -28,29 +32,8 @@ interface CompanyMember {
   status: string;
 }
 
-interface CompanyRole {
-  member_id: string;
-  role_name: string;
-  member_first_name: string;
-  member_last_name: string;
-}
-
 interface RawMembership {
   member_id: string;
-}
-
-interface RawAppointment {
-  member_id: string;
-  role_id: string;
-  roles: {
-    name: string;
-    level: string;
-  };
-}
-
-interface RawMemberName {
-  first_name: string;
-  last_name: string;
 }
 
 const CompanyProfile = () => {
@@ -58,10 +41,9 @@ const CompanyProfile = () => {
   const navigate = useNavigate();
   const { member, hasPermission } = useAuth();
   const { toast } = useToast();
-  
+
   const [company, setCompany] = useState<Company | null>(null);
   const [members, setMembers] = useState<CompanyMember[]>([]);
-  const [roles, setRoles] = useState<CompanyRole[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isEditOpen, setIsEditOpen] = useState(false);
 
@@ -96,43 +78,8 @@ const CompanyProfile = () => {
           .select("id, first_name, last_name, avatar_url, title, status")
           .in("id", memberIds)
           .order("last_name");
-        
+
         setMembers((membersData as CompanyMember[]) || []);
-      }
-
-      const { data: appointmentsData } = await supabase
-        .from("appointments")
-        .select(`
-          member_id,
-          role_id,
-          roles!inner(name, level)
-        `)
-        .eq("scope_type", "company")
-        .eq("scope_id", id)
-        .is("valid_to", null);
-
-      const appointments = (appointmentsData as RawAppointment[]) || [];
-
-      if (appointments.length > 0) {
-        const rolesWithMembers: CompanyRole[] = [];
-        for (const apt of appointments) {
-          const { data: memberData } = await supabase
-            .from("members")
-            .select("first_name, last_name")
-            .eq("id", apt.member_id)
-            .single();
-          
-          if (memberData) {
-            const md = memberData as RawMemberName;
-            rolesWithMembers.push({
-              member_id: apt.member_id,
-              role_name: apt.roles.name,
-              member_first_name: md.first_name,
-              member_last_name: md.last_name,
-            });
-          }
-        }
-        setRoles(rolesWithMembers);
       }
     } catch (error: unknown) {
       console.error("Error fetching company:", error);
@@ -142,7 +89,14 @@ const CompanyProfile = () => {
     }
   };
 
+  const getAvatarUrl = (avatar_url: string | null): string | undefined => {
+    if (!avatar_url) return undefined;
+    if (avatar_url.startsWith("/") || avatar_url.startsWith("http")) return avatar_url;
+    return getStorageUrl("avatars", avatar_url) || undefined;
+  };
+
   const canEdit = hasPermission("club.companies.manage");
+  const isUserMember = members.some(m => m.id === member?.id);
 
   if (isLoading) {
     return (
@@ -225,48 +179,75 @@ const CompanyProfile = () => {
           )}
         </motion.div>
 
-        {roles.length > 0 && (
+        {id && member?.club_id && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
             className="mt-8"
           >
-            <h2 className="font-display text-xl font-semibold mb-4 flex items-center gap-2">
-              <Shield className="w-5 h-5 text-primary" />
-              Führung
-            </h2>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {roles.map((role, idx) => (
-                <div
-                  key={idx}
-                  className="p-4 bg-card rounded-xl border flex items-center gap-3 cursor-pointer hover:bg-muted/50 transition-colors"
-                  onClick={() => navigate(`/portal/member/${role.member_id}`)}
-                >
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                    <Shield className="w-5 h-5 text-primary" />
-                  </div>
-                  <div>
-                    <p className="font-medium">{role.member_first_name} {role.member_last_name}</p>
-                    <p className="text-sm text-muted-foreground">{role.role_name}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <CompanyPostsSection
+              companyId={id}
+              clubId={member.club_id}
+              isMember={isUserMember}
+            />
+          </motion.div>
+        )}
+
+        {id && member?.club_id && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.22 }}
+            className="mt-8"
+          >
+            <CompanyEventsSection
+              companyId={id}
+              clubId={member.club_id}
+              isMember={isUserMember}
+            />
+          </motion.div>
+        )}
+
+        {id && member && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25 }}
+            className="mt-8"
+          >
+            <CompanyBirthdaysSection
+              companyId={id}
+              isMember={isUserMember}
+            />
+          </motion.div>
+        )}
+
+        {id && member && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="mt-8"
+          >
+            <CompanyLeadershipSection
+              companyId={id}
+              isMember={isUserMember}
+            />
           </motion.div>
         )}
 
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
+          transition={{ delay: 0.4 }}
           className="mt-8"
         >
           <h2 className="font-display text-xl font-semibold mb-4 flex items-center gap-2">
             <Users className="w-5 h-5 text-primary" />
             Mitglieder ({members.length})
           </h2>
-          
+
           {members.length === 0 ? (
             <div className="text-center py-8 bg-card rounded-xl border">
               <Users className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
@@ -281,7 +262,7 @@ const CompanyProfile = () => {
                   onClick={() => navigate(`/portal/member/${m.id}`)}
                 >
                   <Avatar className="w-12 h-12">
-                    <AvatarImage src={m.avatar_url || undefined} alt={m.first_name} />
+                    <AvatarImage src={getAvatarUrl(m.avatar_url)} alt={m.first_name} className="object-cover" />
                     <AvatarFallback className="bg-primary/10 text-primary font-medium">
                       {m.first_name[0]}{m.last_name[0]}
                     </AvatarFallback>

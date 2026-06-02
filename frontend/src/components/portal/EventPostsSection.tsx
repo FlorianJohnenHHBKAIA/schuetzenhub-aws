@@ -9,10 +9,14 @@ import { Badge } from "@/components/ui/badge";
 import {
   Megaphone,
   Plus,
-  Calendar,
+  CalendarDays,
   Bell,
   Info,
   AlertTriangle,
+  Users,
+  Hammer,
+  Trophy,
+  Heart,
   ThumbsUp,
   MessageSquare,
   ExternalLink,
@@ -38,20 +42,16 @@ interface EventPostsSectionProps {
   canManage: boolean;
 }
 
-const CATEGORY_ICONS: Record<string, React.ElementType> = {
-  announcement: Bell,
-  info: Info,
-  event: Calendar,
-  warning: AlertTriangle,
-  other: Megaphone,
-};
-
-const CATEGORY_LABELS: Record<string, string> = {
-  announcement: "Ankündigung",
-  info: "Information",
-  event: "Veranstaltung",
-  warning: "Wichtig",
-  other: "Sonstiges",
+const CATEGORY_META: Record<string, { label: string; icon: React.ElementType }> = {
+  event:        { label: 'Termine & Veranstaltungen',  icon: CalendarDays },
+  info:         { label: 'Vereinsinformation',          icon: Info },
+  announcement: { label: 'Vereinsinformation',          icon: Info },
+  warning:      { label: 'Wichtige Mitteilung',         icon: AlertTriangle },
+  other:        { label: 'Sonstiges',                   icon: Megaphone },
+  arbeit:       { label: 'Arbeitseinsatz',              icon: Hammer },
+  ehrung:       { label: 'Ehrungen & Auszeichnungen',   icon: Trophy },
+  jugend:       { label: 'Jugend',                      icon: Users },
+  nachruf:      { label: 'Nachruf',                     icon: Heart },
 };
 
 const EventPostsSection = ({ eventId, clubId, canManage }: EventPostsSectionProps) => {
@@ -131,7 +131,7 @@ const EventPostsSection = ({ eventId, clubId, canManage }: EventPostsSectionProp
   };
 
   const CategoryIcon = (category: string) => {
-    const Icon = CATEGORY_ICONS[category] || Megaphone;
+    const Icon = CATEGORY_META[category]?.icon || Megaphone;
     return <Icon className="w-4 h-4" />;
   };
 
@@ -185,7 +185,7 @@ const EventPostsSection = ({ eventId, clubId, canManage }: EventPostsSectionProp
                     <div className="flex items-center gap-2 flex-wrap mb-1">
                       <h4 className="font-medium truncate">{post.title}</h4>
                       <Badge variant="secondary" className="text-xs">
-                        {CATEGORY_LABELS[post.category] || post.category}
+                        {CATEGORY_META[post.category]?.label || post.category}
                       </Badge>
                       {post.publication_status === "submitted" && (
                         <Badge variant="outline" className="text-xs border-amber-500 text-amber-600">

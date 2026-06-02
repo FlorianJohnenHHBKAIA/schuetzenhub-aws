@@ -29,11 +29,15 @@ interface ClubData {
 }
 
 const categoryLabels: Record<string, string> = {
-  announcement: "Ankündigung",
-  info: "Information",
-  event: "Veranstaltung",
-  warning: "Wichtig",
-  other: "Sonstiges",
+  event:        "Termine & Veranstaltungen",
+  info:         "Vereinsinformation",
+  announcement: "Vereinsinformation",
+  warning:      "Wichtige Mitteilung",
+  other:        "Sonstiges",
+  arbeit:       "Arbeitseinsatz",
+  ehrung:       "Ehrungen & Auszeichnungen",
+  jugend:       "Jugend",
+  nachruf:      "Nachruf",
 };
 
 const PublicPostDetail = () => {

@@ -50,6 +50,7 @@ import { useAuth } from "@/lib/auth";
 import { supabase, apiJson } from "@/integrations/api/client";
 import { toast } from "sonner";
 import EventPostsSection from "@/components/portal/EventPostsSection";
+import EventParticipantsSection from "@/components/portal/EventParticipantsSection";
 import EventQuickActions from "@/components/portal/EventQuickActions";
 import EventPublicPreview from "@/components/portal/EventPublicPreview";
 import { notifyNewShift, notifyEventNotesChanged } from "@/lib/eventNotifications";
@@ -601,6 +602,21 @@ const EventOrganize = () => {
           canManageDocuments={hasPermission("club.documents.manage") || hasPermission("club.admin.full")}
           onCreatePost={handleCreateEventPost}
         />
+
+        {(event.publication_status === 'approved' || event.publication_status === 'submitted') && member && (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+            <EventParticipantsSection
+              eventId={event.id}
+              clubId={event.club_id}
+              memberId={member.id}
+              audience={event.audience}
+              ownerType={event.owner_type}
+              ownerId={event.owner_id}
+              memberCompanyId={userCompanyId || undefined}
+              canViewLists={canEdit}
+            />
+          </motion.div>
+        )}
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="grid md:grid-cols-2 gap-6">
           <Card>

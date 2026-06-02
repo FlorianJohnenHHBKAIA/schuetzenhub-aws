@@ -9,7 +9,7 @@ interface Comment {
   author_member_id: string;
   content: string;
   created_at: string;
-  deleted_at: string | null;
+  deleted_at?: string | null;
   author?: {
     first_name: string;
     last_name: string;
@@ -22,6 +22,8 @@ interface Reaction {
   post_id: string;
   member_id: string;
   reaction: string;
+  created_at: string;
+  member?: { first_name: string; last_name: string; avatar_url: string | null } | null;
 }
 
 export const usePostComments = (postId: string | null) => {
@@ -64,7 +66,8 @@ export const usePostComments = (postId: string | null) => {
       const { error } = await supabase
         .from('post_comments')
         .insert({
-          club_id: clubId,
+          // TODO: club_id reaktivieren nach: ALTER TABLE post_comments ADD COLUMN club_id UUID REFERENCES clubs(id) ON DELETE CASCADE;
+          // club_id: clubId,
           post_id: postId,
           author_member_id: member.id,
           content: content.trim(),
@@ -88,7 +91,9 @@ export const usePostComments = (postId: string | null) => {
     try {
       const { error } = await supabase
         .from('post_comments')
-        .update({ deleted_at: new Date().toISOString() })
+        .delete()
+        // TODO: auf Soft-Delete umstellen nach: ALTER TABLE post_comments ADD COLUMN deleted_at TIMESTAMPTZ;
+        // .update({ deleted_at: new Date().toISOString() })
         .eq('id', commentId);
 
       if (error) throw error;
@@ -125,7 +130,7 @@ export const usePostReactions = (postId: string | null) => {
     try {
       const { data, error } = await supabase
         .from('post_reactions')
-        .select('*')
+        .select('*, member:members!member_id(first_name, last_name, avatar_url)')
         .eq('post_id', postId);
 
       if (error) throw error;
@@ -160,7 +165,8 @@ export const usePostReactions = (postId: string | null) => {
         const { error } = await supabase
           .from('post_reactions')
           .insert({
-            club_id: clubId,
+            // TODO: club_id reaktivieren nach: ALTER TABLE post_reactions ADD COLUMN club_id UUID REFERENCES clubs(id) ON DELETE CASCADE;
+            // club_id: clubId,
             post_id: postId,
             member_id: member.id,
             reaction,

@@ -33,6 +33,18 @@ interface Post {
   title: string;
   created_at: string;
   cover_image_path: string | null;
+  category: string;
+  content: string | null;
+  audience: string;
+  owner_type: string;
+  owner_id: string;
+}
+
+interface PostStats {
+  commentCount: number;
+  attendingCount: number;
+  helpingCount: number;
+  readCount: number;
 }
 
 interface WorkShift {
@@ -70,6 +82,7 @@ const Dashboard = () => {
   const [companyEvents, setCompanyEvents] = useState<Event[]>([]);
   const [clubEvents, setClubEvents] = useState<Event[]>([]);
   const [latestPost, setLatestPost] = useState<Post | null>(null);
+  const [latestPostStats, setLatestPostStats] = useState<PostStats | null>(null);
   const [upcomingShifts, setUpcomingShifts] = useState<WorkShift[]>([]);
   const [latestAward, setLatestAward] = useState<LatestAward | null>(null);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
@@ -141,13 +154,24 @@ const Dashboard = () => {
         .order("start_at", { ascending: true })
         .limit(5);
 
-      const postQuery = supabase
-        .from("posts")
-        .select("id, title, created_at, cover_image_path")
-        .eq("club_id", member.club_id)
-        .eq("publication_status", "approved")
-        .order("created_at", { ascending: false })
-        .limit(1);
+      const postQuery = companyId
+        ? supabase
+            .from("posts")
+            .select("id, title, created_at, cover_image_path, category, content, audience, owner_type, owner_id")
+            .eq("club_id", member.club_id)
+            .eq("publication_status", "approved")
+            .or(`audience.in.(club_internal,public),and(audience.eq.company_only,owner_id.eq.${companyId})`)
+            // TODO: .order("is_pinned", { ascending: false }) — aktivieren nach DB-Migration
+            .order("created_at", { ascending: false })
+            .limit(1)
+        : supabase
+            .from("posts")
+            .select("id, title, created_at, cover_image_path, category, content, audience, owner_type, owner_id")
+            .eq("club_id", member.club_id)
+            .eq("publication_status", "approved")
+            .in("audience", ["club_internal", "public"])
+            .order("created_at", { ascending: false })
+            .limit(1);
 
       const shiftsQuery = companyId
         ? supabase
@@ -213,7 +237,25 @@ const Dashboard = () => {
       setClubEvents(allClubEvents.filter((e) => !companyEventIds.has(e.id)));
 
       const postData = (postRes.data as Post[]) || [];
-      setLatestPost(postData[0] || null);
+      const post = postData[0] || null;
+      // visible_until client-seitig prüfen (wenn DB-Spalte vorhanden)
+      const validPost = post && (!(post as any).visible_until || new Date((post as any).visible_until) >= new Date())
+        ? post : null;
+      setLatestPost(validPost);
+
+      if (validPost) {
+        const [commentsRes, reactionsRes] = await Promise.all([
+          supabase.from("post_comments").select("id").eq("post_id", validPost.id),
+          supabase.from("post_reactions").select("reaction").eq("post_id", validPost.id),
+        ]);
+        const reactions = (reactionsRes.data || []) as Array<{ reaction: string }>;
+        setLatestPostStats({
+          commentCount:   commentsRes.data?.length || 0,
+          attendingCount: reactions.filter(r => r.reaction === 'attending').length,
+          helpingCount:   reactions.filter(r => r.reaction === 'helping').length,
+          readCount:      reactions.filter(r => r.reaction === 'read').length,
+        });
+      }
 
       const rawShifts = (shiftsRes.data as RawShift[]) || [];
       const shiftsWithOpenSlots: WorkShift[] = rawShifts
@@ -268,6 +310,7 @@ const Dashboard = () => {
         />
         <CompanyUpdatesSection
           latestPost={latestPost}
+          latestPostStats={latestPostStats}
           upcomingShifts={upcomingShifts}
           isLoading={isLoading}
           companyName={companyInfo?.name || null}

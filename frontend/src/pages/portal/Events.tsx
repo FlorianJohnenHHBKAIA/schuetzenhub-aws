@@ -182,20 +182,22 @@ const Events = () => {
 
   const canManageClubEvents = isAdmin;
   const canApprove = isAdmin;
-  const canManageCompanyEvents = isAdmin;
+  const canManageCompanyEvents = isAdmin || permissions.some(
+    (p) => p.permission_key === "company.events.manage" && p.scope_type === "company"
+  );
   const userCompanyScope = permissions.find(
     (p) => p.permission_key === "company.events.manage" && p.scope_type === "company"
   )?.scope_id;
 
   const canShareInternalForCompany = (companyId: string) =>
-    isAdmin && (permissions.some(
+    hasPermission("club.admin.full") || permissions.some(
       (p) => p.permission_key === "company.events.share_internal" && p.scope_type === "company" && p.scope_id === companyId
-    ) || hasPermission("club.admin.full"));
+    );
 
   const canSubmitForPublicationForCompany = (companyId: string) =>
-    isAdmin && (permissions.some(
+    hasPermission("club.admin.full") || permissions.some(
       (p) => p.permission_key === "company.events.submit_publication" && p.scope_type === "company" && p.scope_id === companyId
-    ) || hasPermission("club.admin.full"));
+    );
 
   useEffect(() => {
     if (member?.club_id) fetchData();
@@ -310,7 +312,9 @@ const Events = () => {
           updated_by_member_id: member.id,
         };
 
-        if (effectiveAudience === "public" && canManageClubEvents) {
+        if (ownerType === "company") {
+          updateData.publication_status = "approved"; // Kompanieinterne Termine brauchen keine Freigabe
+        } else if (effectiveAudience === "public" && canManageClubEvents) {
           updateData.publication_status = "approved";
           updateData.approved_at = new Date().toISOString();
           updateData.approved_by_member_id = member.id;
@@ -337,7 +341,9 @@ const Events = () => {
           audience: effectiveAudience,
           created_by_member_id: member.id,
           // Frontend bestimmt den initialen Publikationsstatus basierend auf Berechtigungen
-          publication_status: effectiveAudience === "public" && canManageClubEvents ? "approved" : "draft",
+          publication_status: ownerType === "company"
+            ? "approved"
+            : (effectiveAudience === "public" && canManageClubEvents ? "approved" : "draft"),
         };
 
         if (effectiveAudience === "public" && canManageClubEvents) {
@@ -460,11 +466,10 @@ const Events = () => {
   };
 
   const canEditEvent = (event: Event) => {
-    if (!isAdmin) return false;
     if (event.owner_type === "club") return canManageClubEvents;
-    return permissions.some(
+    return isAdmin || permissions.some(
       (p) => p.permission_key === "company.events.manage" && p.scope_type === "company" && p.scope_id === event.owner_id
-    ) || hasPermission("club.admin.full");
+    );
   };
 
   const filteredEvents = events.filter((e) => {
