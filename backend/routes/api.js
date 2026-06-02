@@ -10,6 +10,19 @@ const upload = multer({ dest: "tmp/" });
 
 // ─── Clubs ────────────────────────────────────────────────────────────────────
 
+// GET /api/companies/for-registration/:clubId – öffentliche Kompanienliste für Registrierung
+router.get("/companies/for-registration/:clubId", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT id, name FROM companies WHERE club_id = $1 ORDER BY name",
+      [req.params.clubId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
 // GET /api/clubs/registration – öffentliche Liste für Registrierung
 router.get("/clubs/registration", async (req, res) => {
   try {
@@ -1739,8 +1752,7 @@ router.put("/roles/:id", requireAuth, async (req, res) => {
     const { rows } = await pool.query(
       `UPDATE roles SET
          name = COALESCE($1, name),
-         is_default = COALESCE($2, is_default),
-         updated_at = now()
+         is_default = COALESCE($2, is_default)
        WHERE id = $3 AND club_id = $4
        RETURNING *`,
       [name ? name.trim() : null, is_default !== undefined ? is_default : null, req.params.id, req.clubId]

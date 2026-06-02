@@ -10,6 +10,7 @@ interface Member {
   email: string;
   status: string;
   avatar_url: string | null;
+  created_at?: string;
 }
 
 interface UserRole {

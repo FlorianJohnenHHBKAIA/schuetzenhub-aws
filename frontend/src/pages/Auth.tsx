@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Shield, Mail, Lock, Loader2, AlertCircle, User, Building2 } from "lucide-react";
+import { Shield, Mail, Lock, Loader2, AlertCircle, User, Building2, KeyRound, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +17,7 @@ const passwordSchema = z.string().min(6, "Das Passwort muss mindestens 6 Zeichen
 const nameSchema = z.string().min(2, "Mindestens 2 Zeichen erforderlich");
 
 interface Club { id: string; name: string; slug: string; }
+interface Company { id: string; name: string; }
 
 const Auth = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -25,17 +26,40 @@ const Auth = () => {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [selectedClubId, setSelectedClubId] = useState("");
+  const [selectedCompanyId, setSelectedCompanyId] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string; firstName?: string; lastName?: string; club?: string; general?: string }>({});
   
   const { signIn, user, isLoading } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
+  const resetToken = searchParams.get("token") || searchParams.get("resetToken") || "";
+
+  // Forgot-Password-View
+  const [forgotView, setForgotView] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotSubmitting, setForgotSubmitting] = useState(false);
+  const [forgotSuccess, setForgotSuccess] = useState(false);
+  const [forgotError, setForgotError] = useState("");
+
+  // Reset-Password-View
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [resetSubmitting, setResetSubmitting] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
+  const [resetError, setResetError] = useState("");
 
   const { data: clubs = [], isLoading: isLoadingClubs } = useQuery({
     queryKey: ["clubs-for-registration"],
     queryFn: async () => apiJson<Club[]>("/api/clubs/registration"),
     enabled: !isLogin,
+  });
+
+  const { data: companies = [], isLoading: isLoadingCompanies } = useQuery({
+    queryKey: ["companies-for-registration", selectedClubId],
+    queryFn: async () => apiJson<Company[]>(`/api/companies/for-registration/${selectedClubId}`),
+    enabled: !isLogin && !!selectedClubId,
   });
 
   useEffect(() => {
@@ -76,7 +100,7 @@ const Auth = () => {
       } else {
         const data = await apiJson<{ token: string }>("/api/auth/register", {
           method: "POST",
-          body: JSON.stringify({ email, password, firstName, lastName, clubId: selectedClubId }),
+          body: JSON.stringify({ email, password, firstName, lastName, clubId: selectedClubId, companyId: selectedCompanyId || undefined }),
         });
         setToken(data.token);
         toast({ title: "Registrierung erfolgreich!", description: "Ihr Konto wurde erstellt." });
@@ -89,10 +113,168 @@ const Auth = () => {
     }
   };
 
+  const handleForgotSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotError("");
+    const emailResult = emailSchema.safeParse(forgotEmail);
+    if (!emailResult.success) { setForgotError(emailResult.error.errors[0].message); return; }
+    setForgotSubmitting(true);
+    try {
+      await apiJson("/api/auth/forgot-password", {
+        method: "POST",
+        body: JSON.stringify({ email: forgotEmail }),
+      });
+      setForgotSuccess(true);
+    } catch (err: unknown) {
+      setForgotError((err as Error).message || "Ein Fehler ist aufgetreten");
+    } finally {
+      setForgotSubmitting(false);
+    }
+  };
+
+  const handleResetSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetError("");
+    if (!newPassword) { setResetError("Bitte gib ein neues Passwort ein"); return; }
+    if (newPassword.length < 8) { setResetError("Das Passwort muss mindestens 8 Zeichen haben"); return; }
+    if (newPassword !== confirmPassword) { setResetError("Die Passwörter stimmen nicht überein"); return; }
+    setResetSubmitting(true);
+    try {
+      await apiJson("/api/auth/reset-password", {
+        method: "POST",
+        body: JSON.stringify({ token: resetToken, password: newPassword }),
+      });
+      setResetSuccess(true);
+    } catch (err: unknown) {
+      setResetError((err as Error).message || "Ein Fehler ist aufgetreten");
+    } finally {
+      setResetSubmitting(false);
+    }
+  };
+
+  const cardClass = "bg-card rounded-2xl shadow-lg p-8 border border-border";
+  const pageClass = "min-h-screen flex items-center justify-center bg-gradient-to-br from-forest-dark via-forest to-forest-dark p-4";
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // ─── Passwort zurücksetzen (Token in URL) ─────────────────────────────────
+  if (resetToken) {
+    return (
+      <div className={pageClass}>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="w-full max-w-md">
+          <div className={cardClass}>
+            <div className="flex justify-center mb-6">
+              <div className="w-14 h-14 rounded-xl bg-primary flex items-center justify-center">
+                <KeyRound className="w-7 h-7 text-primary-foreground" />
+              </div>
+            </div>
+            <h1 className="font-display text-2xl font-bold text-center text-foreground mb-2">Neues Passwort setzen</h1>
+            <p className="text-muted-foreground text-center mb-6">Gib dein neues Passwort ein.</p>
+
+            {resetError && (
+              <div className="mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/30 flex items-center gap-2 text-sm text-destructive">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />{resetError}
+              </div>
+            )}
+
+            {resetSuccess ? (
+              <div className="space-y-4">
+                <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 flex items-center gap-2 text-sm text-green-600">
+                  <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                  Dein Passwort wurde erfolgreich zurückgesetzt.
+                </div>
+                <Button size="lg" className="w-full" onClick={() => navigate("/auth")}>
+                  Zum Login
+                </Button>
+              </div>
+            ) : (
+              <form onSubmit={handleResetSubmit} className="space-y-4">
+                <div>
+                  <Label htmlFor="newPassword">Neues Passwort</Label>
+                  <div className="relative mt-1">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input id="newPassword" type="password" placeholder="Mindestens 8 Zeichen" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="pl-10" disabled={resetSubmitting} />
+                  </div>
+                </div>
+                <div>
+                  <Label htmlFor="confirmPassword">Passwort bestätigen</Label>
+                  <div className="relative mt-1">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input id="confirmPassword" type="password" placeholder="Passwort wiederholen" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="pl-10" disabled={resetSubmitting} />
+                  </div>
+                </div>
+                <Button type="submit" size="lg" className="w-full" disabled={resetSubmitting}>
+                  {resetSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Bitte warten...</> : "Passwort zurücksetzen"}
+                </Button>
+              </form>
+            )}
+
+            <div className="mt-6 text-center">
+              <button onClick={() => navigate("/auth")} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                ← Zurück zum Login
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // ─── Passwort vergessen ───────────────────────────────────────────────────
+  if (forgotView) {
+    return (
+      <div className={pageClass}>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="w-full max-w-md">
+          <div className={cardClass}>
+            <div className="flex justify-center mb-6">
+              <div className="w-14 h-14 rounded-xl bg-primary flex items-center justify-center">
+                <Mail className="w-7 h-7 text-primary-foreground" />
+              </div>
+            </div>
+            <h1 className="font-display text-2xl font-bold text-center text-foreground mb-2">Passwort vergessen?</h1>
+            <p className="text-muted-foreground text-center mb-6">
+              Wir senden dir einen Link, mit dem du dein Passwort zurücksetzen kannst.
+            </p>
+
+            {forgotError && (
+              <div className="mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/30 flex items-center gap-2 text-sm text-destructive">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />{forgotError}
+              </div>
+            )}
+
+            {forgotSuccess ? (
+              <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 flex items-center gap-2 text-sm text-green-600">
+                <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                Falls diese E-Mail-Adresse registriert ist, haben wir dir einen Reset-Link gesendet. Bitte prüfe dein Postfach.
+              </div>
+            ) : (
+              <form onSubmit={handleForgotSubmit} className="space-y-4">
+                <div>
+                  <Label htmlFor="forgotEmail">E-Mail-Adresse</Label>
+                  <div className="relative mt-1">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input id="forgotEmail" type="email" placeholder="ihre@email.de" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} className="pl-10" disabled={forgotSubmitting} />
+                  </div>
+                </div>
+                <Button type="submit" size="lg" className="w-full" disabled={forgotSubmitting}>
+                  {forgotSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Bitte warten...</> : "Link zum Zurücksetzen senden"}
+                </Button>
+              </form>
+            )}
+
+            <div className="mt-6 text-center">
+              <button onClick={() => { setForgotView(false); setForgotEmail(""); setForgotError(""); setForgotSuccess(false); }} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                ← Zurück zum Login
+              </button>
+            </div>
+          </div>
+        </motion.div>
       </div>
     );
   }
@@ -151,7 +333,7 @@ const Auth = () => {
                   <Label>Verein</Label>
                   <div className="relative mt-1">
                     <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground z-10" />
-                    <Select value={selectedClubId} onValueChange={setSelectedClubId} disabled={isSubmitting || isLoadingClubs}>
+                    <Select value={selectedClubId} onValueChange={(v) => { setSelectedClubId(v); setSelectedCompanyId(""); }} disabled={isSubmitting || isLoadingClubs}>
                       <SelectTrigger className={`pl-10 ${errors.club ? "border-destructive" : ""}`}>
                         <SelectValue placeholder={isLoadingClubs ? "Lade Vereine..." : "Verein auswählen"} />
                       </SelectTrigger>
@@ -164,6 +346,24 @@ const Auth = () => {
                   </div>
                   {errors.club && <p className="text-sm text-destructive mt-1">{errors.club}</p>}
                 </div>
+                {selectedClubId && (
+                  <div>
+                    <Label>Kompanie <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                    <div className="relative mt-1">
+                      <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground z-10" />
+                      <Select value={selectedCompanyId} onValueChange={setSelectedCompanyId} disabled={isSubmitting || isLoadingCompanies}>
+                        <SelectTrigger className="pl-10">
+                          <SelectValue placeholder={isLoadingCompanies ? "Lade Kompanien..." : "Kompanie auswählen (optional)"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {companies.map((company) => (
+                            <SelectItem key={company.id} value={company.id}>{company.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
               </>
             )}
 
@@ -175,6 +375,14 @@ const Auth = () => {
               </div>
               {errors.password && <p className="text-sm text-destructive mt-1">{errors.password}</p>}
             </div>
+
+            {isLogin && (
+              <div className="text-right -mt-1">
+                <button type="button" onClick={() => { setForgotView(true); setErrors({}); }} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  Passwort vergessen?
+                </button>
+              </div>
+            )}
 
             <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Bitte warten...</> : isLogin ? "Anmelden" : "Registrieren"}

@@ -72,4 +72,18 @@ async function getUserPermissions(userId, clubId) {
   return res.rows;
 }
 
-module.exports = { requireAuth, requireAdmin, getUserPermissions };
+/**
+ * Middleware: Blockiert prospect/resigned User von sensitiven Endpunkten.
+ */
+function requireActiveMember(req, res, next) {
+  const status = req.member?.status;
+  if (status === 'prospect') {
+    return res.status(403).json({ error: "Dein Konto wartet noch auf Freigabe durch den Administrator" });
+  }
+  if (status === 'resigned') {
+    return res.status(403).json({ error: "Dein Konto hat keinen aktiven Status" });
+  }
+  next();
+}
+
+module.exports = { requireAuth, requireAdmin, getUserPermissions, requireActiveMember };

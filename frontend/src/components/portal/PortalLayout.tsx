@@ -10,6 +10,9 @@ import {
   Shield,
   ChevronRight,
   Globe,
+  Clock,
+  AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,6 +27,8 @@ import { OnboardingDialog } from "./OnboardingDialog";
 import { useAuth } from "@/lib/auth";
 import { useUIMode } from "@/hooks/useUIMode";
 import { useOnboarding } from "@/hooks/useOnboarding";
+import { format } from "date-fns";
+import { de } from "date-fns/locale";
 
 interface PortalLayoutProps {
   children: ReactNode;
@@ -40,7 +45,7 @@ const PortalLayout = ({ children }: PortalLayoutProps) => {
   const [clubInfo, setClubInfo] = useState<ClubInfo | null>(null);
   const [clubLogoUrl, setClubLogoUrl] = useState<string | null>(null);
   const navigate = useNavigate();
-  const { member, isAdmin, signOut } = useAuth();
+  const { member, isAdmin, signOut, refreshPermissions } = useAuth();
   const { isAdminMode } = useUIMode();
   const {
     isOnboardingOpen,
@@ -81,6 +86,95 @@ const PortalLayout = ({ children }: PortalLayoutProps) => {
   };
 
   const closeSidebar = () => setIsSidebarOpen(false);
+
+  // Pending-User: wartet auf Freigabe
+  if (member && member.status === 'prospect') {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-card rounded-2xl border shadow-lg p-8 space-y-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center overflow-hidden shrink-0">
+              {clubLogoUrl
+                ? <img src={clubLogoUrl} alt={clubInfo?.name || "Logo"} className="w-full h-full object-cover" />
+                : <Shield className="w-5 h-5 text-primary-foreground" />}
+            </div>
+            <span className="font-bold text-foreground">{clubInfo?.name || "Schützenportal"}</span>
+          </div>
+          <div className="text-center space-y-3">
+            <div className="w-16 h-16 mx-auto rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center">
+              <Clock className="w-8 h-8 text-amber-600 dark:text-amber-400" />
+            </div>
+            <h1 className="text-xl font-bold">Anfrage ausstehend</h1>
+            <p className="text-muted-foreground text-sm">
+              Deine Mitgliedsanfrage wurde an den Vereinsadministrator übermittelt.
+            </p>
+            <p className="text-muted-foreground text-sm">
+              Du erhältst Zugriff auf die Vereinsbereiche, sobald deine Anfrage bestätigt wurde.
+            </p>
+          </div>
+          <div className="bg-muted rounded-lg p-4 space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Verein</span>
+              <span className="font-medium">{clubInfo?.name || "–"}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Status</span>
+              <span className="text-amber-600 font-medium">Wartet auf Freigabe</span>
+            </div>
+            {member.created_at && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Beantragt am</span>
+                <span className="font-medium">
+                  {format(new Date(member.created_at), "dd.MM.yyyy", { locale: de })}
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="flex flex-col gap-2">
+            <Button onClick={() => refreshPermissions()} variant="outline" className="w-full">
+              <RefreshCw className="w-4 h-4 mr-2" />Status aktualisieren
+            </Button>
+            <Button onClick={handleSignOut} variant="ghost" className="w-full text-muted-foreground">
+              <LogOut className="w-4 h-4 mr-2" />Abmelden
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Rejected/Resigned-User: Anfrage abgelehnt oder ausgetreten
+  if (member && member.status === 'resigned') {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-card rounded-2xl border shadow-lg p-8 space-y-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center overflow-hidden shrink-0">
+              {clubLogoUrl
+                ? <img src={clubLogoUrl} alt={clubInfo?.name || "Logo"} className="w-full h-full object-cover" />
+                : <Shield className="w-5 h-5 text-primary-foreground" />}
+            </div>
+            <span className="font-bold text-foreground">{clubInfo?.name || "Schützenportal"}</span>
+          </div>
+          <div className="text-center space-y-3">
+            <div className="w-16 h-16 mx-auto rounded-full bg-red-100 dark:bg-red-900/40 flex items-center justify-center">
+              <AlertCircle className="w-8 h-8 text-red-600 dark:text-red-400" />
+            </div>
+            <h1 className="text-xl font-bold">Kein Zugriff</h1>
+            <p className="text-muted-foreground text-sm">
+              Deine Mitgliedsanfrage wurde abgelehnt oder dein Konto ist nicht mehr aktiv.
+            </p>
+            <p className="text-muted-foreground text-sm">
+              Bitte wende dich an den Verein für weitere Informationen.
+            </p>
+          </div>
+          <Button onClick={handleSignOut} className="w-full">
+            <LogOut className="w-4 h-4 mr-2" />Abmelden
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">

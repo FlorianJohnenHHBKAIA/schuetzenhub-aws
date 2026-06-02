@@ -21,6 +21,11 @@ import {
   BarChart3,
   Settings,
   UserCog,
+  UserPlus,
+  Check,
+  X,
+  Loader2,
+  Eye,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,8 +33,10 @@ import { Badge } from "@/components/ui/badge";
 import PortalLayout from "@/components/portal/PortalLayout";
 import { useAuth } from "@/lib/auth";
 import { useUIMode } from "@/hooks/useUIMode";
-import { supabase } from "@/integrations/api/client";
-import { differenceInDays } from "date-fns";
+import { supabase, apiJson } from "@/integrations/api/client";
+import { useToast } from "@/hooks/use-toast";
+import { differenceInDays, format } from "date-fns";
+import { de } from "date-fns/locale";
 
 interface CriticalShift {
   eventId: string;
@@ -81,9 +88,21 @@ interface MagazineData {
   status: string;
 }
 
+interface PendingMember {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  created_at: string;
+  status: string;
+  company_name?: string | null;
+  company_id?: string | null;
+}
+
 const AdminHome = () => {
   const { member, hasPermission, isLoading: authLoading } = useAuth();
   const { isAdminMode, toggleMode, isLoaded: uiModeLoaded } = useUIMode();
+  const { toast } = useToast();
 
   const [pendingEventApprovals, setPendingEventApprovals] = useState(0);
   const [pendingPostApprovals, setPendingPostApprovals] = useState(0);
@@ -91,6 +110,9 @@ const AdminHome = () => {
   const [criticalShifts, setCriticalShifts] = useState<CriticalShift[]>([]);
   const [magazineStats, setMagazineStats] = useState<{ year: number; progress: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [pendingMembers, setPendingMembers] = useState<PendingMember[]>([]);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (member?.club_id && isAdminMode) {
@@ -112,6 +134,7 @@ const AdminHome = () => {
         pendingAwardsRes,
         upcomingEventsWithShiftsRes,
         currentMagazineRes,
+        pendingMembersRes,
       ] = await Promise.all([
         supabase
           .from("events")
@@ -142,11 +165,13 @@ const AdminHome = () => {
           .eq("year", now.getFullYear())
           .eq("status", "draft")
           .maybeSingle(),
+        apiJson<PendingMember[]>("/api/members/pending").catch(() => []),
       ]);
 
       setPendingEventApprovals(pendingEventsRes.count || 0);
       setPendingPostApprovals(pendingPostsRes.count || 0);
       setPendingAwardRequests(pendingAwardsRes.count || 0);
+      setPendingMembers(Array.isArray(pendingMembersRes) ? pendingMembersRes : []);
 
       const upcomingEvents = (upcomingEventsWithShiftsRes.data as UpcomingEvent[]) || [];
 
@@ -220,8 +245,45 @@ const AdminHome = () => {
     }
   };
 
+  const handleApprove = async (id: string) => {
+    setApprovingId(id);
+    try {
+      await apiJson(`/api/members/${id}/approve`, { method: "POST" });
+      setPendingMembers((prev) => prev.filter((m) => m.id !== id));
+      toast({ title: "Mitglied angenommen", description: "Der Status wurde auf 'Aktiv' gesetzt." });
+    } catch {
+      toast({ title: "Fehler beim Annehmen", variant: "destructive" });
+    } finally {
+      setApprovingId(null);
+    }
+  };
+
+  const handleReject = async (id: string) => {
+    setRejectingId(id);
+    try {
+      await apiJson(`/api/members/${id}/reject`, { method: "POST" });
+      setPendingMembers((prev) => prev.filter((m) => m.id !== id));
+      toast({ title: "Anfrage abgelehnt" });
+    } catch {
+      toast({ title: "Fehler beim Ablehnen", variant: "destructive" });
+    } finally {
+      setRejectingId(null);
+    }
+  };
+
   const attentionItems = useMemo((): AttentionItem[] => {
     const items: AttentionItem[] = [];
+
+    if (pendingMembers.length > 0 && hasPermission("club.members.manage")) {
+      items.push({
+        id: "pending-members",
+        label: "Neue Mitgliedsanfragen",
+        description: `${pendingMembers.length} ${pendingMembers.length === 1 ? "Anfrage wartet" : "Anfragen warten"} auf Prüfung`,
+        href: "/portal/admin",
+        icon: UserPlus,
+        variant: "warning",
+      });
+    }
 
     if (pendingEventApprovals > 0 && hasPermission("club.events.approve_publication")) {
       items.push({
@@ -278,8 +340,8 @@ const AdminHome = () => {
       });
     }
 
-    return items.slice(0, 5);
-  }, [pendingEventApprovals, pendingPostApprovals, pendingAwardRequests, criticalShifts, magazineStats, hasPermission]);
+    return items.slice(0, 6);
+  }, [pendingMembers, pendingEventApprovals, pendingPostApprovals, pendingAwardRequests, criticalShifts, magazineStats, hasPermission]);
 
   const membersOrgTiles: SectionTile[] = useMemo(
     () =>
@@ -411,6 +473,75 @@ const AdminHome = () => {
                     </CardContent>
                   </Card>
                 </Link>
+              ))}
+            </div>
+          </motion.section>
+        )}
+
+        {pendingMembers.length > 0 && hasPermission("club.members.manage") && (
+          <motion.section
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.12 }}
+            className="space-y-4"
+          >
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <UserPlus className="w-5 h-5 text-amber-500" />
+              Ausstehende Mitgliedsanfragen
+              <Badge variant="secondary" className="bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400">
+                {pendingMembers.length}
+              </Badge>
+            </h2>
+            <div className="space-y-2">
+              {pendingMembers.map((m) => (
+                <Card key={m.id} className="border-amber-200 bg-amber-50/30 dark:border-amber-900 dark:bg-amber-950/10">
+                  <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <p className="font-medium">{m.first_name} {m.last_name}</p>
+                      <p className="text-sm text-muted-foreground">{m.email}</p>
+                      {m.company_name && (
+                        <p className="text-sm text-muted-foreground flex items-center gap-1">
+                          <Building2 className="w-3 h-3" />{m.company_name}
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Registriert am {format(new Date(m.created_at), "dd.MM.yyyy", { locale: de })}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 shrink-0">
+                      <Button size="sm" variant="secondary" asChild>
+                        <Link to={`/portal/member/${m.id}`}>
+                          <Eye className="w-3 h-3 mr-1" />
+                          Profil ansehen
+                        </Link>
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-green-500 text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30"
+                        disabled={approvingId === m.id || rejectingId === m.id}
+                        onClick={() => handleApprove(m.id)}
+                      >
+                        {approvingId === m.id
+                          ? <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                          : <Check className="w-3 h-3 mr-1" />}
+                        Annehmen
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-red-400 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
+                        disabled={approvingId === m.id || rejectingId === m.id}
+                        onClick={() => handleReject(m.id)}
+                      >
+                        {rejectingId === m.id
+                          ? <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                          : <X className="w-3 h-3 mr-1" />}
+                        Ablehnen
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
               ))}
             </div>
           </motion.section>

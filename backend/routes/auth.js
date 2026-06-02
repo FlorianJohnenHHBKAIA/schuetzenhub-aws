@@ -47,7 +47,7 @@ router.post("/login", async (req, res) => {
 
 // POST /api/auth/register – Selbstregistrierung als Interessent
 router.post("/register", async (req, res) => {
-  const { email, password, firstName, lastName, clubId } = req.body;
+  const { email, password, firstName, lastName, clubId, companyId } = req.body;
   if (!email || !password || !firstName || !lastName || !clubId) {
     return res.status(400).json({ error: "Alle Felder sind erforderlich" });
   }
@@ -99,6 +99,21 @@ router.post("/register", async (req, res) => {
        VALUES ($1, $2, $3, 'member')`,
       [uuidv4(), userId, clubId]
     );
+
+    // Kompanie-Zugehörigkeit speichern (optional)
+    if (companyId) {
+      const companyCheck = await client.query(
+        "SELECT id FROM companies WHERE id = $1 AND club_id = $2",
+        [companyId, clubId]
+      );
+      if (companyCheck.rows[0]) {
+        await client.query(
+          `INSERT INTO member_company_memberships (id, member_id, company_id, valid_from)
+           VALUES ($1, $2, $3, CURRENT_DATE)`,
+          [uuidv4(), memberId, companyId]
+        );
+      }
+    }
 
     await client.query("COMMIT");
 
@@ -292,6 +307,81 @@ router.post("/create-member-account", requireAuth, async (req, res) => {
     res.status(500).json({ error: "Serverfehler" });
   } finally {
     client.release();
+  }
+});
+
+// POST /api/auth/forgot-password
+// TODO: E-Mail-Versand implementieren (kein E-Mail-Service konfiguriert).
+//       Reset-Link wird aktuell nur auf der Konsole geloggt.
+// DB-Voraussetzung: ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS reset_token TEXT;
+//                  ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS reset_token_expires_at TIMESTAMPTZ;
+router.post("/forgot-password", async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: "E-Mail erforderlich" });
+
+  try {
+    const userRes = await pool.query(
+      "SELECT id FROM auth_users WHERE email = $1",
+      [email.toLowerCase().trim()]
+    );
+
+    if (userRes.rows[0]) {
+      const crypto = require("crypto");
+      const token = crypto.randomBytes(32).toString("hex");
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 Stunde
+
+      await pool.query(
+        "UPDATE auth_users SET reset_token = $1, reset_token_expires_at = $2 WHERE id = $3",
+        [token, expiresAt, userRes.rows[0].id]
+      );
+
+      // TODO: Hier E-Mail mit Reset-Link versenden
+      const resetUrl = `http://localhost:8080/auth?token=${token}`;
+      console.log(`[Passwort-Reset] Link für ${email}: ${resetUrl}`);
+    }
+
+    // Immer dieselbe Antwort – E-Mail-Existenz nicht preisgeben
+    res.json({ message: "Falls diese E-Mail registriert ist, wurde ein Reset-Link gesendet." });
+  } catch (err) {
+    console.error("Forgot-password-Fehler:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// POST /api/auth/reset-password
+router.post("/reset-password", async (req, res) => {
+  const { token, password } = req.body;
+  if (!token || !password) {
+    return res.status(400).json({ error: "Token und Passwort erforderlich" });
+  }
+  if (password.length < 8) {
+    return res.status(400).json({ error: "Das Passwort muss mindestens 8 Zeichen haben" });
+  }
+
+  try {
+    const userRes = await pool.query(
+      "SELECT id, reset_token_expires_at FROM auth_users WHERE reset_token = $1",
+      [token]
+    );
+    const user = userRes.rows[0];
+
+    if (!user) {
+      return res.status(400).json({ error: "Ungültiger oder abgelaufener Link" });
+    }
+    if (new Date(user.reset_token_expires_at) < new Date()) {
+      return res.status(400).json({ error: "Dieser Link ist abgelaufen. Bitte fordere einen neuen an." });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    await pool.query(
+      "UPDATE auth_users SET password_hash = $1, reset_token = NULL, reset_token_expires_at = NULL WHERE id = $2",
+      [passwordHash, user.id]
+    );
+
+    res.json({ message: "Passwort erfolgreich zurückgesetzt" });
+  } catch (err) {
+    console.error("Reset-password-Fehler:", err);
+    res.status(500).json({ error: "Serverfehler" });
   }
 });
 

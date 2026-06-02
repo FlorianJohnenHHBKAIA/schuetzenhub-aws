@@ -143,7 +143,26 @@ const Members = () => {
     return getStorageUrl("avatars", avatar_url) || undefined;
   };
 
+  const canManage    = hasPermission("club.members.manage");
+  const canView      = canManage || !!currentMember?.club_id;
+  const myCompanyIds = memberCompanyMap.get(currentMember?.id ?? "") ?? [];
+
+  if (!canView) {
+    return (
+      <PortalLayout>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <p className="text-muted-foreground">Sie haben keine Berechtigung für diese Seite.</p>
+        </div>
+      </PortalLayout>
+    );
+  }
+
   const filteredMembers = members.filter((member) => {
+    if (!canManage && myCompanyIds.length > 0) {
+      const memberCompanies = memberCompanyMap.get(member.id) ?? [];
+      if (!memberCompanies.some(cId => myCompanyIds.includes(cId))) return false;
+    }
+
     const searchLower = searchTerm.toLowerCase();
     const matchesSearch =
       member.first_name.toLowerCase().includes(searchLower) ||
@@ -178,18 +197,6 @@ const Members = () => {
     resigned: { label: "Ausgetreten", className: "bg-destructive/10 text-destructive" },
   };
 
-  const canManage = hasPermission("club.members.manage");
-
-  if (!canManage) {
-    return (
-      <PortalLayout>
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <p className="text-muted-foreground">Sie haben keine Berechtigung für diese Seite.</p>
-        </div>
-      </PortalLayout>
-    );
-  }
-
   return (
     <PortalLayout>
       <div className="max-w-6xl mx-auto">
@@ -198,7 +205,9 @@ const Members = () => {
             <h1 className="font-display text-3xl font-bold text-foreground">Mitglieder</h1>
             <p className="text-muted-foreground">Verwalten Sie die Mitglieder Ihres Vereins</p>
           </div>
-          <Button onClick={() => setIsDialogOpen(true)}><Plus className="w-4 h-4" />Mitglied hinzufügen</Button>
+          {canManage && (
+            <Button onClick={() => setIsDialogOpen(true)}><Plus className="w-4 h-4" />Mitglied hinzufügen</Button>
+          )}
         </motion.div>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="mb-6">
@@ -207,17 +216,19 @@ const Members = () => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input placeholder="Mitglieder suchen..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10" />
             </div>
-            <Select value={companyFilter} onValueChange={setCompanyFilter}>
-              <SelectTrigger className="w-full sm:w-[220px]">
-                <Building2 className="w-4 h-4 mr-2 text-muted-foreground" />
-                <SelectValue placeholder="Kompanie filtern" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Alle Kompanien</SelectItem>
-                <SelectItem value="none">Ohne Kompanie</SelectItem>
-                {companies.map((company) => <SelectItem key={company.id} value={company.id}>{company.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            {canManage && (
+              <Select value={companyFilter} onValueChange={setCompanyFilter}>
+                <SelectTrigger className="w-full sm:w-[220px]">
+                  <Building2 className="w-4 h-4 mr-2 text-muted-foreground" />
+                  <SelectValue placeholder="Kompanie filtern" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Alle Kompanien</SelectItem>
+                  <SelectItem value="none">Ohne Kompanie</SelectItem>
+                  {companies.map((company) => <SelectItem key={company.id} value={company.id}>{company.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         </motion.div>
 
@@ -277,9 +288,13 @@ const Members = () => {
                           <td className="px-6 py-4">
                             <div className="flex items-center justify-end gap-2">
                               <Button variant="ghost" size="icon" onClick={() => navigate(`/portal/member/${member.id}`)} title="Profil anzeigen"><Eye className="w-4 h-4" /></Button>
-                              <Button variant="ghost" size="icon" onClick={() => setManagingMember(member)} title="Verwalten"><Settings2 className="w-4 h-4" /></Button>
-                              <Button variant="ghost" size="icon" onClick={() => { setEditingMember(member); setIsDialogOpen(true); }} title="Bearbeiten"><Edit className="w-4 h-4" /></Button>
-                              <Button variant="ghost" size="icon" onClick={() => setDeletingMember(member)} title="Löschen"><Trash2 className="w-4 h-4 text-destructive" /></Button>
+                              {canManage && (
+                                <>
+                                  <Button variant="ghost" size="icon" onClick={() => setManagingMember(member)} title="Verwalten"><Settings2 className="w-4 h-4" /></Button>
+                                  <Button variant="ghost" size="icon" onClick={() => { setEditingMember(member); setIsDialogOpen(true); }} title="Bearbeiten"><Edit className="w-4 h-4" /></Button>
+                                  <Button variant="ghost" size="icon" onClick={() => setDeletingMember(member)} title="Löschen"><Trash2 className="w-4 h-4 text-destructive" /></Button>
+                                </>
+                              )}
                             </div>
                           </td>
                         </tr>
