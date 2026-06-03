@@ -2,19 +2,8 @@ import { useState, useEffect } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { supabase, getStorageUrl } from "@/integrations/api/client";
+import { apiJson, getStorageUrl } from "@/integrations/api/client";
 import { CheckCircle2, XCircle, Users, ChevronDown, Loader2 } from "lucide-react";
-
-// TODO: event_participants table must be created before this section fully functions:
-// CREATE TABLE IF NOT EXISTS event_participants (
-//   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-//   event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-//   member_id UUID NOT NULL REFERENCES members(id) ON DELETE CASCADE,
-//   status TEXT NOT NULL CHECK (status IN ('attending', 'declined')),
-//   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-//   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-//   UNIQUE(event_id, member_id)
-// );
 
 interface Participant {
   member_id: string;
@@ -30,6 +19,7 @@ interface EventParticipantsSectionProps {
   ownerType: string;
   ownerId: string;
   memberCompanyId?: string;
+  memberStatus?: string;
   canViewLists: boolean;
 }
 
@@ -45,15 +35,16 @@ const EventParticipantsSection = ({
   audience,
   ownerId,
   memberCompanyId,
+  memberStatus,
   canViewLists,
 }: EventParticipantsSectionProps) => {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [myStatus, setMyStatus] = useState<'attending' | 'declined' | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittingStatus, setSubmittingStatus] = useState<'attending' | 'declined' | null>(null);
   const [activeList, setActiveList] = useState<string | null>(null);
 
-  const canRsvp = audience !== 'public' && (
+  const canRsvp = memberStatus !== 'prospect' && audience !== 'public' && (
     audience === 'club_internal' ||
     (audience === 'company_only' && memberCompanyId === ownerId)
   );
@@ -65,16 +56,13 @@ const EventParticipantsSection = ({
   const fetchParticipants = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('event_participants')
-        .select('member_id, status, member:members!member_id(first_name, last_name, avatar_url)')
-        .eq('event_id', eventId);
-      if (error) throw error;
-      const list = (data as Participant[]) || [];
+      const data = await apiJson<Participant[]>(`/api/events/${eventId}/participants`);
+      const list = data || [];
       setParticipants(list);
       const mine = list.find(p => p.member_id === memberId);
       setMyStatus(mine?.status || null);
-    } catch {
+    } catch (err) {
+      console.error("Teilnehmer laden fehlgeschlagen:", err);
       setParticipants([]);
       setMyStatus(null);
     } finally {
@@ -83,25 +71,24 @@ const EventParticipantsSection = ({
   };
 
   const handleRsvp = async (newStatus: 'attending' | 'declined') => {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
+    if (submittingStatus) return;
+    setSubmittingStatus(newStatus);
     try {
       if (myStatus === newStatus) {
-        await supabase.from('event_participants').delete()
-          .eq('event_id', eventId).eq('member_id', memberId);
+        await apiJson(`/api/events/${eventId}/participants`, { method: "DELETE" });
         setMyStatus(null);
       } else {
-        await supabase.from('event_participants').upsert(
-          { event_id: eventId, member_id: memberId, status: newStatus, updated_at: new Date().toISOString() },
-          { onConflict: 'event_id,member_id' }
-        );
+        await apiJson(`/api/events/${eventId}/participants`, {
+          method: "POST",
+          body: JSON.stringify({ status: newStatus }),
+        });
         setMyStatus(newStatus);
       }
       await fetchParticipants();
-    } catch {
-      // graceful fallback until DB table exists
+    } catch (err) {
+      console.error("RSVP Fehler:", err);
     } finally {
-      setIsSubmitting(false);
+      setSubmittingStatus(null);
     }
   };
 
@@ -141,20 +128,20 @@ const EventParticipantsSection = ({
               variant={myStatus === 'attending' ? 'default' : 'outline'}
               size="sm"
               onClick={() => handleRsvp('attending')}
-              disabled={isSubmitting}
+              disabled={!!submittingStatus}
               className={`gap-2 ${myStatus === 'attending' ? 'bg-green-600 hover:bg-green-700 text-white' : ''}`}
             >
-              {isSubmitting && myStatus !== 'attending' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              {submittingStatus === 'attending' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
               {myStatus === 'attending' ? 'Zugesagt' : 'Ich komme'}
             </Button>
             <Button
               variant={myStatus === 'declined' ? 'default' : 'outline'}
               size="sm"
               onClick={() => handleRsvp('declined')}
-              disabled={isSubmitting}
+              disabled={!!submittingStatus}
               className={`gap-2 ${myStatus === 'declined' ? 'bg-destructive hover:bg-destructive/90 text-white' : ''}`}
             >
-              {isSubmitting && myStatus !== 'declined' ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
+              {submittingStatus === 'declined' ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
               {myStatus === 'declined' ? 'Abgesagt' : 'Ich kann nicht'}
             </Button>
           </div>

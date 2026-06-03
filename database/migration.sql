@@ -597,3 +597,22 @@ ALTER TABLE award_types ADD COLUMN IF NOT EXISTS icon TEXT;
 -- Falls die Spalte fälschlicherweise 'award_type' heißt:
 -- ALTER TABLE award_types RENAME COLUMN award_type TO icon;
 
+-- ============================================================
+-- NEU 2026-06-03
+-- Event RSVP / Teilnehmerverwaltung
+-- Für Zusagen und Absagen bei Veranstaltungen
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS event_participants (
+    id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id   UUID        NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    member_id  UUID        NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+    status     TEXT        NOT NULL CHECK (status IN ('attending', 'declined')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (event_id, member_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_participants_event  ON event_participants (event_id);
+CREATE INDEX IF NOT EXISTS idx_event_participants_member ON event_participants (member_id);
+

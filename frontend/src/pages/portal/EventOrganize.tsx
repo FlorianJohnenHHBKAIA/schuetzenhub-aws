@@ -613,6 +613,7 @@ const EventOrganize = () => {
               ownerType={event.owner_type}
               ownerId={event.owner_id}
               memberCompanyId={userCompanyId || undefined}
+              memberStatus={member.status}
               canViewLists={canEdit}
             />
           </motion.div>

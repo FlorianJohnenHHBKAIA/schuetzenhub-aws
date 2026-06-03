@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { v4: uuidv4 } = require("uuid");
 const pool = require("../db");
-const { requireAuth } = require("../middleware/auth");
+const { requireAuth, requireActiveMember } = require("../middleware/auth");
 const multer = require("multer");
 const { saveFile, getPublicUrl, deleteFile } = require("../storage");
 
@@ -258,10 +258,81 @@ router.post("/companies/:id/logo", requireAuth, upload.single("file"), async (re
 
 // ─── Events ───────────────────────────────────────────────────────────────────
 
-// TODO: event_participants Endpunkte (Tabelle muss zuerst erstellt werden — s. EventParticipantsSection.tsx):
-//   GET    /api/events/:id/participants   – alle Teilnehmer mit Status
-//   POST   /api/events/:id/participants   – RSVP setzen/ändern { status: 'attending'|'declined' }
-//   DELETE /api/events/:id/participants   – eigene RSVP entfernen
+router.get("/events/:id/participants", requireAuth, requireActiveMember, async (req, res) => {
+  try {
+    const eventResult = await pool.query(
+      "SELECT id FROM events WHERE id = $1 AND club_id = $2",
+      [req.params.id, req.clubId]
+    );
+    if (!eventResult.rows[0]) return res.status(404).json({ error: "Event nicht gefunden" });
+
+    const result = await pool.query(
+      `SELECT ep.member_id, ep.status,
+              m.first_name, m.last_name, m.avatar_url
+       FROM event_participants ep
+       JOIN members m ON m.id = ep.member_id
+       WHERE ep.event_id = $1`,
+      [req.params.id]
+    );
+    res.json(result.rows.map(r => ({
+      member_id: r.member_id,
+      status: r.status,
+      member: { first_name: r.first_name, last_name: r.last_name, avatar_url: r.avatar_url }
+    })));
+  } catch (err) {
+    console.error("GET /events/:id/participants error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+router.post("/events/:id/participants", requireAuth, requireActiveMember, async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!['attending', 'declined'].includes(status))
+      return res.status(400).json({ error: "Status ungültig" });
+
+    const eventResult = await pool.query(
+      "SELECT * FROM events WHERE id = $1 AND club_id = $2",
+      [req.params.id, req.clubId]
+    );
+    if (!eventResult.rows[0]) return res.status(404).json({ error: "Event nicht gefunden" });
+    const event = eventResult.rows[0];
+
+    if (event.audience === 'company_only') {
+      const membership = await pool.query(
+        "SELECT id FROM member_company_memberships WHERE member_id = $1 AND company_id = $2",
+        [req.member.id, event.owner_id]
+      );
+      if (!membership.rows[0])
+        return res.status(403).json({ error: "Nur Firmenmitglieder können teilnehmen" });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO event_participants (id, event_id, member_id, status, updated_at)
+       VALUES ($1,$2,$3,$4,now())
+       ON CONFLICT (event_id, member_id) DO UPDATE SET status=$4, updated_at=now()
+       RETURNING *`,
+      [uuidv4(), req.params.id, req.member.id, status]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("POST /events/:id/participants error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+router.delete("/events/:id/participants", requireAuth, requireActiveMember, async (req, res) => {
+  try {
+    await pool.query(
+      "DELETE FROM event_participants WHERE event_id = $1 AND member_id = $2",
+      [req.params.id, req.member.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("DELETE /events/:id/participants error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
 
 router.get("/events", requireAuth, async (req, res) => {
   try {
