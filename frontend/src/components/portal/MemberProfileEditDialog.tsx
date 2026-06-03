@@ -28,6 +28,7 @@ interface MemberData {
   cover_url: string | null;
   title: string | null;
   bio: string | null;
+  birthday: string | null;
 }
 
 interface MemberProfileEditDialogProps {
@@ -46,6 +47,7 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
   const [street, setStreet] = useState(member.street || "");
   const [zip, setZip] = useState(member.zip || "");
   const [city, setCity] = useState(member.city || "");
+  const [birthday, setBirthday] = useState(member.birthday || "");
 
   // State for relative paths (saved to DB)
   const [avatarPath, setAvatarPath] = useState(member.avatar_url || "");
@@ -129,6 +131,7 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
           city: city || null,
           avatar_url: avatarPath || null,
           cover_url: coverPath || null,
+          birthday: birthday || null,
         }),
       });
       
@@ -275,8 +278,17 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
           {/* Contact Info Section */}
           <div className="border-t pt-4 mt-4">
             <Label className="text-base font-semibold mb-4 block">Kontaktdaten</Label>
-            
+
             <div className="space-y-4">
+              <div>
+                <Label>Geburtsdatum</Label>
+                <Input
+                  value={birthday}
+                  onChange={(e) => setBirthday(e.target.value)}
+                  type="date"
+                />
+              </div>
+
               <div>
                 <Label>Telefon</Label>
                 <Input

@@ -11,6 +11,7 @@ import UpcomingEventsSection from "@/components/portal/dashboard/UpcomingEventsS
 import CompanyUpdatesSection from "@/components/portal/dashboard/CompanyUpdatesSection";
 import EngagementSection from "@/components/portal/dashboard/EngagementSection";
 import PersonalSection from "@/components/portal/dashboard/PersonalSection";
+import CompanyBirthdaysSection from "@/components/portal/CompanyBirthdaysSection";
 
 interface CompanyInfo {
   id: string;
@@ -327,6 +328,12 @@ const Dashboard = () => {
           openShifts={workStats.upcomingShifts}
           unreadNotifications={unreadNotifications}
           pendingAwardRequests={pendingAwardRequests}
+        />
+
+        <CompanyBirthdaysSection
+          companyId={companyInfo?.id || ""}
+          isMember={!!companyInfo?.id}
+          limit={5}
         />
       </div>
     </PortalLayout>

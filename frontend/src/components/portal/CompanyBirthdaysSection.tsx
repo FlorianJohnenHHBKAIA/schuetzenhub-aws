@@ -34,6 +34,7 @@ interface RawMember {
 interface CompanyBirthdaysSectionProps {
   companyId: string;
   isMember: boolean;
+  limit?: number;
 }
 
 const getNextBirthday = (birthday: string): Date => {
@@ -53,7 +54,7 @@ const getAvatarUrl = (avatar_url: string | null): string | undefined => {
   return getStorageUrl("avatars", avatar_url) || undefined;
 };
 
-const CompanyBirthdaysSection = ({ companyId, isMember }: CompanyBirthdaysSectionProps) => {
+const CompanyBirthdaysSection = ({ companyId, isMember, limit }: CompanyBirthdaysSectionProps) => {
   const [members, setMembers] = useState<BirthdayMember[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -79,7 +80,6 @@ const CompanyBirthdaysSection = ({ companyId, isMember }: CompanyBirthdaysSectio
         .from("members")
         .select("id, first_name, last_name, avatar_url, birthday, title, status")
         .in("id", memberIds)
-        .not("birthday", "is", null)
         .neq("status", "resigned");
 
       const rawMembers = (membersData as RawMember[]) || [];
@@ -97,7 +97,7 @@ const CompanyBirthdaysSection = ({ companyId, isMember }: CompanyBirthdaysSectio
         .filter(m => m.diffDays >= 0 && m.diffDays <= 30)
         .sort((a, b) => a.nextBd.getTime() - b.nextBd.getTime());
 
-      setMembers(upcoming);
+      setMembers(limit ? upcoming.slice(0, limit) : upcoming);
     } catch (error) {
       console.error("Error fetching birthdays:", error);
     } finally {

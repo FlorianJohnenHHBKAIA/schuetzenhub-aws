@@ -26,6 +26,7 @@ import {
   X,
   Loader2,
   Eye,
+  Cake,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,7 @@ import PortalLayout from "@/components/portal/PortalLayout";
 import { useAuth } from "@/lib/auth";
 import { useUIMode } from "@/hooks/useUIMode";
 import { supabase, apiJson } from "@/integrations/api/client";
+import AdminBirthdaysSection from "@/components/portal/AdminBirthdaysSection";
 import { useToast } from "@/hooks/use-toast";
 import { differenceInDays, format } from "date-fns";
 import { de } from "date-fns/locale";
@@ -690,6 +692,21 @@ const AdminHome = () => {
         )}
 
         */}
+
+        {member?.club_id && (
+          <motion.section
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="space-y-4"
+          >
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <Cake className="w-5 h-5 text-primary" />
+              Geburtstage im Verein
+            </h2>
+            <AdminBirthdaysSection clubId={member.club_id} />
+          </motion.section>
+        )}
 
         <motion.section
           initial={{ opacity: 0, y: 10 }}
