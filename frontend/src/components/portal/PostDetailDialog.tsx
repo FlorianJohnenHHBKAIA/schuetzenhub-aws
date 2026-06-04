@@ -14,7 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/lib/auth";
 import { usePostComments, usePostReactions } from "@/hooks/usePostInteractions";
 import { createNotification } from "@/hooks/useNotifications";
-import { supabase, getStorageUrl, api } from "@/integrations/api/client";
+import { getStorageUrl, api } from "@/integrations/api/client";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
@@ -64,12 +64,6 @@ interface Post {
   approver?: { first_name: string; last_name: string } | null;
 }
 
-interface Permission {
-  permission_key: string;
-  scope_type?: string;
-  scope_id?: string;
-}
-
 interface PostDetailDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -95,7 +89,7 @@ const REACTION_CONFIG = [
 ] as const;
 
 const PostDetailDialog = ({ open, onOpenChange, post }: PostDetailDialogProps) => {
-  const { user, member } = useAuth();
+  const { member, permissions, isAdmin } = useAuth();
   const [newComment, setNewComment] = useState('');
   const [canComment, setCanComment] = useState(false);
   const [canModerate, setCanModerate] = useState(false);
@@ -119,43 +113,19 @@ const PostDetailDialog = ({ open, onOpenChange, post }: PostDetailDialogProps) =
   const [activeReactionList, setActiveReactionList] = useState<string | null>(null);
 
   useEffect(() => {
-    const checkPermissions = async () => {
-      if (!user || !member || !post) return;
-
-      const { data: permData } = await supabase.rpc('get_user_permissions', {
-        _user_id: user.id,
-        _club_id: member.club_id
-      });
-
-      const permissions = (permData as Permission[]) || [];
-      const hasFullAdmin = permissions.some((p) => p.permission_key === 'club.admin.full');
-      const hasModerate = permissions.some((p) => p.permission_key === 'club.posts.moderate');
-      
-      setCanModerate(hasFullAdmin || hasModerate);
-
-      if (post.audience !== 'public') {
-        if (post.audience === 'club_internal') {
-          const hasClubComment = permissions.some((p) => p.permission_key === 'club.posts.comment');
-          setCanComment(hasClubComment || hasFullAdmin);
-        } else if (post.audience === 'company_only') {
-          const hasCompanyComment = permissions.some((p) => 
-            p.permission_key === 'company.posts.comment' && 
-            p.scope_type === 'company' && 
-            p.scope_id === post.owner_id
-          );
-          setCanComment(hasCompanyComment || hasFullAdmin);
-        }
-      } else {
-        setCanComment(true);
-      }
-    };
-
-    checkPermissions();
-  }, [user, member, post]);
+    if (!member || !post) return;
+    const hasFullAdmin = isAdmin || permissions.some(p => p.permission_key === 'club.admin.full');
+    const hasPostsManage = permissions.some(p => p.permission_key === 'club.posts.manage');
+    setCanModerate(hasFullAdmin || hasPostsManage);
+    // Alle aktiven/passiven Mitglieder dürfen interne Beiträge kommentieren.
+    // Für company_only wird die Zugriffsprüfung server-seitig durchgeführt (403 bei fehlendem Company-Membership).
+    const isMemberActive = member.status !== 'prospect' && member.status !== 'resigned';
+    setCanComment(post.audience !== 'public' && isMemberActive);
+  }, [member, post, permissions, isAdmin]);
 
   const handleAddComment = async () => {
     if (!post || !newComment.trim()) return;
-    await addComment(newComment, post.club_id);
+    await addComment(newComment);
     setNewComment('');
 
     if (post.created_by_member_id && post.created_by_member_id !== member?.id) {
@@ -336,7 +306,7 @@ const PostDetailDialog = ({ open, onOpenChange, post }: PostDetailDialogProps) =
                       key={type}
                       variant={hasReacted(type) ? "default" : "outline"}
                       size="sm"
-                      onClick={() => toggleReaction(post.club_id, type)}
+                      onClick={() => toggleReaction(type)}
                       className={`gap-2 ${hasReacted(type) ? activeClass : ''}`}
                     >
                       <Icon className="w-4 h-4" />

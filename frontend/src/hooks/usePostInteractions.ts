@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/integrations/api/client";
+import { api } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 
@@ -9,7 +9,6 @@ interface Comment {
   author_member_id: string;
   content: string;
   created_at: string;
-  deleted_at?: string | null;
   author?: {
     first_name: string;
     last_name: string;
@@ -37,17 +36,8 @@ export const usePostComments = (postId: string | null) => {
     if (!postId) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('post_comments')
-        .select(`
-          *,
-          author:members!author_member_id(first_name, last_name, avatar_url)
-        `)
-        .eq('post_id', postId)
-        .order('created_at', { ascending: true });
-
-      if (error) throw error;
-      setComments((data as Comment[]) || []);
+      const data = await api.json<Comment[]>(`/api/posts/${postId}/comments`);
+      setComments(data || []);
     } catch (error: unknown) {
       console.error('Error fetching comments:', error);
     } finally {
@@ -59,21 +49,14 @@ export const usePostComments = (postId: string | null) => {
     fetchComments();
   }, [fetchComments]);
 
-  const addComment = async (content: string, clubId: string) => {
+  const addComment = async (content: string) => {
     if (!member || !postId || !content.trim()) return;
     setSubmitting(true);
     try {
-      const { error } = await supabase
-        .from('post_comments')
-        .insert({
-          // TODO: club_id reaktivieren nach: ALTER TABLE post_comments ADD COLUMN club_id UUID REFERENCES clubs(id) ON DELETE CASCADE;
-          // club_id: clubId,
-          post_id: postId,
-          author_member_id: member.id,
-          content: content.trim(),
-        });
-
-      if (error) throw error;
+      await api.json(`/api/posts/${postId}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ content: content.trim() }),
+      });
       toast({ title: 'Kommentar hinzugefügt' });
       fetchComments();
     } catch (error: unknown) {
@@ -89,14 +72,7 @@ export const usePostComments = (postId: string | null) => {
 
   const deleteComment = async (commentId: string) => {
     try {
-      const { error } = await supabase
-        .from('post_comments')
-        .delete()
-        // TODO: auf Soft-Delete umstellen nach: ALTER TABLE post_comments ADD COLUMN deleted_at TIMESTAMPTZ;
-        // .update({ deleted_at: new Date().toISOString() })
-        .eq('id', commentId);
-
-      if (error) throw error;
+      await api.json(`/api/posts/${postId}/comments/${commentId}`, { method: 'DELETE' });
       toast({ title: 'Kommentar entfernt' });
       fetchComments();
     } catch (error: unknown) {
@@ -128,13 +104,8 @@ export const usePostReactions = (postId: string | null) => {
     if (!postId) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('post_reactions')
-        .select('*, member:members!member_id(first_name, last_name, avatar_url)')
-        .eq('post_id', postId);
-
-      if (error) throw error;
-      setReactions((data as Reaction[]) || []);
+      const data = await api.json<Reaction[]>(`/api/posts/${postId}/reactions`);
+      setReactions(data || []);
     } catch (error: unknown) {
       console.error('Error fetching reactions:', error);
     } finally {
@@ -146,33 +117,23 @@ export const usePostReactions = (postId: string | null) => {
     fetchReactions();
   }, [fetchReactions]);
 
-  const toggleReaction = async (clubId: string, reaction = 'like') => {
+  const toggleReaction = async (reaction = 'like') => {
     if (!member || !postId) return;
-    
+
     const existingReaction = reactions.find(
       r => r.member_id === member.id && r.reaction === reaction
     );
 
     try {
       if (existingReaction) {
-        const { error } = await supabase
-          .from('post_reactions')
-          .delete()
-          .eq('id', existingReaction.id);
-
-        if (error) throw error;
+        await api.json(`/api/posts/${postId}/reactions/${existingReaction.id}`, {
+          method: 'DELETE',
+        });
       } else {
-        const { error } = await supabase
-          .from('post_reactions')
-          .insert({
-            // TODO: club_id reaktivieren nach: ALTER TABLE post_reactions ADD COLUMN club_id UUID REFERENCES clubs(id) ON DELETE CASCADE;
-            // club_id: clubId,
-            post_id: postId,
-            member_id: member.id,
-            reaction,
-          });
-
-        if (error) throw error;
+        await api.json(`/api/posts/${postId}/reactions`, {
+          method: 'POST',
+          body: JSON.stringify({ reaction }),
+        });
       }
       fetchReactions();
     } catch (error: unknown) {

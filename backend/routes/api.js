@@ -556,6 +556,167 @@ router.post("/posts/:id/cover", requireAuth, upload.single("file"), async (req, 
   res.json({ url: getPublicUrl("post-images", destPath) });
 });
 
+// ─── Post Comments & Reactions ────────────────────────────────────────────────
+
+router.get("/posts/:id/comments", requireAuth, requireActiveMember, async (req, res) => {
+  try {
+    const postRes = await pool.query(
+      "SELECT * FROM posts WHERE id = $1 AND club_id = $2",
+      [req.params.id, req.clubId]
+    );
+    if (!postRes.rows[0]) return res.status(404).json({ error: "Beitrag nicht gefunden" });
+    const post = postRes.rows[0];
+    if (post.audience === 'company_only') {
+      const m = await pool.query(
+        "SELECT id FROM member_company_memberships WHERE member_id = $1 AND company_id = $2",
+        [req.member.id, post.owner_id]
+      );
+      if (!m.rows[0]) return res.status(403).json({ error: "Kein Zugriff" });
+    }
+    const result = await pool.query(
+      `SELECT pc.id, pc.post_id, pc.author_member_id, pc.content, pc.created_at,
+        json_build_object('first_name', m.first_name, 'last_name', m.last_name, 'avatar_url', m.avatar_url) AS author
+       FROM post_comments pc
+       JOIN members m ON m.id = pc.author_member_id
+       WHERE pc.post_id = $1 ORDER BY pc.created_at ASC`,
+      [req.params.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("GET /posts/:id/comments error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+router.post("/posts/:id/comments", requireAuth, requireActiveMember, async (req, res) => {
+  try {
+    const { content } = req.body;
+    if (!content || !content.trim()) return res.status(400).json({ error: "Inhalt erforderlich" });
+    const postRes = await pool.query(
+      "SELECT * FROM posts WHERE id = $1 AND club_id = $2",
+      [req.params.id, req.clubId]
+    );
+    if (!postRes.rows[0]) return res.status(404).json({ error: "Beitrag nicht gefunden" });
+    const post = postRes.rows[0];
+    if (post.comments_enabled === false)
+      return res.status(403).json({ error: "Kommentare sind für diesen Beitrag deaktiviert" });
+    if (post.audience === 'company_only') {
+      const m = await pool.query(
+        "SELECT id FROM member_company_memberships WHERE member_id = $1 AND company_id = $2",
+        [req.member.id, post.owner_id]
+      );
+      if (!m.rows[0]) return res.status(403).json({ error: "Kein Zugriff" });
+    }
+    const id = uuidv4();
+    const result = await pool.query(
+      `INSERT INTO post_comments (id, post_id, author_member_id, content)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [id, req.params.id, req.member.id, content.trim()]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error("POST /posts/:id/comments error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+router.delete("/posts/:id/comments/:cid", requireAuth, requireActiveMember, async (req, res) => {
+  try {
+    const commentRes = await pool.query(
+      `SELECT pc.* FROM post_comments pc
+       JOIN posts p ON p.id = pc.post_id
+       WHERE pc.id = $1 AND p.club_id = $2`,
+      [req.params.cid, req.clubId]
+    );
+    if (!commentRes.rows[0]) return res.status(404).json({ error: "Kommentar nicht gefunden" });
+    const comment = commentRes.rows[0];
+    if (comment.author_member_id !== req.member.id && !req.isAdmin)
+      return res.status(403).json({ error: "Keine Berechtigung" });
+    await pool.query("DELETE FROM post_comments WHERE id = $1", [req.params.cid]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("DELETE /posts/:id/comments/:cid error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+router.get("/posts/:id/reactions", requireAuth, requireActiveMember, async (req, res) => {
+  try {
+    const postRes = await pool.query(
+      "SELECT * FROM posts WHERE id = $1 AND club_id = $2",
+      [req.params.id, req.clubId]
+    );
+    if (!postRes.rows[0]) return res.status(404).json({ error: "Beitrag nicht gefunden" });
+    const post = postRes.rows[0];
+    if (post.audience === 'company_only') {
+      const m = await pool.query(
+        "SELECT id FROM member_company_memberships WHERE member_id = $1 AND company_id = $2",
+        [req.member.id, post.owner_id]
+      );
+      if (!m.rows[0]) return res.status(403).json({ error: "Kein Zugriff" });
+    }
+    const result = await pool.query(
+      `SELECT pr.id, pr.post_id, pr.member_id, pr.reaction, pr.created_at,
+        json_build_object('first_name', m.first_name, 'last_name', m.last_name, 'avatar_url', m.avatar_url) AS member
+       FROM post_reactions pr
+       JOIN members m ON m.id = pr.member_id
+       WHERE pr.post_id = $1 ORDER BY pr.created_at ASC`,
+      [req.params.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("GET /posts/:id/reactions error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+router.post("/posts/:id/reactions", requireAuth, requireActiveMember, async (req, res) => {
+  try {
+    const { reaction } = req.body;
+    const allowed = ['attending', 'helping', 'read', 'like'];
+    if (!reaction || !allowed.includes(reaction))
+      return res.status(400).json({ error: "Ungültige Reaktion" });
+    const postRes = await pool.query(
+      "SELECT * FROM posts WHERE id = $1 AND club_id = $2",
+      [req.params.id, req.clubId]
+    );
+    if (!postRes.rows[0]) return res.status(404).json({ error: "Beitrag nicht gefunden" });
+    const post = postRes.rows[0];
+    if (post.audience === 'company_only') {
+      const m = await pool.query(
+        "SELECT id FROM member_company_memberships WHERE member_id = $1 AND company_id = $2",
+        [req.member.id, post.owner_id]
+      );
+      if (!m.rows[0]) return res.status(403).json({ error: "Kein Zugriff" });
+    }
+    const id = uuidv4();
+    const result = await pool.query(
+      `INSERT INTO post_reactions (id, post_id, member_id, reaction)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (post_id, member_id, reaction) DO NOTHING RETURNING *`,
+      [id, req.params.id, req.member.id, reaction]
+    );
+    res.status(201).json(result.rows[0] || { post_id: req.params.id, member_id: req.member.id, reaction });
+  } catch (err) {
+    console.error("POST /posts/:id/reactions error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+router.delete("/posts/:id/reactions/:rid", requireAuth, requireActiveMember, async (req, res) => {
+  try {
+    const result = await pool.query(
+      "DELETE FROM post_reactions WHERE id = $1 AND member_id = $2 AND post_id = $3",
+      [req.params.rid, req.member.id, req.params.id]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: "Reaktion nicht gefunden" });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("DELETE /posts/:id/reactions/:rid error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
 // ─── Notifications ────────────────────────────────────────────────────────────
 
 router.get("/notifications", requireAuth, async (req, res) => {
