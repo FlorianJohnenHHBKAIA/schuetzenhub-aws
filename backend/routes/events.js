@@ -50,6 +50,40 @@ router.get("/public/:clubSlug", async (req, res) => {
   }
 });
 
+// GET /api/events/participant-counts?ids=id1,id2,...
+router.get("/participant-counts", requireAuth, async (req, res) => {
+  const ids = (req.query.ids || "").split(",").map(s => s.trim()).filter(Boolean);
+  if (ids.length === 0) return res.json([]);
+
+  const placeholders = ids.map((_, i) => `$${i + 2}`).join(",");
+  try {
+    const result = await pool.query(`
+      SELECT
+        e.id AS event_id,
+        COALESCE(SUM(CASE WHEN ep.status = 'attending' THEN 1 ELSE 0 END), 0)::int AS attending_count,
+        COALESCE(SUM(CASE WHEN ep.status = 'declined' THEN 1 ELSE 0 END), 0)::int AS declined_count,
+        CASE
+          WHEN e.owner_type = 'company' AND e.audience = 'company_only' THEN (
+            SELECT COUNT(*)::int FROM member_company_memberships mcm
+            JOIN members m ON m.id = mcm.member_id
+            WHERE mcm.company_id = e.owner_id AND mcm.valid_to IS NULL AND m.status = 'active'
+          )
+          ELSE (
+            SELECT COUNT(*)::int FROM members m WHERE m.club_id = e.club_id AND m.status = 'active'
+          )
+        END AS member_count
+      FROM events e
+      LEFT JOIN event_participants ep ON ep.event_id = e.id
+      WHERE e.id IN (${placeholders}) AND e.club_id = $1
+      GROUP BY e.id, e.owner_id, e.owner_type, e.audience, e.club_id
+    `, [req.clubId, ...ids]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
 // GET /api/events/:id
 router.get("/:id", requireAuth, async (req, res) => {
   try {

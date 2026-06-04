@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Calendar, MapPin, ChevronRight, Building2, Users } from "lucide-react";
+import { Calendar, MapPin, ChevronRight, Building2, Users, CheckCircle2, XCircle, HelpCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
@@ -15,18 +15,27 @@ interface Event {
   audience: string;
 }
 
+interface ParticipantCount {
+  event_id: string;
+  attending_count: number;
+  declined_count: number;
+  member_count: number;
+}
+
 interface UpcomingEventsSectionProps {
   companyEvents: Event[];
   clubEvents: Event[];
   isLoading: boolean;
   companyName: string | null;
+  participantCounts?: Record<string, ParticipantCount>;
 }
 
-const UpcomingEventsSection = ({ 
-  companyEvents, 
-  clubEvents, 
-  isLoading, 
-  companyName 
+const UpcomingEventsSection = ({
+  companyEvents,
+  clubEvents,
+  isLoading,
+  companyName,
+  participantCounts,
 }: UpcomingEventsSectionProps) => {
   const allEvents = [
     ...companyEvents.map(e => ({ ...e, isCompanyEvent: true })),
@@ -151,6 +160,23 @@ const UpcomingEventsSection = ({
                       </span>
                     )}
                   </div>
+                  {participantCounts?.[event.id] && (() => {
+                    const c = participantCounts[event.id];
+                    const pending = Math.max(0, c.member_count - c.attending_count - c.declined_count);
+                    return (
+                      <div className="flex items-center gap-3 text-xs mt-1">
+                        <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
+                          <CheckCircle2 className="w-3 h-3" /> {c.attending_count}
+                        </span>
+                        <span className="flex items-center gap-1 text-destructive">
+                          <XCircle className="w-3 h-3" /> {c.declined_count}
+                        </span>
+                        <span className="flex items-center gap-1 text-muted-foreground">
+                          <HelpCircle className="w-3 h-3" /> {pending}
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             </Link>

@@ -27,6 +27,9 @@ import {
   Loader2,
   Eye,
   Cake,
+  CheckCircle2,
+  XCircle,
+  HelpCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -101,6 +104,23 @@ interface PendingMember {
   company_id?: string | null;
 }
 
+interface ParticipantCount {
+  event_id: string;
+  attending_count: number;
+  declined_count: number;
+  member_count: number;
+}
+
+interface EventRsvpStat {
+  eventId: string;
+  title: string;
+  attending: number;
+  declined: number;
+  pending: number;
+  memberCount: number;
+  responseRate: number;
+}
+
 const AdminHome = () => {
   const { member, hasPermission, isLoading: authLoading } = useAuth();
   const { isAdminMode, toggleMode, isLoaded: uiModeLoaded } = useUIMode();
@@ -113,6 +133,7 @@ const AdminHome = () => {
   const [magazineStats, setMagazineStats] = useState<{ year: number; progress: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [pendingMembers, setPendingMembers] = useState<PendingMember[]>([]);
+  const [eventRsvpStats, setEventRsvpStats] = useState<EventRsvpStat[]>([]);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
 
@@ -129,12 +150,14 @@ const AdminHome = () => {
     try {
       const now = new Date();
       const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
       const [
         pendingEventsRes,
         pendingPostsRes,
         pendingAwardsRes,
         upcomingEventsWithShiftsRes,
+        upcomingEventsForRsvpRes,
         currentMagazineRes,
         pendingMembersRes,
       ] = await Promise.all([
@@ -159,6 +182,14 @@ const AdminHome = () => {
           .eq("club_id", member.club_id)
           .gte("start_at", now.toISOString())
           .lte("start_at", sevenDaysFromNow.toISOString())
+          .order("start_at"),
+        supabase
+          .from("events")
+          .select("id, title")
+          .eq("club_id", member.club_id)
+          .in("publication_status", ["approved", "submitted"])
+          .gte("start_at", now.toISOString())
+          .lte("start_at", thirtyDaysFromNow.toISOString())
           .order("start_at"),
         supabase
           .from("magazines")
@@ -223,6 +254,40 @@ const AdminHome = () => {
 
           setCriticalShifts(eventShiftStats.filter((e) => e.openSlots > 0).slice(0, 2));
         }
+      }
+
+      const rsvpEvents = (upcomingEventsForRsvpRes.data as { id: string; title: string }[]) || [];
+      if (rsvpEvents.length > 0) {
+        apiJson<ParticipantCount[]>(
+          `/api/events/participant-counts?ids=${rsvpEvents.map(e => e.id).join(",")}`
+        )
+          .then(counts => {
+            const countMap: Record<string, ParticipantCount> = Object.fromEntries(
+              counts.map(c => [c.event_id, c])
+            );
+            const stats: EventRsvpStat[] = rsvpEvents.map(event => {
+              const c = countMap[event.id] ?? { attending_count: 0, declined_count: 0, member_count: 0 };
+              const pending = Math.max(0, c.member_count - c.attending_count - c.declined_count);
+              const responseRate = c.member_count > 0
+                ? Math.round(((c.attending_count + c.declined_count) / c.member_count) * 100)
+                : 0;
+              return {
+                eventId: event.id,
+                title: event.title,
+                attending: c.attending_count,
+                declined: c.declined_count,
+                pending,
+                memberCount: c.member_count,
+                responseRate,
+              };
+            });
+            setEventRsvpStats(
+              stats
+                .sort((a, b) => a.responseRate - b.responseRate)
+                .slice(0, 5)
+            );
+          })
+          .catch(() => {});
       }
 
       const magazineData = currentMagazineRes.data as MagazineData | null;
@@ -692,6 +757,41 @@ const AdminHome = () => {
         )}
 
         */}
+
+        {eventRsvpStats.length > 0 && (
+          <motion.section
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.27 }}
+            className="space-y-4"
+          >
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <Users className="w-5 h-5 text-primary" />
+              Termine mit niedrigster Rückmeldequote
+            </h2>
+            <div className="space-y-2">
+              {eventRsvpStats.map(stat => (
+                <div key={stat.eventId} className="p-4 rounded-xl bg-card border border-border">
+                  <p className="font-medium truncate">{stat.title}</p>
+                  <div className="flex flex-wrap items-center gap-4 text-sm mt-1">
+                    <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
+                      <CheckCircle2 className="w-3 h-3" /> {stat.attending} Zusagen
+                    </span>
+                    <span className="flex items-center gap-1 text-destructive">
+                      <XCircle className="w-3 h-3" /> {stat.declined} Absagen
+                    </span>
+                    <span className="flex items-center gap-1 text-muted-foreground">
+                      <HelpCircle className="w-3 h-3" /> {stat.pending} Offen
+                    </span>
+                    <span className="ml-auto text-muted-foreground text-xs font-medium">
+                      {stat.responseRate}% Rückmeldequote
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </motion.section>
+        )}
 
         {member?.club_id && (
           <motion.section

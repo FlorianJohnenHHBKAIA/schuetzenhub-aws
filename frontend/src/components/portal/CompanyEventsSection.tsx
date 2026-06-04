@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/integrations/api/client";
+import { supabase, apiJson } from "@/integrations/api/client";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
-import { Calendar, Clock, MapPin, ArrowRight, Loader2 } from "lucide-react";
+import { Calendar, Clock, MapPin, ArrowRight, Loader2, CheckCircle2, XCircle, HelpCircle } from "lucide-react";
 
 interface CompanyEvent {
   id: string;
@@ -17,6 +17,13 @@ interface CompanyEvent {
   publication_status: string;
 }
 
+interface ParticipantCount {
+  event_id: string;
+  attending_count: number;
+  declined_count: number;
+  member_count: number;
+}
+
 interface CompanyEventsSectionProps {
   companyId: string;
   clubId: string;
@@ -25,6 +32,7 @@ interface CompanyEventsSectionProps {
 
 const CompanyEventsSection = ({ companyId, clubId, isMember }: CompanyEventsSectionProps) => {
   const [events, setEvents] = useState<CompanyEvent[]>([]);
+  const [participantCounts, setParticipantCounts] = useState<Record<string, ParticipantCount>>({});
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -46,7 +54,15 @@ const CompanyEventsSection = ({ companyId, clubId, isMember }: CompanyEventsSect
         .order("start_at", { ascending: true })
         .limit(5);
 
-      setEvents((data as CompanyEvent[]) || []);
+      const eventsData = (data as CompanyEvent[]) || [];
+      setEvents(eventsData);
+      if (eventsData.length > 0) {
+        apiJson<ParticipantCount[]>(
+          `/api/events/participant-counts?ids=${eventsData.map(e => e.id).join(",")}`
+        )
+          .then(counts => setParticipantCounts(Object.fromEntries(counts.map(c => [c.event_id, c]))))
+          .catch(() => {});
+      }
     } catch (error) {
       console.error("Error fetching company events:", error);
     } finally {
@@ -114,6 +130,24 @@ const CompanyEventsSection = ({ companyId, clubId, isMember }: CompanyEventsSect
                       </span>
                     )}
                   </p>
+
+                  {participantCounts[event.id] && (() => {
+                    const c = participantCounts[event.id];
+                    const pending = Math.max(0, c.member_count - c.attending_count - c.declined_count);
+                    return (
+                      <div className="flex items-center gap-3 text-xs mt-1">
+                        <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
+                          <CheckCircle2 className="w-3 h-3" /> {c.attending_count}
+                        </span>
+                        <span className="flex items-center gap-1 text-destructive">
+                          <XCircle className="w-3 h-3" /> {c.declined_count}
+                        </span>
+                        <span className="flex items-center gap-1 text-muted-foreground">
+                          <HelpCircle className="w-3 h-3" /> {pending}
+                        </span>
+                      </div>
+                    );
+                  })()}
 
                   {event.description && (
                     <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">

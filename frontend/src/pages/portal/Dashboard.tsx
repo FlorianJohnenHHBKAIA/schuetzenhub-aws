@@ -4,7 +4,7 @@ import PortalLayout from "@/components/portal/PortalLayout";
 import { useAuth } from "@/lib/auth";
 import { useUIMode } from "@/hooks/useUIMode";
 import { useWorkShiftStats } from "@/hooks/useWorkShiftStats";
-import { supabase } from "@/integrations/api/client";
+import { supabase, apiJson } from "@/integrations/api/client";
 
 import CompanyHero from "@/components/portal/dashboard/CompanyHero";
 import UpcomingEventsSection from "@/components/portal/dashboard/UpcomingEventsSection";
@@ -74,6 +74,13 @@ interface RawShift {
   work_shift_assignments: Array<{ id: string; status: string }>;
 }
 
+interface ParticipantCount {
+  event_id: string;
+  attending_count: number;
+  declined_count: number;
+  member_count: number;
+}
+
 
 const Dashboard = () => {
   const { member, isLoading: authLoading } = useAuth();
@@ -88,6 +95,7 @@ const Dashboard = () => {
   const [latestAward, setLatestAward] = useState<LatestAward | null>(null);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [pendingAwardRequests, setPendingAwardRequests] = useState(0);
+  const [participantCounts, setParticipantCounts] = useState<Record<string, ParticipantCount>>({});
   const [isLoading, setIsLoading] = useState(true);
 
   const currentYear = new Date().getFullYear();
@@ -155,24 +163,13 @@ const Dashboard = () => {
         .order("start_at", { ascending: true })
         .limit(5);
 
-      const postQuery = companyId
-        ? supabase
-            .from("posts")
-            .select("id, title, created_at, cover_image_path, category, content, audience, owner_type, owner_id")
-            .eq("club_id", member.club_id)
-            .eq("publication_status", "approved")
-            .or(`audience.in.(club_internal,public),and(audience.eq.company_only,owner_id.eq.${companyId})`)
-            // TODO: .order("is_pinned", { ascending: false }) — aktivieren nach DB-Migration
-            .order("created_at", { ascending: false })
-            .limit(1)
-        : supabase
-            .from("posts")
-            .select("id, title, created_at, cover_image_path, category, content, audience, owner_type, owner_id")
-            .eq("club_id", member.club_id)
-            .eq("publication_status", "approved")
-            .in("audience", ["club_internal", "public"])
-            .order("created_at", { ascending: false })
-            .limit(1);
+      const postQuery = supabase
+        .from("posts")
+        .select("id, title, created_at, cover_image_path, category, content, audience, owner_type, owner_id")
+        .eq("club_id", member.club_id)
+        .eq("publication_status", "approved")
+        .order("created_at", { ascending: false })
+        .limit(10);
 
       const shiftsQuery = companyId
         ? supabase
@@ -237,8 +234,20 @@ const Dashboard = () => {
       const allClubEvents = (clubEventsRes.data as Event[]) || [];
       setClubEvents(allClubEvents.filter((e) => !companyEventIds.has(e.id)));
 
+      const allEventIds = [
+        ...companyEventsData.map(e => e.id),
+        ...allClubEvents.map(e => e.id),
+      ];
+      if (allEventIds.length > 0) {
+        apiJson<ParticipantCount[]>(`/api/events/participant-counts?ids=${allEventIds.join(",")}`)
+          .then(data => setParticipantCounts(Object.fromEntries(data.map(c => [c.event_id, c]))))
+          .catch(() => {});
+      }
+
       const postData = (postRes.data as Post[]) || [];
-      const post = postData[0] || null;
+      const post = postData.find(p =>
+        p.audience !== "company_only" || (companyId && p.owner_id === companyId)
+      ) || null;
       // visible_until client-seitig prüfen (wenn DB-Spalte vorhanden)
       const validPost = post && (!(post as any).visible_until || new Date((post as any).visible_until) >= new Date())
         ? post : null;
@@ -308,6 +317,7 @@ const Dashboard = () => {
           clubEvents={clubEvents}
           isLoading={isLoading}
           companyName={companyInfo?.name || null}
+          participantCounts={participantCounts}
         />
         <CompanyUpdatesSection
           latestPost={latestPost}
