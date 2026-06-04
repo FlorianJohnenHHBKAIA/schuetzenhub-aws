@@ -40,13 +40,18 @@ async function insertNotifications(
     );
   }
 
-  await pool.query(
-    `INSERT INTO notifications
-       (id, recipient_member_id, type, title, message, related_entity_type, related_entity_id, link)
-     VALUES ${values.join(", ")}`,
-    params
-  );
-  console.log("[insertNotifications] INSERT erfolgreich für", recipients.length, "Empfänger");
+  try {
+    await pool.query(
+      `INSERT INTO notifications
+         (id, recipient_member_id, type, title, message, related_entity_type, related_entity_id, link)
+       VALUES ${values.join(", ")}`,
+      params
+    );
+    console.log("[insertNotifications] INSERT erfolgreich für", recipients.length, "Empfänger");
+  } catch (error) {
+    console.error("[insertNotifications] INSERT FEHLER:", error);
+    throw error;
+  }
 }
 
 /**
@@ -81,15 +86,17 @@ async function getAdminMemberIds(pool, clubId) {
  * Returns IDs of all active members of a company (via member_company_memberships).
  */
 async function getCompanyMemberIds(pool, companyId) {
+  console.log("[getCompanyMemberIds] companyId:", companyId);
   const result = await pool.query(
     `SELECT m.id
      FROM member_company_memberships mcm
      JOIN members m ON m.id = mcm.member_id
      WHERE mcm.company_id = $1
        AND mcm.valid_to IS NULL
-       AND m.status = 'active'`,
+       AND m.status IN ('active', 'passive')`,
     [companyId]
   );
+  console.log("[getCompanyMemberIds] result:", result.rows.length, "Mitglieder");
   return result.rows.map((r) => r.id);
 }
 
@@ -97,10 +104,12 @@ async function getCompanyMemberIds(pool, companyId) {
  * Returns IDs of all active members of a club.
  */
 async function getClubMemberIds(pool, clubId) {
+  console.log("[getClubMemberIds] clubId:", clubId);
   const result = await pool.query(
-    "SELECT id FROM members WHERE club_id = $1 AND status = 'active'",
+    "SELECT id FROM members WHERE club_id = $1 AND status IN ('active', 'passive')",
     [clubId]
   );
+  console.log("[getClubMemberIds] result:", result.rows.length, "Mitglieder");
   return result.rows.map((r) => r.id);
 }
 
@@ -143,6 +152,7 @@ async function notifyPostPublished(pool, post) {
  */
 async function notifyEventPublished(pool, event) {
   const { id, club_id, owner_type, owner_id, audience, title, created_by_member_id } = event;
+  console.log("[notifyEventPublished] audience:", audience, "owner_type:", owner_type, "owner_id:", owner_id, "club_id:", club_id, "excludeMemberId:", created_by_member_id);
   const notifData = {
     type: "new_event",
     title: "Neuer Termin",
@@ -155,9 +165,12 @@ async function notifyEventPublished(pool, event) {
 
   if (owner_type === "company" && audience === "company_only") {
     const memberIds = await getCompanyMemberIds(pool, owner_id);
+    console.log("[notifyEventPublished] company_only memberIds:", memberIds.length, memberIds);
     await insertNotifications(pool, memberIds, notifData);
-  } else if (audience !== "public") {
+  } else {
+    // club_internal UND public → alle aktiven Vereinsmitglieder benachrichtigen
     const memberIds = await getClubMemberIds(pool, club_id);
+    console.log("[notifyEventPublished] club memberIds:", memberIds.length, memberIds);
     await insertNotifications(pool, memberIds, notifData);
   }
 }

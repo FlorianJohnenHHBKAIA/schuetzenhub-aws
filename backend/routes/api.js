@@ -555,9 +555,12 @@ router.put("/posts/:id", requireAuth, async (req, res) => {
   if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
   const post = result.rows[0];
   if (prevStatus !== "approved" && post.publication_status === "approved") {
+    console.log("[PUT /api/posts/:id] triggering notifyPostPublished, prevStatus:", prevStatus);
     notifyPostPublished(pool, post).catch((err) =>
-      console.error("notifyPostPublished error:", err)
+      console.error("[PUT /api/posts/:id] notifyPostPublished FEHLER:", err)
     );
+  } else {
+    console.log("[PUT /api/posts/:id] kein Notify. prevStatus:", prevStatus, "newStatus:", post.publication_status);
   }
   res.json(post);
 });

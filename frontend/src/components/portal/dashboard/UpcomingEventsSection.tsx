@@ -40,7 +40,9 @@ const UpcomingEventsSection = ({
   const allEvents = [
     ...companyEvents.map(e => ({ ...e, isCompanyEvent: true })),
     ...clubEvents.map(e => ({ ...e, isCompanyEvent: false })),
-  ].slice(0, 5);
+  ]
+    .sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())
+    .slice(0, 5);
 
   if (isLoading) {
     return (
@@ -144,7 +146,7 @@ const UpcomingEventsSection = ({
                         {companyName || "Kompanie"}
                       </Badge>
                     )}
-                    {!isCompany && event.audience === 'public' && (
+                    {!isCompany && (
                       <Badge variant="outline" className="shrink-0 text-xs">
                         <Users className="w-3 h-3 mr-1" />
                         Verein
