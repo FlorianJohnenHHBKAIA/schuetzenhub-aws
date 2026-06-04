@@ -5,6 +5,7 @@ const pool = require("../db");
 const { requireAuth, requireActiveMember } = require("../middleware/auth");
 const multer = require("multer");
 const { saveFile, getPublicUrl, deleteFile } = require("../storage");
+const { insertNotifications, notifyPostPublished } = require("../lib/notifications");
 
 const upload = multer({ dest: "tmp/" });
 
@@ -501,6 +502,7 @@ router.get("/posts/:id", requireAuth, async (req, res) => {
 router.post("/posts", requireAuth, async (req, res) => {
   const { title, content, category, audience, publication_status, owner_type, owner_id,
           submitted_at, approved_at, approved_by_member_id, event_id, cover_image_path } = req.body;
+  console.log("[POST /api/posts] reached:", { title, audience, publication_status, owner_type, owner_id });
   if (!title) return res.status(400).json({ error: "Titel erforderlich" });
   const id = uuidv4();
   const result = await pool.query(
@@ -514,15 +516,31 @@ router.post("/posts", requireAuth, async (req, res) => {
      cover_image_path || null,
      submitted_at || null, approved_at || null, approved_by_member_id || null]
   );
-  res.status(201).json(result.rows[0]);
+  const post = result.rows[0];
+  console.log("[POST /api/posts] post created:", { id: post.id, status: post.publication_status, audience: post.audience, owner_type: post.owner_type, owner_id: post.owner_id, club_id: post.club_id });
+  if (post.publication_status === "approved") {
+    console.log("[POST /api/posts] triggering notifyPostPublished");
+    notifyPostPublished(pool, post).catch((err) =>
+      console.error("[POST /api/posts] notifyPostPublished FEHLER:", err)
+    );
+  } else {
+    console.log("[POST /api/posts] status nicht 'approved', kein Notify. Status:", post.publication_status);
+  }
+  res.status(201).json(post);
 });
 
 router.put("/posts/:id", requireAuth, async (req, res) => {
   const { title, content, category, audience, publication_status, approved_at, approved_by_member_id,
           rejection_reason, submitted_at, cover_image_path } = req.body;
+  const prevRes = await pool.query(
+    "SELECT publication_status FROM posts WHERE id = $1 AND club_id = $2",
+    [req.params.id, req.clubId]
+  );
+  if (!prevRes.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
+  const prevStatus = prevRes.rows[0].publication_status;
   const result = await pool.query(
     `UPDATE posts SET
-      title = COALESCE($1, title), content = $2, category = COALESCE($3, category),
+      title = COALESCE($1, title), content = COALESCE($2, content), category = COALESCE($3, category),
       audience = COALESCE($4, audience), publication_status = COALESCE($5, publication_status),
       approved_at = $6, approved_by_member_id = $7, rejection_reason = $8,
       submitted_at = $9, cover_image_path = COALESCE($10, cover_image_path),
@@ -535,7 +553,13 @@ router.put("/posts/:id", requireAuth, async (req, res) => {
      req.params.id, req.clubId]
   );
   if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
-  res.json(result.rows[0]);
+  const post = result.rows[0];
+  if (prevStatus !== "approved" && post.publication_status === "approved") {
+    notifyPostPublished(pool, post).catch((err) =>
+      console.error("notifyPostPublished error:", err)
+    );
+  }
+  res.json(post);
 });
 
 router.delete("/posts/:id", requireAuth, async (req, res) => {
@@ -721,7 +745,12 @@ router.delete("/posts/:id/reactions/:rid", requireAuth, requireActiveMember, asy
 
 router.get("/notifications", requireAuth, async (req, res) => {
   const result = await pool.query(
-    `SELECT * FROM notifications WHERE recipient_member_id = $1
+    `SELECT id, recipient_member_id, type, title, message,
+            related_entity_id AS reference_id,
+            related_entity_type AS reference_type,
+            link, is_read, created_at
+     FROM notifications
+     WHERE recipient_member_id = $1
      ORDER BY created_at DESC LIMIT 50`,
     [req.member.id]
   );
@@ -2207,18 +2236,22 @@ router.delete("/role-permissions/:id", requireAuth, async (req, res) => {
 
 // ─── Notifications (Bulk Insert) ───────────────────────────────────────────────
 
-// POST /api/notifications – einzelne oder mehrere Notifications anlegen
-router.post("/notifications", requireAuth, async (req, res) => {
+// POST /api/notifications/bulk – Bulk-Notifications für mehrere Empfänger
+router.post("/notifications/bulk", requireAuth, async (req, res) => {
   try {
-    const { recipient_member_id, type, title, message, related_entity_type, related_entity_id } = req.body;
-    const result = await pool.query(
-      `INSERT INTO notifications (id, recipient_member_id, type, title, message, related_entity_type, related_entity_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [uuidv4(), recipient_member_id, type, title, message || null, related_entity_type || null, related_entity_id || null]
-    );
-    res.status(201).json(result.rows[0]);
+    const {
+      memberIds, type, title, message, link,
+      relatedEntityType, relatedEntityId, excludeMemberId,
+    } = req.body;
+    if (!Array.isArray(memberIds) || !type || !title) {
+      return res.status(400).json({ error: "memberIds[], type und title erforderlich" });
+    }
+    await insertNotifications(pool, memberIds, {
+      type, title, message, link, relatedEntityType, relatedEntityId, excludeMemberId,
+    });
+    res.status(201).json({ created: memberIds.length });
   } catch (err) {
-    console.error("POST /notifications error:", err);
+    console.error("POST /notifications/bulk error:", err);
     res.status(500).json({ error: "Serverfehler" });
   }
 });

@@ -214,7 +214,7 @@ const PortalLayout = ({ children }: PortalLayoutProps) => {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <NotificationBell />
+            <NotificationBell variant="header" />
             <button
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               className="p-2 rounded-lg hover:bg-muted transition-colors"

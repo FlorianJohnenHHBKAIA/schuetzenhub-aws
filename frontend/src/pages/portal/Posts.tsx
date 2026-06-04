@@ -17,10 +17,9 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { supabase, getStorageUrl } from "@/integrations/api/client";
+import { supabase, apiJson, getStorageUrl } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { createNotificationsForMembers } from "@/hooks/useNotifications";
 import PostDetailDialog from "@/components/portal/PostDetailDialog";
 import PostPublicPreview from "@/components/portal/PostPublicPreview";
 import EventContextBanner from "@/components/portal/EventContextBanner";
@@ -283,51 +282,50 @@ const Posts = () => {
       const audienceTyped = formAudience as 'company_only' | 'club_internal' | 'public';
       const categoryTyped = formCategory as 'announcement' | 'info' | 'event' | 'warning' | 'other';
 
-      // Kompanieinterne Beiträge (nicht-public) können direkt veröffentlicht werden
-      const canDirectPublish = formOwnerType === 'company'
-        && companyPostPermissions.includes(formOwnerId)
-        && formAudience !== 'public';
+      // Admins/Berechtigte können Beiträge direkt veröffentlichen (nicht nur Kompanie-Posts)
+      const canDirectPublish = formAudience !== 'public' && (
+        (formOwnerType === 'company' && companyPostPermissions.includes(formOwnerId))
+        || (formOwnerType === 'club' && canManageClubPosts)
+      );
       const statusTyped = (
         asDraft ? 'draft' : canDirectPublish ? 'approved' : 'submitted'
       ) as 'draft' | 'submitted' | 'approved' | 'rejected';
       const now = new Date().toISOString();
 
       if (editingPost) {
-        const { error } = await supabase.from('posts').update({
-          title: formTitle.trim(), content: formContent.trim(), cover_image_path: coverPath,
-          category: categoryTyped, audience: audienceTyped, publication_status: statusTyped,
-          submitted_at: (!asDraft && !canDirectPublish) ? now : null,
-          approved_at: (canDirectPublish && !asDraft) ? now : null,
-          approved_by_member_id: (canDirectPublish && !asDraft) ? member.id : null,
-          // TODO: visible_until – aktivieren sobald DB-Spalte existiert:
-          //   ALTER TABLE posts ADD COLUMN visible_until TIMESTAMPTZ;
-          // visible_until: formVisibleUntil ? new Date(formVisibleUntil).toISOString() : null,
-          // TODO: is_pinned – aktivieren sobald DB-Spalte existiert:
-          //   ALTER TABLE posts ADD COLUMN is_pinned BOOLEAN NOT NULL DEFAULT FALSE;
-          // is_pinned: formIsPinned,
-          // TODO: comments_enabled – aktivieren sobald DB-Spalte existiert:
-          //   ALTER TABLE posts ADD COLUMN comments_enabled BOOLEAN NOT NULL DEFAULT TRUE;
-          // comments_enabled: formCommentsEnabled,
-        }).eq('id', editingPost.id);
-        if (error) throw error;
+        await apiJson(`/api/posts/${editingPost.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            title: formTitle.trim(),
+            content: formContent.trim(),
+            cover_image_path: coverPath,
+            category: categoryTyped,
+            audience: audienceTyped,
+            publication_status: statusTyped,
+            submitted_at: (!asDraft && !canDirectPublish) ? now : null,
+            approved_at: (canDirectPublish && !asDraft) ? now : null,
+            approved_by_member_id: (canDirectPublish && !asDraft) ? member.id : null,
+          }),
+        });
         toast({ title: 'Beitrag aktualisiert' });
       } else {
-        const { error } = await supabase.from('posts').insert({
-          club_id: member.club_id, owner_type: formOwnerType, owner_id: ownerId,
-          title: formTitle.trim(), content: formContent.trim(), cover_image_path: coverPath,
-          category: categoryTyped, audience: audienceTyped, publication_status: statusTyped,
-          submitted_at: (!asDraft && !canDirectPublish) ? now : null,
-          approved_at: (canDirectPublish && !asDraft) ? now : null,
-          approved_by_member_id: (canDirectPublish && !asDraft) ? member.id : null,
-          created_by_member_id: member.id, event_id: formEventId,
-          // TODO: visible_until – aktivieren sobald DB-Spalte existiert (s. o.)
-          // visible_until: formVisibleUntil ? new Date(formVisibleUntil).toISOString() : null,
-          // TODO: is_pinned – aktivieren sobald DB-Spalte existiert (s. o.)
-          // is_pinned: formIsPinned,
-          // TODO: comments_enabled – aktivieren sobald DB-Spalte existiert (s. o.)
-          // comments_enabled: formCommentsEnabled,
+        await apiJson('/api/posts', {
+          method: 'POST',
+          body: JSON.stringify({
+            title: formTitle.trim(),
+            content: formContent.trim(),
+            cover_image_path: coverPath,
+            category: categoryTyped,
+            audience: audienceTyped,
+            publication_status: statusTyped,
+            owner_type: formOwnerType,
+            owner_id: ownerId,
+            event_id: formEventId || null,
+            submitted_at: (!asDraft && !canDirectPublish) ? now : null,
+            approved_at: (canDirectPublish && !asDraft) ? now : null,
+            approved_by_member_id: (canDirectPublish && !asDraft) ? member.id : null,
+          }),
         });
-        if (error) throw error;
         toast({ title: asDraft ? 'Entwurf gespeichert' : canDirectPublish ? 'Beitrag veröffentlicht' : 'Beitrag eingereicht' });
       }
 
@@ -338,6 +336,23 @@ const Posts = () => {
       toast({ title: 'Fehler', description: error instanceof Error ? error.message : undefined, variant: 'destructive' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handlePublish = async (post: Post) => {
+    try {
+      await apiJson(`/api/posts/${post.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          publication_status: 'approved',
+          approved_at: new Date().toISOString(),
+          approved_by_member_id: member!.id,
+        }),
+      });
+      toast({ title: 'Beitrag veröffentlicht' });
+      fetchData();
+    } catch (error: unknown) {
+      toast({ title: 'Fehler', description: error instanceof Error ? error.message : undefined, variant: 'destructive' });
     }
   };
 
@@ -533,10 +548,10 @@ const Posts = () => {
           </Card>
 
           <TabsContent value="club" className="mt-4">
-            <PostGrid posts={filteredPosts} loading={loading} onView={(p) => { setSelectedPost(p); setDetailDialogOpen(true); }} onEdit={openEditDialog} onDelete={handleDelete} onRestore={handleRestore} onSubmit={handleSubmit} canManage={canManagePost} canSubmit={canSubmitPost} getStatusBadge={getStatusBadge} getAudienceBadge={getAudienceBadge} getCategoryIcon={getCategoryIcon} getCompanyName={getCompanyName} />
+            <PostGrid posts={filteredPosts} loading={loading} onView={(p) => { setSelectedPost(p); setDetailDialogOpen(true); }} onEdit={openEditDialog} onDelete={handleDelete} onRestore={handleRestore} onSubmit={handleSubmit} onPublish={handlePublish} canManage={canManagePost} canSubmit={canSubmitPost} getStatusBadge={getStatusBadge} getAudienceBadge={getAudienceBadge} getCategoryIcon={getCategoryIcon} getCompanyName={getCompanyName} />
           </TabsContent>
           <TabsContent value="company" className="mt-4">
-            <PostGrid posts={filteredPosts} loading={loading} onView={(p) => { setSelectedPost(p); setDetailDialogOpen(true); }} onEdit={openEditDialog} onDelete={handleDelete} onRestore={handleRestore} onSubmit={handleSubmit} canManage={canManagePost} canSubmit={canSubmitPost} getStatusBadge={getStatusBadge} getAudienceBadge={getAudienceBadge} getCategoryIcon={getCategoryIcon} getCompanyName={getCompanyName} />
+            <PostGrid posts={filteredPosts} loading={loading} onView={(p) => { setSelectedPost(p); setDetailDialogOpen(true); }} onEdit={openEditDialog} onDelete={handleDelete} onRestore={handleRestore} onSubmit={handleSubmit} onPublish={handlePublish} canManage={canManagePost} canSubmit={canSubmitPost} getStatusBadge={getStatusBadge} getAudienceBadge={getAudienceBadge} getCategoryIcon={getCategoryIcon} getCompanyName={getCompanyName} />
           </TabsContent>
         </Tabs>
       </div>
@@ -632,14 +647,12 @@ const Posts = () => {
             <Button variant="secondary" onClick={() => handleSave(true)} disabled={saving || !formTitle.trim() || !formContent.trim()}>
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Als Entwurf speichern'}
             </Button>
-            {(formOwnerType === 'company' || formAudience === 'public') && (
-              <Button onClick={() => handleSave(false)} disabled={saving || !formTitle.trim() || !formContent.trim()}>
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> :
-                  (formOwnerType === 'company' && formAudience !== 'public'
-                    ? 'Veröffentlichen'
-                    : 'Zur Freigabe einreichen')}
-              </Button>
-            )}
+            <Button onClick={() => handleSave(false)} disabled={saving || !formTitle.trim() || !formContent.trim()}>
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> :
+                (canManageClubPosts || companyPostPermissions.includes(formOwnerId))
+                  ? (formAudience === 'public' ? 'Zur Freigabe einreichen' : 'Veröffentlichen')
+                  : 'Zur Freigabe einreichen'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -657,6 +670,7 @@ interface PostGridProps {
   onDelete: (post: Post) => void;
   onRestore: (post: Post) => void;
   onSubmit: (post: Post) => void;
+  onPublish: (post: Post) => void;
   canManage: (post: Post) => boolean;
   canSubmit: (post: Post) => boolean;
   getStatusBadge: (status: string) => React.ReactNode;
@@ -665,7 +679,7 @@ interface PostGridProps {
   getCompanyName: (companyId: string) => string;
 }
 
-const PostGrid = ({ posts, loading, onView, onEdit, onDelete, onRestore, onSubmit, canManage, canSubmit, getStatusBadge, getAudienceBadge, getCategoryIcon, getCompanyName }: PostGridProps) => {
+const PostGrid = ({ posts, loading, onView, onEdit, onDelete, onRestore, onSubmit, onPublish, canManage, canSubmit, getStatusBadge, getAudienceBadge, getCategoryIcon, getCompanyName }: PostGridProps) => {
   if (loading) return <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
   if (posts.length === 0) return <Card><CardContent className="py-12 text-center"><Megaphone className="w-12 h-12 mx-auto mb-4 text-muted-foreground" /><p className="text-muted-foreground">Keine Beiträge gefunden</p></CardContent></Card>;
@@ -699,8 +713,16 @@ const PostGrid = ({ posts, loading, onView, onEdit, onDelete, onRestore, onSubmi
                 {post.publication_status !== 'archived' && (
                   <Button variant="ghost" size="sm" onClick={() => onEdit(post)}><Edit className="w-4 h-4" /></Button>
                 )}
-                {post.publication_status === 'draft' && canSubmit(post) && (
-                  <Button variant="ghost" size="sm" onClick={() => onSubmit(post)}><Send className="w-4 h-4" /></Button>
+                {post.publication_status === 'draft' && (
+                  canManage(post) ? (
+                    <Button variant="ghost" size="sm" onClick={() => onPublish(post)} title="Veröffentlichen">
+                      <CheckCircle className="w-4 h-4 text-green-600" />
+                    </Button>
+                  ) : canSubmit(post) ? (
+                    <Button variant="ghost" size="sm" onClick={() => onSubmit(post)} title="Zur Freigabe einreichen">
+                      <Send className="w-4 h-4" />
+                    </Button>
+                  ) : null
                 )}
                 {post.publication_status === 'archived' ? (
                   <Button variant="ghost" size="sm" onClick={() => onRestore(post)} title="Wiederherstellen"><ArchiveRestore className="w-4 h-4" /></Button>

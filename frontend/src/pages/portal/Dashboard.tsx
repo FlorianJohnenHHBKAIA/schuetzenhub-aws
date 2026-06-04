@@ -11,6 +11,7 @@ import UpcomingEventsSection from "@/components/portal/dashboard/UpcomingEventsS
 import CompanyUpdatesSection from "@/components/portal/dashboard/CompanyUpdatesSection";
 import EngagementSection from "@/components/portal/dashboard/EngagementSection";
 import PersonalSection from "@/components/portal/dashboard/PersonalSection";
+import NotificationsSection from "@/components/portal/dashboard/NotificationsSection";
 import CompanyBirthdaysSection from "@/components/portal/CompanyBirthdaysSection";
 
 interface CompanyInfo {
@@ -333,6 +334,8 @@ const Dashboard = () => {
           workStatsLoading={workStatsLoading}
           currentYear={currentYear}
         />
+
+        <NotificationsSection />
 
         <PersonalSection
           openShifts={workStats.upcomingShifts}

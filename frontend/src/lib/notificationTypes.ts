@@ -3,7 +3,7 @@
 
 export type NotificationCategory = 'important' | 'info' | 'reminder' | 'system';
 
-export type NotificationType = 
+export type NotificationType =
   // Important (default ON for in-app + email)
   | 'event_cancelled'
   | 'event_changed'
@@ -14,6 +14,7 @@ export type NotificationType =
   | 'approval_request'
   // Info (default ON for in-app only)
   | 'new_post'
+  | 'new_event'
   | 'post_comment'
   | 'new_document'
   | 'gallery_shared'
@@ -24,7 +25,9 @@ export type NotificationType =
   | 'role_changed'
   | 'delegation_granted'
   | 'delegation_revoked'
-  | 'event_updated';
+  | 'event_updated'
+  | 'membership_request'
+  | 'membership_approved';
 
 export interface NotificationTypeConfig {
   type: NotificationType;
@@ -121,6 +124,17 @@ export const NOTIFICATION_TYPES: Record<NotificationType, NotificationTypeConfig
   },
 
   // === INFO ===
+  new_event: {
+    type: 'new_event',
+    category: 'info',
+    labelDe: 'Neuer Termin',
+    icon: 'calendar',
+    defaultInApp: true,
+    defaultEmail: false,
+    defaultPush: false,
+    urgent: false,
+    deepLinkPattern: '/portal/events',
+  },
   new_post: {
     type: 'new_post',
     category: 'info',
@@ -234,6 +248,28 @@ export const NOTIFICATION_TYPES: Record<NotificationType, NotificationTypeConfig
     defaultPush: false,
     urgent: false,
     deepLinkPattern: '/portal/profile',
+  },
+  membership_request: {
+    type: 'membership_request',
+    category: 'important',
+    labelDe: 'Neue Mitgliedsanfrage',
+    icon: 'user-plus',
+    defaultInApp: true,
+    defaultEmail: true,
+    defaultPush: false,
+    urgent: false,
+    deepLinkPattern: '/portal/admin',
+  },
+  membership_approved: {
+    type: 'membership_approved',
+    category: 'system',
+    labelDe: 'Mitgliedschaft freigegeben',
+    icon: 'check-circle',
+    defaultInApp: true,
+    defaultEmail: false,
+    defaultPush: false,
+    urgent: false,
+    deepLinkPattern: '/portal',
   },
 };
 

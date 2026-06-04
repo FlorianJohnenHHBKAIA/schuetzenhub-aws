@@ -5,6 +5,7 @@ const pool = require("../db");
 const { requireAuth, requireActiveMember } = require("../middleware/auth");
 const multer = require("multer");
 const { saveFile, getPublicUrl } = require("../storage");
+const { insertNotifications } = require("../lib/notifications");
 
 const upload = multer({ dest: "tmp/" });
 
@@ -84,7 +85,15 @@ router.post("/:id/approve", requireAuth, async (req, res) => {
       [req.params.id, req.clubId]
     );
     if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
-    res.json(result.rows[0]);
+    const member = result.rows[0];
+    // Betroffenes Mitglied über Freigabe benachrichtigen
+    insertNotifications(pool, [member.id], {
+      type: "membership_approved",
+      title: "Mitgliedschaft freigegeben",
+      message: "Deine Mitgliedschaft wurde freigegeben.",
+      link: "/portal",
+    }).catch((err) => console.error("notifyMemberApproved error:", err));
+    res.json(member);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Serverfehler" });

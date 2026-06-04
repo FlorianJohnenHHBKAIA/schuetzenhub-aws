@@ -17,6 +17,7 @@ export interface Notification {
   category: NotificationCategory;
   reference_id: string;
   reference_type?: string;
+  link?: string;
   payload?: {
     event_title?: string;
     shift_title?: string;
@@ -92,7 +93,7 @@ export const useNotifications = () => {
           notifications: [notif],
           latestAt: notif.created_at,
           label: getGroupLabel(notif),
-          deepLink: getNotificationDeepLink(notif.type, notif.reference_id),
+          deepLink: notif.link || getNotificationDeepLink(notif.type, notif.reference_id),
         });
       }
     });
@@ -203,12 +204,20 @@ function getGroupLabel(notif: Notification): string {
       return "Neues Dokument verfuegbar";
     case "gallery_shared":
       return "Foto mit dir geteilt";
+    case "new_event":
+      return notif.payload?.event_title
+        ? `Neuer Termin: ${notif.payload.event_title}`
+        : notif.message || "Neuer Termin";
+    case "membership_request":
+      return notif.message || "Neue Mitgliedsanfrage";
+    case "membership_approved":
+      return "Deine Mitgliedschaft wurde freigegeben.";
     case "event_reminder":
       return `Erinnerung: ${payload.event_title || "Termin morgen"}`;
     case "workshift_reminder":
       return `Erinnerung: ${payload.shift_title || "Arbeitsdienst"}`;
     default:
-      return getNotificationLabel(notif.type);
+      return notif.message || getNotificationLabel(notif.type);
   }
 }
 
@@ -217,10 +226,9 @@ export const createNotification = async (
   recipientMemberId: string,
   type: NotificationType,
   referenceId: string,
-  payload?: Record<string, unknown>
+  _payload?: Record<string, unknown>
 ) => {
-  // Wird jetzt vom Backend ausgeloest, nicht vom Frontend
-  console.log("createNotification called - handle server-side", { clubId, recipientMemberId, type });
+  await createNotificationsForMembers(clubId, [recipientMemberId], type, referenceId);
 };
 
 export const createNotificationsForMembers = async (
@@ -229,7 +237,20 @@ export const createNotificationsForMembers = async (
   type: NotificationType,
   referenceId: string,
   excludeMemberId?: string,
-  payload?: Record<string, unknown>
+  extra?: { title?: string; message?: string; link?: string }
 ) => {
-  console.log("createNotificationsForMembers called - handle server-side", { clubId, memberIds, type });
+  if (!memberIds.length) return;
+  await apiJson("/api/notifications/bulk", {
+    method: "POST",
+    body: JSON.stringify({
+      memberIds,
+      type,
+      title: extra?.title ?? getNotificationLabel(type),
+      message: extra?.message,
+      link: extra?.link,
+      relatedEntityType: type,
+      relatedEntityId: referenceId,
+      excludeMemberId,
+    }),
+  });
 };

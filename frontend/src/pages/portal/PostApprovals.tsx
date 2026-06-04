@@ -13,10 +13,9 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { supabase, getStorageUrl } from "@/integrations/api/client";
+import { supabase, apiJson, getStorageUrl } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { createNotificationsForMembers } from "@/hooks/useNotifications";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import {
@@ -63,14 +62,6 @@ interface RawPost {
   created_at: string;
   created_by_member_id: string | null;
   creator?: { first_name: string; last_name: string } | null;
-}
-
-interface RawClubMember {
-  id: string;
-}
-
-interface RawCompanyMember {
-  member_id: string;
 }
 
 interface RawCompany {
@@ -134,51 +125,15 @@ const PostApprovals = () => {
     setProcessing(true);
 
     try {
-      const { error } = await supabase
-        .from('posts')
-        .update({
+      await apiJson(`/api/posts/${post.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
           publication_status: 'approved',
           approved_at: new Date().toISOString(),
           approved_by_member_id: member.id,
           rejection_reason: null,
-        })
-        .eq('id', post.id);
-
-      if (error) throw error;
-
-      if (post.audience === 'club_internal') {
-        const { data: clubMembers } = await supabase
-          .from('members')
-          .select('id')
-          .eq('club_id', post.club_id)
-          .in('status', ['active', 'passive']);
-
-        if (clubMembers) {
-          await createNotificationsForMembers(
-            post.club_id,
-            (clubMembers as RawClubMember[]).map(m => m.id),
-            'new_post',
-            post.id,
-            post.created_by_member_id || undefined
-          );
-        }
-      } else if (post.audience === 'company_only' && post.owner_type === 'company') {
-        const { data: companyMembers } = await supabase
-          .from('member_company_memberships')
-          .select('member_id')
-          .eq('company_id', post.owner_id)
-          .is('valid_to', null);
-
-        if (companyMembers) {
-          await createNotificationsForMembers(
-            post.club_id,
-            (companyMembers as RawCompanyMember[]).map(m => m.member_id),
-            'new_post',
-            post.id,
-            post.created_by_member_id || undefined
-          );
-        }
-      }
+        }),
+      });
 
       toast({ title: 'Beitrag freigegeben' });
       setDetailDialogOpen(false);

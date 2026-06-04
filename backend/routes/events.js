@@ -3,6 +3,7 @@ const router = express.Router();
 const { v4: uuidv4 } = require("uuid");
 const pool = require("../db");
 const { requireAuth } = require("../middleware/auth");
+const { notifyEventPublished } = require("../lib/notifications");
 
 // GET /api/events – Termine des Vereins
 router.get("/", requireAuth, async (req, res) => {
@@ -125,7 +126,13 @@ router.post("/", requireAuth, async (req, res) => {
        audience || "club_internal", publication_status || "draft",
        req.member.id, approved_at || null, approved_by_member_id || null]
     );
-    res.status(201).json(result.rows[0]);
+    const event = result.rows[0];
+    if (event.publication_status === "approved") {
+      notifyEventPublished(pool, event).catch((err) =>
+        console.error("notifyEventPublished error:", err)
+      );
+    }
+    res.status(201).json(event);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Serverfehler" });
@@ -142,6 +149,13 @@ router.put("/:id", requireAuth, async (req, res) => {
   } = req.body;
 
   try {
+    const prevRes = await pool.query(
+      "SELECT publication_status FROM events WHERE id = $1 AND club_id = $2",
+      [req.params.id, req.clubId]
+    );
+    if (!prevRes.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
+    const prevStatus = prevRes.rows[0].publication_status;
+
     const result = await pool.query(
       `UPDATE events SET
         title = COALESCE($1, title),
@@ -168,7 +182,13 @@ router.put("/:id", requireAuth, async (req, res) => {
        req.member.id, req.params.id, req.clubId]
     );
     if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
-    res.json(result.rows[0]);
+    const event = result.rows[0];
+    if (prevStatus !== "approved" && event.publication_status === "approved") {
+      notifyEventPublished(pool, event).catch((err) =>
+        console.error("notifyEventPublished error:", err)
+      );
+    }
+    res.json(event);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Serverfehler" });

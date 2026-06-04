@@ -20,9 +20,11 @@ import {
   CalendarX,
   UserCheck,
   UserX,
+  UserPlus,
   Clock,
   AlertCircle,
   CheckSquare,
+  CheckCircle,
   FileText,
   Image,
   Shield,
@@ -35,7 +37,11 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
-const NotificationBell = () => {
+interface NotificationBellProps {
+  variant?: 'sidebar' | 'header';
+}
+
+const NotificationBell = ({ variant = 'sidebar' }: NotificationBellProps) => {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const {
@@ -45,6 +51,13 @@ const NotificationBell = () => {
     markGroupAsRead,
     markAllAsRead,
   } = useNotifications();
+
+  const buttonCls = variant === 'header'
+    ? "relative hover:bg-muted/50"
+    : "relative hover:bg-sidebar-accent/50";
+  const iconCls = variant === 'header'
+    ? "w-5 h-5 text-foreground/70"
+    : "w-5 h-5 text-sidebar-foreground/70";
 
   const handleNotificationClick = async (group: GroupedNotifications) => {
     await markGroupAsRead(group);
@@ -71,6 +84,9 @@ const NotificationBell = () => {
       'delegation_revoked': <Key className="w-4 h-4 text-destructive" />,
       'event_reminder': <BellRing className="w-4 h-4 text-purple-500" />,
       'workshift_reminder': <AlarmClock className="w-4 h-4 text-purple-500" />,
+      'new_event': <Calendar className="w-4 h-4 text-primary" />,
+      'membership_request': <UserPlus className="w-4 h-4 text-orange-500" />,
+      'membership_approved': <CheckCircle className="w-4 h-4 text-green-500" />,
     };
 
     return iconMap[type] || <Bell className="w-4 h-4" />;
@@ -99,9 +115,9 @@ const NotificationBell = () => {
         <Button
           variant="ghost"
           size="icon"
-          className="relative hover:bg-sidebar-accent/50"
+          className={buttonCls}
         >
-          <Bell className="w-5 h-5 text-sidebar-foreground/70" />
+          <Bell className={iconCls} />
           {unreadCount > 0 && (
             <Badge
               className="absolute -top-1 -right-1 h-5 min-w-5 flex items-center justify-center p-0 text-xs"
@@ -219,6 +235,10 @@ function getGroupedLabel(group: GroupedNotifications): string {
   switch (group.type) {
     case 'new_post':
       return `${count} neue Beiträge`;
+    case 'new_event':
+      return `${count} neue Termine`;
+    case 'membership_request':
+      return `${count} neue Mitgliedsanfragen`;
     case 'post_comment':
       return `${count} neue Kommentare`;
     case 'workshift_assigned':

@@ -616,3 +616,10 @@ CREATE TABLE IF NOT EXISTS event_participants (
 CREATE INDEX IF NOT EXISTS idx_event_participants_event  ON event_participants (event_id);
 CREATE INDEX IF NOT EXISTS idx_event_participants_member ON event_participants (member_id);
 
+-- ============================================================
+-- NEU 2026-06-03
+-- Notifications: Ziel-Link für In-App-Benachrichtigungen
+-- ============================================================
+
+ALTER TABLE notifications
+ADD COLUMN IF NOT EXISTS link TEXT;

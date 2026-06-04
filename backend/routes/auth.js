@@ -5,6 +5,7 @@ const jwt = require("jsonwebtoken");
 const { v4: uuidv4 } = require("uuid");
 const pool = require("../db");
 const { requireAuth } = require("../middleware/auth");
+const { getAdminMemberIds, insertNotifications } = require("../lib/notifications");
 
 function signToken(userId, email) {
   return jwt.sign(
@@ -118,6 +119,19 @@ router.post("/register", async (req, res) => {
     await client.query("COMMIT");
 
     const token = signToken(userId, email.toLowerCase().trim());
+
+    // Admins über neue Mitgliedsanfrage benachrichtigen (fire-and-forget)
+    getAdminMemberIds(pool, clubId)
+      .then((adminIds) =>
+        insertNotifications(pool, adminIds, {
+          type: "membership_request",
+          title: "Neue Mitgliedsanfrage",
+          message: `${firstName} ${lastName} wartet auf Freigabe.`,
+          link: "/portal/admin",
+        })
+      )
+      .catch((err) => console.error("notifyAdmins registration error:", err));
+
     res.status(201).json({ token, userId, email: email.toLowerCase().trim() });
   } catch (err) {
     await client.query("ROLLBACK");
