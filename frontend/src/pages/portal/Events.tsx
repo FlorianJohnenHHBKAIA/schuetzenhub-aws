@@ -279,7 +279,7 @@ const Events = () => {
     setIsDialogOpen(true);
   };
 
-  const handleSave = async () => {
+  const handleSave = async (publishDirectly = false) => {
     if (!title.trim() || !startAt || !member) return;
 
     if (endAt && new Date(endAt) < new Date(startAt)) {
@@ -318,6 +318,10 @@ const Events = () => {
           updateData.publication_status = "approved";
           updateData.approved_at = new Date().toISOString();
           updateData.approved_by_member_id = member.id;
+        } else if (publishDirectly && canApprove) {
+          updateData.publication_status = "approved";
+          updateData.approved_at = new Date().toISOString();
+          updateData.approved_by_member_id = member.id;
         }
 
         // Termin über Backend-API aktualisieren
@@ -343,10 +347,12 @@ const Events = () => {
           // Frontend bestimmt den initialen Publikationsstatus basierend auf Berechtigungen
           publication_status: ownerType === "company"
             ? "approved"
-            : (effectiveAudience === "public" && canManageClubEvents ? "approved" : "draft"),
+            : (effectiveAudience === "public" && canManageClubEvents
+                ? "approved"
+                : (publishDirectly && canApprove ? "approved" : "draft")),
         };
 
-        if (effectiveAudience === "public" && canManageClubEvents) {
+        if ((effectiveAudience === "public" && canManageClubEvents) || (publishDirectly && canApprove)) {
           insertData.approved_at = new Date().toISOString();
           insertData.approved_by_member_id = member.id;
         }
@@ -435,6 +441,27 @@ const Events = () => {
       fetchData();
     } catch (error: unknown) {
       toast.error("Fehler beim Freigeben");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handlePublish = async (event: Event) => {
+    if (!member) return;
+    setIsSubmitting(true);
+    try {
+      await apiJson(`/api/events/${event.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          publication_status: "approved",
+          approved_at: new Date().toISOString(),
+          approved_by_member_id: member.id,
+        }),
+      });
+      toast.success("Termin veröffentlicht");
+      fetchData();
+    } catch (error: unknown) {
+      toast.error("Fehler beim Veröffentlichen");
     } finally {
       setIsSubmitting(false);
     }
@@ -584,6 +611,19 @@ const Events = () => {
                           </div>
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
+                          {event.publication_status === "draft" && canApprove && (
+                            <div className="flex gap-1 mr-2 border-r pr-2">
+                              <Button
+                                size="sm"
+                                onClick={() => handlePublish(event)}
+                                disabled={isSubmitting}
+                                className="bg-green-600 hover:bg-green-700"
+                              >
+                                <CheckCircle className="w-4 h-4 mr-1" />
+                                Veröffentlichen
+                              </Button>
+                            </div>
+                          )}
                           {event.publication_status === "submitted" && canApprove && (
                             <div className="flex gap-1 mr-2 border-r pr-2">
                               <Button
@@ -738,9 +778,31 @@ const Events = () => {
           </div>
           <DialogFooter className="flex-shrink-0 pt-4 border-t">
             <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Abbrechen</Button>
-            <Button onClick={handleSave} disabled={isSubmitting || !title.trim() || !startAt || (ownerType === "company" && !formOwnerId)}>
-              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Speichern"}
-            </Button>
+            {canApprove ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => handleSave(false)}
+                  disabled={isSubmitting || !title.trim() || !startAt || (ownerType === "company" && !formOwnerId)}
+                >
+                  Als Entwurf speichern
+                </Button>
+                <Button
+                  onClick={() => handleSave(true)}
+                  disabled={isSubmitting || !title.trim() || !startAt || (ownerType === "company" && !formOwnerId)}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Veröffentlichen"}
+                </Button>
+              </>
+            ) : (
+              <Button
+                onClick={() => handleSave()}
+                disabled={isSubmitting || !title.trim() || !startAt || (ownerType === "company" && !formOwnerId)}
+              >
+                {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Speichern"}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

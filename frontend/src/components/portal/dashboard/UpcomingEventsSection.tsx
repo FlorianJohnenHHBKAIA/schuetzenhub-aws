@@ -114,7 +114,7 @@ const UpcomingEventsSection = ({
           return (
             <Link
               key={event.id}
-              to={`/portal/events`}
+              to={`/portal/events/${event.id}/organize`}
               className={`block p-4 rounded-xl border transition-all hover:shadow-md ${
                 isCompany 
                   ? 'bg-primary/5 border-primary/20 hover:border-primary/40' 

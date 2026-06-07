@@ -113,7 +113,7 @@ const Dashboard = () => {
     setIsLoading(true);
 
     try {
-      const now = new Date().toISOString();
+      const now = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
 
       const { data: membership } = await supabase
         .from("member_company_memberships")
@@ -158,7 +158,7 @@ const Dashboard = () => {
         .select("id, title, start_at, location, owner_type, owner_id, audience")
         .eq("club_id", member.club_id)
         .eq("owner_type", "club")
-        .in("publication_status", ["approved"])
+        .in("publication_status", ["approved", "submitted"])
         .in("audience", ["public", "club_internal"])
         .gte("start_at", now)
         .order("start_at", { ascending: true })
