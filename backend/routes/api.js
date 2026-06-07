@@ -5,7 +5,7 @@ const pool = require("../db");
 const { requireAuth, requireActiveMember } = require("../middleware/auth");
 const multer = require("multer");
 const { saveFile, getPublicUrl, deleteFile } = require("../storage");
-const { insertNotifications, notifyPostPublished } = require("../lib/notifications");
+const { insertNotifications, notifyPostPublished, getClubMemberIds, getCompanyMemberIds } = require("../lib/notifications");
 
 const upload = multer({ dest: "tmp/" });
 
@@ -930,6 +930,21 @@ router.post("/work-shifts", requireAuth, async (req, res) => {
      required_slots || 1, owner_type || "club", owner_id || req.clubId, event_id || null]
   );
   res.status(201).json(result.rows[0]);
+});
+
+router.put("/work-shifts/:id", requireAuth, async (req, res) => {
+  const { title, description, start_at, end_at, required_slots, owner_type, owner_id } = req.body;
+  if (!title || !start_at) return res.status(400).json({ error: "Pflichtfelder fehlen" });
+  try {
+    await pool.query(
+      `UPDATE work_shifts SET title=$1, description=$2, start_at=$3, end_at=$4, required_slots=$5, owner_type=$6, owner_id=$7 WHERE id=$8 AND club_id=$9`,
+      [title, description || null, start_at, end_at || null, required_slots || 1, owner_type || "club", owner_id, req.params.id, req.clubId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("PUT /work-shifts/:id error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
 });
 
 router.delete("/work-shifts/:id", requireAuth, async (req, res) => {
@@ -2255,6 +2270,39 @@ router.post("/notifications/bulk", requireAuth, async (req, res) => {
     res.status(201).json({ created: memberIds.length });
   } catch (err) {
     console.error("POST /notifications/bulk error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// POST /api/notifications/notify-audience – Benachrichtigt Vereins- oder Kompanie-Mitglieder
+router.post("/notifications/notify-audience", requireAuth, async (req, res) => {
+  try {
+    const {
+      scope, companyId,
+      type, title, message, link,
+      relatedEntityType, relatedEntityId, excludeMemberId,
+    } = req.body;
+
+    if (!scope || !type || !title) {
+      return res.status(400).json({ error: "scope, type und title erforderlich" });
+    }
+
+    let memberIds;
+    if (scope === "company") {
+      if (!companyId) return res.status(400).json({ error: "companyId erforderlich für scope=company" });
+      memberIds = await getCompanyMemberIds(pool, companyId);
+    } else {
+      memberIds = await getClubMemberIds(pool, req.clubId);
+    }
+
+    await insertNotifications(pool, memberIds, {
+      type, title, message, link, relatedEntityType, relatedEntityId, excludeMemberId,
+    });
+
+    console.log("[notify-audience] scope:", scope, "sent:", memberIds.length);
+    res.status(201).json({ sent: memberIds.length });
+  } catch (err) {
+    console.error("POST /notifications/notify-audience error:", err);
     res.status(500).json({ error: "Serverfehler" });
   }
 });

@@ -166,12 +166,12 @@ async function notifyEventPublished(pool, event) {
   if (owner_type === "company" && audience === "company_only") {
     const memberIds = await getCompanyMemberIds(pool, owner_id);
     console.log("[notifyEventPublished] company_only memberIds:", memberIds.length, memberIds);
-    await insertNotifications(pool, memberIds, notifData);
+    await insertNotifications(pool, memberIds, { ...notifData, link: `/portal/events/${id}/organize` });
   } else {
     // club_internal UND public → alle aktiven Vereinsmitglieder benachrichtigen
     const memberIds = await getClubMemberIds(pool, club_id);
     console.log("[notifyEventPublished] club memberIds:", memberIds.length, memberIds);
-    await insertNotifications(pool, memberIds, notifData);
+    await insertNotifications(pool, memberIds, { ...notifData, link: `/portal/events/${id}/organize` });
   }
 }
 

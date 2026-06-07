@@ -114,6 +114,8 @@ interface ParticipantCount {
 interface EventRsvpStat {
   eventId: string;
   title: string;
+  startAt: string;
+  ownerType: string;
   attending: number;
   declined: number;
   pending: number;
@@ -185,7 +187,7 @@ const AdminHome = () => {
           .order("start_at"),
         supabase
           .from("events")
-          .select("id, title")
+          .select("id, title, start_at, owner_type")
           .eq("club_id", member.club_id)
           .in("publication_status", ["approved", "submitted"])
           .gte("start_at", now.toISOString())
@@ -256,38 +258,41 @@ const AdminHome = () => {
         }
       }
 
-      const rsvpEvents = (upcomingEventsForRsvpRes.data as { id: string; title: string }[]) || [];
+      const rsvpEvents = (upcomingEventsForRsvpRes.data as {
+        id: string; title: string; start_at: string; owner_type: string;
+      }[]) || [];
       if (rsvpEvents.length > 0) {
-        apiJson<ParticipantCount[]>(
-          `/api/events/participant-counts?ids=${rsvpEvents.map(e => e.id).join(",")}`
-        )
-          .then(counts => {
-            const countMap: Record<string, ParticipantCount> = Object.fromEntries(
-              counts.map(c => [c.event_id, c])
-            );
-            const stats: EventRsvpStat[] = rsvpEvents.map(event => {
-              const c = countMap[event.id] ?? { attending_count: 0, declined_count: 0, member_count: 0 };
-              const pending = Math.max(0, c.member_count - c.attending_count - c.declined_count);
-              const responseRate = c.member_count > 0
-                ? Math.round(((c.attending_count + c.declined_count) / c.member_count) * 100)
-                : 0;
-              return {
-                eventId: event.id,
-                title: event.title,
-                attending: c.attending_count,
-                declined: c.declined_count,
-                pending,
-                memberCount: c.member_count,
-                responseRate,
-              };
-            });
-            setEventRsvpStats(
-              stats
-                .sort((a, b) => a.responseRate - b.responseRate)
-                .slice(0, 5)
-            );
-          })
-          .catch(() => {});
+        try {
+          const counts = await apiJson<ParticipantCount[]>(
+            `/api/events/participant-counts?ids=${rsvpEvents.map(e => e.id).join(",")}`
+          );
+          const countMap: Record<string, ParticipantCount> = Object.fromEntries(
+            counts.map(c => [c.event_id, c])
+          );
+          const stats: EventRsvpStat[] = rsvpEvents.map(event => {
+            const c = countMap[event.id] ?? { attending_count: 0, declined_count: 0, member_count: 0 };
+            const pending = Math.max(0, c.member_count - c.attending_count - c.declined_count);
+            const responseRate = c.member_count > 0
+              ? Math.round(((c.attending_count + c.declined_count) / c.member_count) * 100)
+              : 0;
+            return {
+              eventId: event.id,
+              title: event.title,
+              startAt: event.start_at,
+              ownerType: event.owner_type,
+              attending: c.attending_count,
+              declined: c.declined_count,
+              pending,
+              memberCount: c.member_count,
+              responseRate,
+            };
+          });
+          setEventRsvpStats(
+            stats.sort((a, b) => a.responseRate - b.responseRate).slice(0, 5)
+          );
+        } catch {
+          // Fehler: Section zeigt leer, kein Absturz
+        }
       }
 
       const magazineData = currentMagazineRes.data as MagazineData | null;
@@ -771,9 +776,24 @@ const AdminHome = () => {
             </h2>
             <div className="space-y-2">
               {eventRsvpStats.map(stat => (
-                <div key={stat.eventId} className="p-4 rounded-xl bg-card border border-border">
-                  <p className="font-medium truncate">{stat.title}</p>
-                  <div className="flex flex-wrap items-center gap-4 text-sm mt-1">
+                <Link
+                  key={stat.eventId}
+                  to={`/portal/events/${stat.eventId}/organize`}
+                  className="block p-4 rounded-xl bg-card border border-border hover:shadow-md hover:border-primary/20 transition-all"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="font-medium truncate flex-1">{stat.title}</p>
+                    <Badge variant="outline" className="shrink-0 text-xs">
+                      {stat.ownerType === "club"
+                        ? <><Users className="w-3 h-3 mr-1 inline" />Verein</>
+                        : <><Building2 className="w-3 h-3 mr-1 inline" />Kompanie</>
+                      }
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    {format(new Date(stat.startAt), "EEEE, dd. MMMM yyyy", { locale: de })}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-4 text-sm">
                     <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
                       <CheckCircle2 className="w-3 h-3" /> {stat.attending} Zusagen
                     </span>
@@ -787,7 +807,15 @@ const AdminHome = () => {
                       {stat.responseRate}% Rückmeldequote
                     </span>
                   </div>
-                </div>
+                  {stat.memberCount > 0 && (
+                    <div className="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full transition-all"
+                        style={{ width: `${stat.responseRate}%` }}
+                      />
+                    </div>
+                  )}
+                </Link>
               ))}
             </div>
           </motion.section>

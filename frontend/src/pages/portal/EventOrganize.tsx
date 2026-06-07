@@ -24,6 +24,7 @@ import {
   Save,
   Loader2,
   CheckCheck,
+  Bell,
 } from "lucide-react";
 import PortalLayout from "@/components/portal/PortalLayout";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,7 @@ import EventPostsSection from "@/components/portal/EventPostsSection";
 import EventParticipantsSection from "@/components/portal/EventParticipantsSection";
 import EventQuickActions from "@/components/portal/EventQuickActions";
 import EventPublicPreview from "@/components/portal/EventPublicPreview";
+import NotifyMembersDialog from "@/components/portal/NotifyMembersDialog";
 import { notifyNewShift, notifyEventNotesChanged } from "@/lib/eventNotifications";
 
 type EventAudience = "company_only" | "club_internal" | "public";
@@ -176,6 +178,8 @@ const EventOrganize = () => {
 
   const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<WorkShift | null>(null);
+  const [notifyEventDialogOpen, setNotifyEventDialogOpen] = useState(false);
+  const [notifyShift, setNotifyShift] = useState<WorkShift | null>(null);
   const [formTitle, setFormTitle] = useState("");
   const [formStartAt, setFormStartAt] = useState("");
   const [formEndAt, setFormEndAt] = useState("");
@@ -572,12 +576,20 @@ const EventOrganize = () => {
               {event.description && <p className="mt-3 text-muted-foreground">{event.description}</p>}
             </div>
 
-            {canEdit && (
-              <Button variant="outline" onClick={openEditDialog}>
-                <Edit className="w-4 h-4 mr-2" />
-                Bearbeiten
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {canEdit && (
+                <Button variant="outline" size="sm" onClick={() => setNotifyEventDialogOpen(true)}>
+                  <Bell className="w-4 h-4 mr-2" />
+                  Benachrichtigen
+                </Button>
+              )}
+              {canEdit && (
+                <Button variant="outline" onClick={openEditDialog}>
+                  <Edit className="w-4 h-4 mr-2" />
+                  Bearbeiten
+                </Button>
+              )}
+            </div>
           </div>
         </motion.div>
 
@@ -669,8 +681,7 @@ const EventOrganize = () => {
           <EventPostsSection eventId={event.id} clubId={event.club_id} canManage={canEdit} />
         </motion.div>
 
-        {/* AUSKOMMENTIERT: Arbeitsdienst-Verwaltung (Kann später wieder aktiviert werden) */}
-        {/* <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.27 }}>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-3">
               <CardTitle className="text-lg flex items-center gap-2"><ClipboardList className="w-5 h-5" />Arbeitsdienste ({shifts.length})</CardTitle>
@@ -678,6 +689,11 @@ const EventOrganize = () => {
                 {canEdit && assignments.some(a => a.status === "signed_up") && (
                   <Button size="sm" variant="outline" onClick={handleMarkAllEventCompleted} className="text-green-600 hover:text-green-700 hover:bg-green-50">
                     <CheckCheck className="w-4 h-4 mr-2" />Alle erledigt
+                  </Button>
+                )}
+                {canEdit && (
+                  <Button size="sm" onClick={openNewShiftDialog}>
+                    <Plus className="w-4 h-4 mr-2" />Neue Schicht
                   </Button>
                 )}
               </div>
@@ -737,6 +753,11 @@ const EventOrganize = () => {
                             ) : null}
                             {canManage && (
                               <>
+                                {hasOpenSlots && (
+                                  <Button variant="ghost" size="sm" title="Helfer gesucht – Mitglieder benachrichtigen" onClick={() => setNotifyShift(shift)}>
+                                    <Bell className="w-4 h-4" />
+                                  </Button>
+                                )}
                                 <Button variant="ghost" size="sm" onClick={() => openEditShiftDialog(shift)}><Edit className="w-4 h-4" /></Button>
                                 <Button variant="ghost" size="sm" className="text-destructive" onClick={() => handleDeleteShift(shift)}><Trash2 className="w-4 h-4" /></Button>
                               </>
@@ -776,7 +797,7 @@ const EventOrganize = () => {
               )}
             </CardContent>
           </Card>
-        </motion.div> */}
+        </motion.div>
 
         <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
           <DialogContent className={`${editAudience === "public" && editOwnerType === "club" ? "sm:max-w-2xl" : "sm:max-w-md"} max-h-[90vh] flex flex-col`}>
@@ -917,6 +938,36 @@ const EventOrganize = () => {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {event && (
+          <NotifyMembersDialog
+            open={notifyEventDialogOpen}
+            onOpenChange={setNotifyEventDialogOpen}
+            entityType="event"
+            entityId={event.id}
+            entityTitle={event.title}
+            ownerType={event.owner_type}
+            ownerId={event.owner_id}
+            clubId={event.club_id}
+            companies={companies}
+            currentMemberId={member?.id}
+          />
+        )}
+
+        {event && notifyShift && (
+          <NotifyMembersDialog
+            open={!!notifyShift}
+            onOpenChange={(open) => { if (!open) setNotifyShift(null); }}
+            entityType="work_shift"
+            entityId={event.id}
+            entityTitle={notifyShift.title}
+            ownerType={notifyShift.owner_type}
+            ownerId={notifyShift.owner_id}
+            clubId={event.club_id}
+            companies={companies}
+            currentMemberId={member?.id}
+          />
+        )}
       </div>
     </PortalLayout>
   );

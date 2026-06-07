@@ -56,6 +56,7 @@ import {
   Trophy,
   Heart,
 } from "lucide-react";
+import NotifyMembersDialog from "@/components/portal/NotifyMembersDialog";
 
 interface Post {
   id: string;
@@ -163,6 +164,7 @@ const Posts = () => {
   const [editingPost, setEditingPost] = useState<Post | null>(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+  const [notifyPost, setNotifyPost] = useState<Post | null>(null);
 
   const [formTitle, setFormTitle] = useState('');
   const [formContent, setFormContent] = useState('');
@@ -548,10 +550,10 @@ const Posts = () => {
           </Card>
 
           <TabsContent value="club" className="mt-4">
-            <PostGrid posts={filteredPosts} loading={loading} onView={(p) => { setSelectedPost(p); setDetailDialogOpen(true); }} onEdit={openEditDialog} onDelete={handleDelete} onRestore={handleRestore} onSubmit={handleSubmit} onPublish={handlePublish} canManage={canManagePost} canSubmit={canSubmitPost} getStatusBadge={getStatusBadge} getAudienceBadge={getAudienceBadge} getCategoryIcon={getCategoryIcon} getCompanyName={getCompanyName} />
+            <PostGrid posts={filteredPosts} loading={loading} onView={(p) => { setSelectedPost(p); setDetailDialogOpen(true); }} onEdit={openEditDialog} onDelete={handleDelete} onRestore={handleRestore} onSubmit={handleSubmit} onPublish={handlePublish} onNotify={(p) => setNotifyPost(p)} canManage={canManagePost} canSubmit={canSubmitPost} getStatusBadge={getStatusBadge} getAudienceBadge={getAudienceBadge} getCategoryIcon={getCategoryIcon} getCompanyName={getCompanyName} />
           </TabsContent>
           <TabsContent value="company" className="mt-4">
-            <PostGrid posts={filteredPosts} loading={loading} onView={(p) => { setSelectedPost(p); setDetailDialogOpen(true); }} onEdit={openEditDialog} onDelete={handleDelete} onRestore={handleRestore} onSubmit={handleSubmit} onPublish={handlePublish} canManage={canManagePost} canSubmit={canSubmitPost} getStatusBadge={getStatusBadge} getAudienceBadge={getAudienceBadge} getCategoryIcon={getCategoryIcon} getCompanyName={getCompanyName} />
+            <PostGrid posts={filteredPosts} loading={loading} onView={(p) => { setSelectedPost(p); setDetailDialogOpen(true); }} onEdit={openEditDialog} onDelete={handleDelete} onRestore={handleRestore} onSubmit={handleSubmit} onPublish={handlePublish} onNotify={(p) => setNotifyPost(p)} canManage={canManagePost} canSubmit={canSubmitPost} getStatusBadge={getStatusBadge} getAudienceBadge={getAudienceBadge} getCategoryIcon={getCategoryIcon} getCompanyName={getCompanyName} />
           </TabsContent>
         </Tabs>
       </div>
@@ -658,6 +660,21 @@ const Posts = () => {
       </Dialog>
 
       <PostDetailDialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen} post={selectedPost} />
+
+      {notifyPost && (
+        <NotifyMembersDialog
+          open={!!notifyPost}
+          onOpenChange={(open) => { if (!open) setNotifyPost(null); }}
+          entityType="post"
+          entityId={notifyPost.id}
+          entityTitle={notifyPost.title}
+          ownerType={notifyPost.owner_type}
+          ownerId={notifyPost.owner_id}
+          clubId={notifyPost.club_id}
+          companies={companies}
+          currentMemberId={member?.id}
+        />
+      )}
     </PortalLayout>
   );
 };
@@ -671,6 +688,7 @@ interface PostGridProps {
   onRestore: (post: Post) => void;
   onSubmit: (post: Post) => void;
   onPublish: (post: Post) => void;
+  onNotify?: (post: Post) => void;
   canManage: (post: Post) => boolean;
   canSubmit: (post: Post) => boolean;
   getStatusBadge: (status: string) => React.ReactNode;
@@ -679,7 +697,7 @@ interface PostGridProps {
   getCompanyName: (companyId: string) => string;
 }
 
-const PostGrid = ({ posts, loading, onView, onEdit, onDelete, onRestore, onSubmit, onPublish, canManage, canSubmit, getStatusBadge, getAudienceBadge, getCategoryIcon, getCompanyName }: PostGridProps) => {
+const PostGrid = ({ posts, loading, onView, onEdit, onDelete, onRestore, onSubmit, onPublish, onNotify, canManage, canSubmit, getStatusBadge, getAudienceBadge, getCategoryIcon, getCompanyName }: PostGridProps) => {
   if (loading) return <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
   if (posts.length === 0) return <Card><CardContent className="py-12 text-center"><Megaphone className="w-12 h-12 mx-auto mb-4 text-muted-foreground" /><p className="text-muted-foreground">Keine Beiträge gefunden</p></CardContent></Card>;
@@ -723,6 +741,11 @@ const PostGrid = ({ posts, loading, onView, onEdit, onDelete, onRestore, onSubmi
                       <Send className="w-4 h-4" />
                     </Button>
                   ) : null
+                )}
+                {post.publication_status === 'approved' && onNotify && (
+                  <Button variant="ghost" size="sm" onClick={() => onNotify(post)} title="Mitglieder benachrichtigen">
+                    <Bell className="w-4 h-4" />
+                  </Button>
                 )}
                 {post.publication_status === 'archived' ? (
                   <Button variant="ghost" size="sm" onClick={() => onRestore(post)} title="Wiederherstellen"><ArchiveRestore className="w-4 h-4" /></Button>

@@ -145,7 +145,7 @@ router.put("/:id", requireAuth, async (req, res) => {
     title, description, location, start_at, end_at, category,
     owner_type, owner_id, audience, publication_status,
     approved_at, approved_by_member_id, rejection_reason,
-    submitted_at,
+    submitted_at, responsible_member_id,
   } = req.body;
 
   try {
@@ -172,13 +172,15 @@ router.put("/:id", requireAuth, async (req, res) => {
         approved_by_member_id = $12,
         rejection_reason = $13,
         submitted_at = $14,
-        updated_by_member_id = $15
-       WHERE id = $16 AND club_id = $17
+        responsible_member_id = $15,
+        updated_by_member_id = $16
+       WHERE id = $17 AND club_id = $18
        RETURNING *`,
       [title, description ?? null, location ?? null, start_at, end_at ?? null,
        category, owner_type, owner_id, audience, publication_status,
        approved_at ?? null, approved_by_member_id ?? null,
        rejection_reason ?? null, submitted_at ?? null,
+       responsible_member_id ?? null,
        req.member.id, req.params.id, req.clubId]
     );
     if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
