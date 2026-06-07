@@ -55,6 +55,7 @@ import EventParticipantsSection from "@/components/portal/EventParticipantsSecti
 import EventQuickActions from "@/components/portal/EventQuickActions";
 import EventPublicPreview from "@/components/portal/EventPublicPreview";
 import NotifyMembersDialog from "@/components/portal/NotifyMembersDialog";
+import CreateEventPostDialog from "@/components/portal/CreateEventPostDialog";
 import { notifyNewShift, notifyEventNotesChanged } from "@/lib/eventNotifications";
 
 type EventAudience = "company_only" | "club_internal" | "public";
@@ -180,6 +181,8 @@ const EventOrganize = () => {
   const [editingShift, setEditingShift] = useState<WorkShift | null>(null);
   const [notifyEventDialogOpen, setNotifyEventDialogOpen] = useState(false);
   const [notifyShift, setNotifyShift] = useState<WorkShift | null>(null);
+  const [createPostDialogOpen, setCreatePostDialogOpen] = useState(false);
+  const [postsRefreshTrigger, setPostsRefreshTrigger] = useState(0);
   const [formTitle, setFormTitle] = useState("");
   const [formStartAt, setFormStartAt] = useState("");
   const [formEndAt, setFormEndAt] = useState("");
@@ -483,7 +486,7 @@ const EventOrganize = () => {
 
   const handleCreateEventPost = () => {
     if (!event) return;
-    navigate(`/portal/posts?event=${event.id}`);
+    setCreatePostDialogOpen(true);
   };
 
   const getShiftAssignments = (shiftId: string) =>
@@ -529,6 +532,14 @@ const EventOrganize = () => {
   const statusInfo = statusLabels[event.publication_status];
   const AudienceIcon = audienceInfo.icon;
   const canEdit = canManageEvent(event);
+  const canDirectPublishPost =
+    (isAdmin ||
+      hasPermission("club.admin.full") ||
+      hasPermission("club.posts.manage") ||
+      permissions.some(
+        (p) => p.permission_key === "company.posts.manage" && p.scope_id === event.owner_id
+      )) &&
+    event.audience !== "public";
   const myAssignments = getMyAssignments();
   const responsibleMember = getResponsibleMember();
 
@@ -678,7 +689,13 @@ const EventOrganize = () => {
         )}
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
-          <EventPostsSection eventId={event.id} clubId={event.club_id} canManage={canEdit} />
+          <EventPostsSection
+            eventId={event.id}
+            clubId={event.club_id}
+            canManage={canEdit}
+            refreshTrigger={postsRefreshTrigger}
+            onCreatePost={handleCreateEventPost}
+          />
         </motion.div>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.27 }}>
@@ -938,6 +955,16 @@ const EventOrganize = () => {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {event && (
+          <CreateEventPostDialog
+            open={createPostDialogOpen}
+            onOpenChange={setCreatePostDialogOpen}
+            event={event}
+            canDirectPublish={canDirectPublishPost}
+            onSuccess={() => setPostsRefreshTrigger((t) => t + 1)}
+          />
+        )}
 
         {event && (
           <NotifyMembersDialog

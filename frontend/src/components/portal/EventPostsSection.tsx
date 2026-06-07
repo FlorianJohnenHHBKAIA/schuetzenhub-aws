@@ -40,6 +40,8 @@ interface EventPostsSectionProps {
   eventId: string;
   clubId: string;
   canManage: boolean;
+  refreshTrigger?: number;
+  onCreatePost?: () => void;
 }
 
 const CATEGORY_META: Record<string, { label: string; icon: React.ElementType }> = {
@@ -54,7 +56,7 @@ const CATEGORY_META: Record<string, { label: string; icon: React.ElementType }> 
   nachruf:      { label: 'Nachruf',                     icon: Heart },
 };
 
-const EventPostsSection = ({ eventId, clubId, canManage }: EventPostsSectionProps) => {
+const EventPostsSection = ({ eventId, clubId, canManage, refreshTrigger, onCreatePost }: EventPostsSectionProps) => {
   const { member } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,7 +65,7 @@ const EventPostsSection = ({ eventId, clubId, canManage }: EventPostsSectionProp
 
   useEffect(() => {
     fetchEventPosts();
-  }, [eventId]);
+  }, [eventId, refreshTrigger]);
 
   const fetchEventPosts = async () => {
     if (!eventId) return;
@@ -143,12 +145,19 @@ const EventPostsSection = ({ eventId, clubId, canManage }: EventPostsSectionProp
           Ankündigungen & Infos ({posts.length})
         </CardTitle>
         {canManage && (
-          <Button size="sm" variant="outline" asChild>
-            <Link to={`/portal/posts?event=${eventId}`}>
+          onCreatePost ? (
+            <Button size="sm" variant="outline" onClick={onCreatePost}>
               <Plus className="w-4 h-4 mr-2" />
               Beitrag erstellen
-            </Link>
-          </Button>
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline" asChild>
+              <Link to={`/portal/posts?event=${eventId}`}>
+                <Plus className="w-4 h-4 mr-2" />
+                Beitrag erstellen
+              </Link>
+            </Button>
+          )
         )}
       </CardHeader>
       <CardContent>
@@ -161,12 +170,19 @@ const EventPostsSection = ({ eventId, clubId, canManage }: EventPostsSectionProp
             <Megaphone className="w-12 h-12 mx-auto mb-4 opacity-50" />
             <p>Noch keine Ankündigungen für dieses Event</p>
             {canManage && (
-              <Button variant="outline" className="mt-4" asChild>
-                <Link to={`/portal/posts?event=${eventId}`}>
+              onCreatePost ? (
+                <Button variant="outline" className="mt-4" onClick={onCreatePost}>
                   <Plus className="w-4 h-4 mr-2" />
                   Erste Ankündigung erstellen
-                </Link>
-              </Button>
+                </Button>
+              ) : (
+                <Button variant="outline" className="mt-4" asChild>
+                  <Link to={`/portal/posts?event=${eventId}`}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Erste Ankündigung erstellen
+                  </Link>
+                </Button>
+              )
             )}
           </div>
         ) : (
