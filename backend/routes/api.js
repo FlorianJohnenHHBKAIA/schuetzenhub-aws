@@ -959,12 +959,44 @@ router.post("/work-shifts/:id/sign-up", requireAuth, async (req, res) => {
     await pool.query(
       `INSERT INTO work_shift_assignments (id, work_shift_id, member_id, status)
        VALUES ($1, $2, $3, 'signed_up')
-       ON CONFLICT (work_shift_id, member_id) 
+       ON CONFLICT (work_shift_id, member_id)
        DO UPDATE SET status = 'signed_up'`,
       [id, req.params.id, req.member.id]
     );
     res.json({ success: true });
   } catch (err) {
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// POST /api/work-shifts/:id/assignments – Admin weist Mitglied manuell zu
+router.post("/work-shifts/:id/assignments", requireAuth, async (req, res) => {
+  const { memberId } = req.body;
+  if (!memberId) return res.status(400).json({ error: "memberId erforderlich" });
+  try {
+    const shiftCheck = await pool.query(
+      "SELECT id FROM work_shifts WHERE id = $1 AND club_id = $2",
+      [req.params.id, req.clubId]
+    );
+    if (!shiftCheck.rows[0]) return res.status(404).json({ error: "Schicht nicht gefunden" });
+
+    const memberCheck = await pool.query(
+      "SELECT id FROM members WHERE id = $1 AND club_id = $2",
+      [memberId, req.clubId]
+    );
+    if (!memberCheck.rows[0]) return res.status(404).json({ error: "Mitglied nicht gefunden" });
+
+    const id = uuidv4();
+    await pool.query(
+      `INSERT INTO work_shift_assignments (id, work_shift_id, member_id, status)
+       VALUES ($1, $2, $3, 'signed_up')
+       ON CONFLICT (work_shift_id, member_id)
+       DO UPDATE SET status = 'signed_up'`,
+      [id, req.params.id, memberId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("POST /work-shifts/:id/assignments error:", err);
     res.status(500).json({ error: "Serverfehler" });
   }
 });

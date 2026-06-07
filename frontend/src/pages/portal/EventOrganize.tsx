@@ -83,6 +83,7 @@ interface WorkShift {
   id: string;
   event_id: string;
   title: string;
+  description?: string | null;
   start_at: string;
   end_at: string;
   required_slots: number;
@@ -108,6 +109,8 @@ interface Member {
   id: string;
   first_name: string;
   last_name: string;
+  status?: string;
+  company_ids?: string[] | null;
 }
 
 interface Company {
@@ -184,11 +187,15 @@ const EventOrganize = () => {
   const [createPostDialogOpen, setCreatePostDialogOpen] = useState(false);
   const [postsRefreshTrigger, setPostsRefreshTrigger] = useState(0);
   const [formTitle, setFormTitle] = useState("");
+  const [formDescription, setFormDescription] = useState("");
   const [formStartAt, setFormStartAt] = useState("");
   const [formEndAt, setFormEndAt] = useState("");
   const [formRequiredSlots, setFormRequiredSlots] = useState(1);
   const [formOwnerType, setFormOwnerType] = useState<OwnerType>("club");
   const [formOwnerId, setFormOwnerId] = useState("");
+  const [addMemberShift, setAddMemberShift] = useState<WorkShift | null>(null);
+  const [memberSearchQuery, setMemberSearchQuery] = useState("");
+  const [addingMember, setAddingMember] = useState(false);
 
   const canManageClubEvents = isAdmin;
   const userCompanyScope = permissions.find(
@@ -346,6 +353,7 @@ const EventOrganize = () => {
     if (!event) return;
     setEditingShift(null);
     setFormTitle("");
+    setFormDescription("");
     setFormStartAt(event.start_at.slice(0, 16));
     setFormEndAt(event.end_at?.slice(0, 16) || event.start_at.slice(0, 16));
     setFormRequiredSlots(1);
@@ -357,6 +365,7 @@ const EventOrganize = () => {
   const openEditShiftDialog = (shift: WorkShift) => {
     setEditingShift(shift);
     setFormTitle(shift.title);
+    setFormDescription(shift.description || "");
     setFormStartAt(shift.start_at.slice(0, 16));
     setFormEndAt(shift.end_at.slice(0, 16));
     setFormRequiredSlots(shift.required_slots);
@@ -372,6 +381,7 @@ const EventOrganize = () => {
       club_id: member.club_id,
       event_id: event.id,
       title: formTitle,
+      description: formDescription.trim() || null,
       start_at: new Date(formStartAt).toISOString(),
       end_at: new Date(formEndAt).toISOString(),
       required_slots: formRequiredSlots,
@@ -481,6 +491,32 @@ const EventOrganize = () => {
       fetchData();
     } catch (error: unknown) {
       toast.error(error instanceof Error ? error.message : "Fehler beim Markieren");
+    }
+  };
+
+  const handleAdminRemoveMember = async (assignmentId: string) => {
+    try {
+      await apiJson(`/api/work-shift-assignments/${assignmentId}`, { method: "DELETE" });
+      toast.success("Mitglied ausgetragen");
+      fetchData();
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "Fehler beim Austragen");
+    }
+  };
+
+  const handleAddMemberToShift = async (shiftId: string, memberId: string) => {
+    setAddingMember(true);
+    try {
+      await apiJson(`/api/work-shifts/${shiftId}/assignments`, {
+        method: "POST",
+        body: JSON.stringify({ memberId }),
+      });
+      toast.success("Mitglied eingetragen");
+      fetchData();
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "Fehler beim Eintragen");
+    } finally {
+      setAddingMember(false);
     }
   };
 
@@ -761,15 +797,23 @@ const EventOrganize = () => {
                               <Clock className="w-3 h-3 inline mr-1" />
                               {format(new Date(shift.start_at), "HH:mm", { locale: de })} – {format(new Date(shift.end_at), "HH:mm", { locale: de })}
                             </p>
+                            {shift.description && (
+                              <p className="text-sm text-muted-foreground mt-1">{shift.description}</p>
+                            )}
                           </div>
                           <div className="flex items-center gap-2">
                             {userSignedUp ? (
                               <Button variant="outline" size="sm" onClick={() => handleSignOut(shift)}><XCircle className="w-4 h-4 mr-1" />Austragen</Button>
-                            ) : hasOpenSlots ? (
-                              <Button size="sm" onClick={() => handleSignUp(shift)}><Plus className="w-4 h-4 mr-1" />Eintragen</Button>
-                            ) : null}
+                            ) : !hasOpenSlots ? (
+                              <span className="text-xs text-muted-foreground">Alle Plätze besetzt</span>
+                            ) : (member as { status?: string })?.status === 'prospect' || (member as { status?: string })?.status === 'resigned' ? null : (
+                              <Button size="sm" onClick={() => handleSignUp(shift)}><Plus className="w-4 h-4 mr-1" />Ich helfe mit</Button>
+                            )}
                             {canManage && (
                               <>
+                                <Button variant="ghost" size="sm" title="Mitglied hinzufügen" onClick={() => { setAddMemberShift(shift); setMemberSearchQuery(""); }}>
+                                  <UserCheck className="w-4 h-4" />
+                                </Button>
                                 {hasOpenSlots && (
                                   <Button variant="ghost" size="sm" title="Helfer gesucht – Mitglieder benachrichtigen" onClick={() => setNotifyShift(shift)}>
                                     <Bell className="w-4 h-4" />
@@ -800,6 +844,7 @@ const EventOrganize = () => {
                                     <>
                                       <button className="ml-1 text-green-600 hover:text-green-700" onClick={() => handleSetStatus(a.id, "completed")} title="Als erledigt markieren"><CheckCircle2 className="w-3 h-3" /></button>
                                       <button className="text-destructive/60 hover:text-destructive" onClick={() => handleSetStatus(a.id, "no_show")} title="Als No-Show markieren"><XCircle className="w-3 h-3" /></button>
+                                      <button className="text-muted-foreground hover:text-destructive" onClick={() => handleAdminRemoveMember(a.id)} title="Aus Schicht entfernen"><Trash2 className="w-3 h-3" /></button>
                                     </>
                                   )}
                                 </div>
@@ -921,6 +966,10 @@ const EventOrganize = () => {
                 <Label>Titel</Label>
                 <Input value={formTitle} onChange={(e) => setFormTitle(e.target.value)} placeholder="z.B. Aufbau, Theke, Abbau..." />
               </div>
+              <div className="space-y-2">
+                <Label>Beschreibung</Label>
+                <Textarea value={formDescription} onChange={(e) => setFormDescription(e.target.value)} placeholder="Details zur Aufgabe (optional)..." rows={2} />
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2"><Label>Beginn</Label><Input type="datetime-local" value={formStartAt} onChange={(e) => setFormStartAt(e.target.value)} /></div>
                 <div className="space-y-2"><Label>Ende</Label><Input type="datetime-local" value={formEndAt} onChange={(e) => setFormEndAt(e.target.value)} /></div>
@@ -995,6 +1044,78 @@ const EventOrganize = () => {
             currentMemberId={member?.id}
           />
         )}
+
+        <Dialog open={!!addMemberShift} onOpenChange={(open) => { if (!open) { setAddMemberShift(null); setMemberSearchQuery(""); } }}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <UserCheck className="w-5 h-5" />
+                Mitglied hinzufügen{addMemberShift ? ` – ${addMemberShift.title}` : ""}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <Input
+                placeholder="Mitglied suchen…"
+                value={memberSearchQuery}
+                onChange={(e) => setMemberSearchQuery(e.target.value)}
+                autoFocus
+              />
+              <div className="max-h-72 overflow-y-auto space-y-1 pr-1">
+                {addMemberShift && (() => {
+                  const currentAssignments = getShiftAssignments(addMemberShift.id);
+                  const alreadyInShift = new Set(currentAssignments.map(a => a.member_id));
+                  const filledSlots = currentAssignments.length;
+                  const isFull = filledSlots >= addMemberShift.required_slots;
+                  const query = memberSearchQuery.toLowerCase();
+
+                  const filteredMembers = members.filter(m => {
+                    if (!['active', 'passive'].includes(m.status || '')) return false;
+                    if (addMemberShift.owner_type === 'company' && !m.company_ids?.includes(addMemberShift.owner_id)) return false;
+                    if (query && !`${m.first_name} ${m.last_name}`.toLowerCase().includes(query)) return false;
+                    return true;
+                  });
+
+                  if (filteredMembers.length === 0) {
+                    return <p className="text-sm text-muted-foreground text-center py-4">Keine Mitglieder gefunden</p>;
+                  }
+
+                  return filteredMembers.map(m => {
+                    const isInShift = alreadyInShift.has(m.id);
+                    const companyName = m.company_ids?.length
+                      ? companies.find(c => m.company_ids?.includes(c.id))?.name
+                      : undefined;
+                    return (
+                      <button
+                        key={m.id}
+                        disabled={isInShift || addingMember}
+                        onClick={async () => {
+                          if (isInShift) return;
+                          if (isFull && !confirm("Diese Schicht ist bereits voll. Trotzdem hinzufügen?")) return;
+                          await handleAddMemberToShift(addMemberShift.id, m.id);
+                        }}
+                        className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors ${isInShift ? 'opacity-40 cursor-not-allowed' : 'hover:bg-muted cursor-pointer'}`}
+                      >
+                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium text-primary shrink-0">
+                          {m.first_name[0]}{m.last_name[0]}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{m.first_name} {m.last_name}</p>
+                          {companyName && <p className="text-xs text-muted-foreground truncate">{companyName}</p>}
+                        </div>
+                        {isInShift && <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />}
+                      </button>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+            <DialogFooter className="pt-2 border-t">
+              <Button variant="outline" onClick={() => { setAddMemberShift(null); setMemberSearchQuery(""); }}>
+                Schließen
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </PortalLayout>
   );
