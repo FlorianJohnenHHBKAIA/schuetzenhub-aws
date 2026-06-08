@@ -623,3 +623,80 @@ CREATE INDEX IF NOT EXISTS idx_event_participants_member ON event_participants (
 
 ALTER TABLE notifications
 ADD COLUMN IF NOT EXISTS link TEXT;
+
+-- ============================================================
+-- NEU 2026-06-07
+-- Vereinsarchiv: zentrale Index-Tabelle für Archiv-Einträge
+-- Hybrides Modell: Metadaten + Verweise auf Originaltabellen.
+-- Keine Inhaltsduplizierung. Kein automatisches Befüllen.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS archive_entries (
+    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    club_id             UUID        NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+
+    -- Verweis auf Quelldatensatz (kein FK – verschiedene Tabellen)
+    source_type         TEXT        NOT NULL CHECK (source_type IN (
+                            'document',
+                            'post',
+                            'gallery_image',
+                            'protocol',
+                            'event',
+                            'magazine',
+                            'member_award',
+                            'appointment',
+                            'custom'
+                        )),
+    source_id           UUID        NOT NULL,
+
+    -- Anzeigefelder (denormalisiert für Suchperformance)
+    title               TEXT        NOT NULL,
+    description         TEXT,
+
+    -- Archiv-Klassifikation
+    archive_category    TEXT,
+    archive_year        INTEGER,
+    event_date          DATE,
+
+    -- Sichtbarkeit
+    visibility          TEXT        NOT NULL DEFAULT 'club_internal'
+                            CHECK (visibility IN (
+                                'admin_only',
+                                'club_internal',
+                                'company_only',
+                                'public'
+                            )),
+    is_public           BOOLEAN     NOT NULL DEFAULT FALSE,
+
+    -- Tagging (freie Schlagworte)
+    tags                TEXT[]      NOT NULL DEFAULT '{}',
+
+    -- Optionale Personenbezüge
+    related_member_id   UUID        REFERENCES members(id) ON DELETE SET NULL,
+    related_company_id  UUID        REFERENCES companies(id) ON DELETE SET NULL,
+
+    -- Audit
+    created_by          UUID        REFERENCES members(id) ON DELETE SET NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    -- Verhindert Doppel-Archivierung desselben Inhalts
+    UNIQUE (source_type, source_id)
+);
+
+-- Indizes für alle Filter- und Suchdimensionen
+CREATE INDEX IF NOT EXISTS idx_archive_entries_club_id          ON archive_entries (club_id);
+CREATE INDEX IF NOT EXISTS idx_archive_entries_source_type      ON archive_entries (source_type);
+CREATE INDEX IF NOT EXISTS idx_archive_entries_archive_category ON archive_entries (archive_category);
+CREATE INDEX IF NOT EXISTS idx_archive_entries_archive_year     ON archive_entries (archive_year);
+CREATE INDEX IF NOT EXISTS idx_archive_entries_visibility       ON archive_entries (visibility);
+CREATE INDEX IF NOT EXISTS idx_archive_entries_related_member   ON archive_entries (related_member_id);
+CREATE INDEX IF NOT EXISTS idx_archive_entries_related_company  ON archive_entries (related_company_id);
+
+-- updated_at-Trigger (nutzt bestehende set_updated_at()-Funktion)
+DO $$ BEGIN
+    CREATE TRIGGER trg_archive_entries_updated_at
+        BEFORE UPDATE ON archive_entries
+        FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;

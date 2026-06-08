@@ -2339,4 +2339,108 @@ router.post("/notifications/notify-audience", requireAuth, async (req, res) => {
   }
 });
 
+// ============================================================
+// Vereinsarchiv – Archiv-Einträge (Index-Schicht)
+// ============================================================
+
+router.get("/archive/entries", requireAuth, async (req, res) => {
+  try {
+    const { source_type, source_id } = req.query;
+
+    let query =
+      "SELECT id, source_type, source_id, title, archive_category, archive_year, visibility, created_at " +
+      "FROM archive_entries WHERE club_id = $1";
+    const params = [req.clubId];
+
+    if (source_type) {
+      query += ` AND source_type = $${params.length + 1}`;
+      params.push(source_type);
+    }
+    if (source_id) {
+      query += ` AND source_id = $${params.length + 1}`;
+      params.push(source_id);
+    }
+
+    query += " ORDER BY created_at DESC";
+
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error("GET /archive/entries error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+router.post("/archive/entries", requireAuth, async (req, res) => {
+  try {
+    const {
+      source_type,
+      source_id,
+      title,
+      description,
+      archive_category,
+      archive_year,
+      event_date,
+      visibility,
+      is_public,
+      tags,
+      related_company_id,
+    } = req.body;
+
+    if (!source_type || !source_id || !title) {
+      return res.status(400).json({ error: "source_type, source_id und title sind erforderlich" });
+    }
+
+    const validTypes = ["document", "post", "gallery_image", "protocol", "event", "magazine", "member_award", "appointment", "custom"];
+    if (!validTypes.includes(source_type)) {
+      return res.status(400).json({ error: "Ungültiger source_type" });
+    }
+
+    if (source_type === "post") {
+      const postCheck = await pool.query(
+        "SELECT id FROM posts WHERE id = $1 AND club_id = $2",
+        [source_id, req.clubId]
+      );
+      if (!postCheck.rows[0]) {
+        return res.status(404).json({ error: "Beitrag nicht gefunden" });
+      }
+    }
+
+    const id = uuidv4();
+    const result = await pool.query(
+      `INSERT INTO archive_entries
+        (id, club_id, source_type, source_id, title, description,
+         archive_category, archive_year, event_date,
+         visibility, is_public, tags,
+         related_company_id, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+       RETURNING *`,
+      [
+        id,
+        req.clubId,
+        source_type,
+        source_id,
+        title.trim(),
+        description ? description.trim() : null,
+        archive_category || null,
+        archive_year || null,
+        event_date || null,
+        visibility || "club_internal",
+        is_public === true,
+        tags || [],
+        related_company_id || null,
+        req.member.id,
+      ]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({ error: "Dieser Inhalt ist bereits im Vereinsarchiv vorhanden." });
+    }
+    console.error("POST /archive/entries error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
 module.exports = router;

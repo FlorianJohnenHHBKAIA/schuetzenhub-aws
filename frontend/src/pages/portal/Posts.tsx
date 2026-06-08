@@ -55,8 +55,11 @@ import {
   Hammer,
   Trophy,
   Heart,
+  BookmarkPlus,
+  BookmarkCheck,
 } from "lucide-react";
 import NotifyMembersDialog from "@/components/portal/NotifyMembersDialog";
+import ArchiveEntryDialog from "@/components/portal/ArchiveEntryDialog";
 
 interface Post {
   id: string;
@@ -165,6 +168,8 @@ const Posts = () => {
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [notifyPost, setNotifyPost] = useState<Post | null>(null);
+  const [archivedPostIds, setArchivedPostIds] = useState<Set<string>>(new Set());
+  const [archivingPost, setArchivingPost] = useState<Post | null>(null);
 
   const [formTitle, setFormTitle] = useState('');
   const [formContent, setFormContent] = useState('');
@@ -258,6 +263,15 @@ const Posts = () => {
 
       if (error) { console.error('Error fetching posts:', error); }
       else { setPosts((postsData as Post[]) || []); }
+
+      try {
+        const archiveEntries = await apiJson<{ source_id: string }[]>(
+          "/api/archive/entries?source_type=post"
+        );
+        setArchivedPostIds(new Set(archiveEntries.map((e) => e.source_id)));
+      } catch {
+        // nicht kritisch
+      }
     } catch (error: unknown) {
       console.error('Error:', error);
     } finally {
@@ -550,10 +564,10 @@ const Posts = () => {
           </Card>
 
           <TabsContent value="club" className="mt-4">
-            <PostGrid posts={filteredPosts} loading={loading} onView={(p) => { setSelectedPost(p); setDetailDialogOpen(true); }} onEdit={openEditDialog} onDelete={handleDelete} onRestore={handleRestore} onSubmit={handleSubmit} onPublish={handlePublish} onNotify={(p) => setNotifyPost(p)} canManage={canManagePost} canSubmit={canSubmitPost} getStatusBadge={getStatusBadge} getAudienceBadge={getAudienceBadge} getCategoryIcon={getCategoryIcon} getCompanyName={getCompanyName} />
+            <PostGrid posts={filteredPosts} loading={loading} onView={(p) => { setSelectedPost(p); setDetailDialogOpen(true); }} onEdit={openEditDialog} onDelete={handleDelete} onRestore={handleRestore} onSubmit={handleSubmit} onPublish={handlePublish} onNotify={(p) => setNotifyPost(p)} onArchiveToVereinsarchiv={(p) => setArchivingPost(p)} archivedPostIds={archivedPostIds} canManage={canManagePost} canSubmit={canSubmitPost} getStatusBadge={getStatusBadge} getAudienceBadge={getAudienceBadge} getCategoryIcon={getCategoryIcon} getCompanyName={getCompanyName} />
           </TabsContent>
           <TabsContent value="company" className="mt-4">
-            <PostGrid posts={filteredPosts} loading={loading} onView={(p) => { setSelectedPost(p); setDetailDialogOpen(true); }} onEdit={openEditDialog} onDelete={handleDelete} onRestore={handleRestore} onSubmit={handleSubmit} onPublish={handlePublish} onNotify={(p) => setNotifyPost(p)} canManage={canManagePost} canSubmit={canSubmitPost} getStatusBadge={getStatusBadge} getAudienceBadge={getAudienceBadge} getCategoryIcon={getCategoryIcon} getCompanyName={getCompanyName} />
+            <PostGrid posts={filteredPosts} loading={loading} onView={(p) => { setSelectedPost(p); setDetailDialogOpen(true); }} onEdit={openEditDialog} onDelete={handleDelete} onRestore={handleRestore} onSubmit={handleSubmit} onPublish={handlePublish} onNotify={(p) => setNotifyPost(p)} onArchiveToVereinsarchiv={(p) => setArchivingPost(p)} archivedPostIds={archivedPostIds} canManage={canManagePost} canSubmit={canSubmitPost} getStatusBadge={getStatusBadge} getAudienceBadge={getAudienceBadge} getCategoryIcon={getCategoryIcon} getCompanyName={getCompanyName} />
           </TabsContent>
         </Tabs>
       </div>
@@ -675,6 +689,20 @@ const Posts = () => {
           currentMemberId={member?.id}
         />
       )}
+
+      {archivingPost && (
+        <ArchiveEntryDialog
+          open={!!archivingPost}
+          onOpenChange={(open) => { if (!open) setArchivingPost(null); }}
+          post={archivingPost}
+          onSuccess={() => {
+            if (archivingPost) {
+              setArchivedPostIds((prev) => new Set([...prev, archivingPost.id]));
+            }
+            setArchivingPost(null);
+          }}
+        />
+      )}
     </PortalLayout>
   );
 };
@@ -689,6 +717,8 @@ interface PostGridProps {
   onSubmit: (post: Post) => void;
   onPublish: (post: Post) => void;
   onNotify?: (post: Post) => void;
+  onArchiveToVereinsarchiv?: (post: Post) => void;
+  archivedPostIds?: Set<string>;
   canManage: (post: Post) => boolean;
   canSubmit: (post: Post) => boolean;
   getStatusBadge: (status: string) => React.ReactNode;
@@ -697,7 +727,7 @@ interface PostGridProps {
   getCompanyName: (companyId: string) => string;
 }
 
-const PostGrid = ({ posts, loading, onView, onEdit, onDelete, onRestore, onSubmit, onPublish, onNotify, canManage, canSubmit, getStatusBadge, getAudienceBadge, getCategoryIcon, getCompanyName }: PostGridProps) => {
+const PostGrid = ({ posts, loading, onView, onEdit, onDelete, onRestore, onSubmit, onPublish, onNotify, onArchiveToVereinsarchiv, archivedPostIds, canManage, canSubmit, getStatusBadge, getAudienceBadge, getCategoryIcon, getCompanyName }: PostGridProps) => {
   if (loading) return <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
   if (posts.length === 0) return <Card><CardContent className="py-12 text-center"><Megaphone className="w-12 h-12 mx-auto mb-4 text-muted-foreground" /><p className="text-muted-foreground">Keine Beiträge gefunden</p></CardContent></Card>;
@@ -746,6 +776,17 @@ const PostGrid = ({ posts, loading, onView, onEdit, onDelete, onRestore, onSubmi
                   <Button variant="ghost" size="sm" onClick={() => onNotify(post)} title="Mitglieder benachrichtigen">
                     <Bell className="w-4 h-4" />
                   </Button>
+                )}
+                {post.publication_status === 'approved' && onArchiveToVereinsarchiv && (
+                  archivedPostIds?.has(post.id) ? (
+                    <Button variant="ghost" size="sm" disabled title="Bereits im Vereinsarchiv" className="text-green-600">
+                      <BookmarkCheck className="w-4 h-4" />
+                    </Button>
+                  ) : (
+                    <Button variant="ghost" size="sm" onClick={() => onArchiveToVereinsarchiv(post)} title="Ins Vereinsarchiv übernehmen">
+                      <BookmarkPlus className="w-4 h-4" />
+                    </Button>
+                  )
                 )}
                 {post.publication_status === 'archived' ? (
                   <Button variant="ghost" size="sm" onClick={() => onRestore(post)} title="Wiederherstellen"><ArchiveRestore className="w-4 h-4" /></Button>
