@@ -349,6 +349,53 @@ router.get("/packages", requireSuperAdmin, async (req, res) => {
   }
 });
 
+// GET /api/superadmin/settings – Systemübersicht (lesend, keine Secrets)
+router.get("/settings", requireSuperAdmin, async (req, res) => {
+  try {
+    const [modulesRes, openReportsRes] = await Promise.all([
+      pool.query(`
+        SELECT
+          (SELECT COUNT(*)::int FROM events)         AS events,
+          (SELECT COUNT(*)::int FROM posts)          AS posts,
+          (SELECT COUNT(*)::int FROM gallery_images) AS gallery,
+          (SELECT COUNT(*)::int FROM documents)      AS documents,
+          (SELECT COUNT(*)::int FROM awards)         AS awards,
+          (SELECT COUNT(*)::int FROM magazines)      AS magazines,
+          (SELECT COUNT(*)::int FROM companies)      AS companies
+      `),
+      pool.query("SELECT COUNT(*)::int AS count FROM reports WHERE status = 'open'"),
+    ]);
+
+    const useS3 = process.env.USE_S3 === "true";
+
+    res.json({
+      platform: {
+        env: process.env.NODE_ENV || "development",
+        nodeVersion: process.version,
+        port: parseInt(process.env.PORT || "5000"),
+        frontendUrl: process.env.FRONTEND_URL || null,
+        uptimeSeconds: Math.floor(process.uptime()),
+      },
+      modules: modulesRes.rows[0],
+      storage: {
+        provider: useS3 ? "s3" : "local",
+        uploadDir: useS3 ? null : (process.env.UPLOAD_DIR || "uploads"),
+        maxFileSizeMb: parseInt(process.env.MAX_FILE_SIZE_MB || "10"),
+        s3Bucket: useS3 ? (process.env.AWS_S3_BUCKET || null) : null,
+        s3Region: useS3 ? (process.env.AWS_REGION || null) : null,
+      },
+      email: {
+        configured: false,
+        provider: null,
+      },
+      openReports: openReportsRes.rows[0].count,
+    });
+  } catch (err) {
+    console.error("Superadmin settings error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
 // GET /api/superadmin/reports – Meldungsübersicht
 router.get("/reports", requireSuperAdmin, async (req, res) => {
   try {
