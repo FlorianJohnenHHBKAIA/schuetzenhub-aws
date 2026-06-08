@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { motion } from "framer-motion";
@@ -9,12 +9,17 @@ import {
   Users, UserCheck, Shield, CalendarDays,
   Building2, MapPin,
   Calendar, FileText, Award, Briefcase,
-  Search,
+  Search, Package,
 } from "lucide-react";
 import { apiJson } from "@/integrations/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface ClubDetail {
   id: string;
@@ -68,6 +73,13 @@ const MEMBER_STATUS_LABELS: Record<string, string> = {
   prospect: "Anfragen",
   resigned: "Ausgetreten",
 };
+
+const PLAN_OPTIONS = [
+  { value: "free",       label: "Kostenlos" },
+  { value: "starter",    label: "Starter" },
+  { value: "premium",    label: "Premium" },
+  { value: "enterprise", label: "Enterprise" },
+];
 
 const MemberStatusBadge = ({ status }: { status: MemberRow["status"] }) => {
   const styles: Record<MemberRow["status"], string> = {
@@ -132,6 +144,13 @@ const KpiCard = ({
 const SuperadminClubDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  const [memberSearch, setMemberSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [selectedPlan, setSelectedPlan] = useState<string>("");
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
 
   const { data: club, isLoading, isError, refetch } = useQuery<ClubDetail>({
     queryKey: ["superadmin-club", id],
@@ -146,8 +165,25 @@ const SuperadminClubDetail = () => {
       enabled: !!id,
     });
 
-  const [memberSearch, setMemberSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const planMutation = useMutation({
+    mutationFn: (newPlan: string) =>
+      apiJson(`/api/superadmin/clubs/${id}/plan`, {
+        method: "PATCH",
+        body: JSON.stringify({ plan: newPlan }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["superadmin-club", id] });
+      queryClient.invalidateQueries({ queryKey: ["superadmin-packages"] });
+      queryClient.invalidateQueries({ queryKey: ["superadmin-stats"] });
+      setSelectedPlan("");
+      setShowConfirm(false);
+      setMutationError(null);
+    },
+    onError: () => {
+      setShowConfirm(false);
+      setMutationError("Plan konnte nicht gespeichert werden. Bitte erneut versuchen.");
+    },
+  });
 
   const filteredMembers = members.filter((m) => {
     const q = memberSearch.toLowerCase();
@@ -202,6 +238,9 @@ const SuperadminClubDetail = () => {
       </div>
     );
   }
+
+  const activePlan = selectedPlan || club.plan;
+  const planChanged = selectedPlan !== "" && selectedPlan !== club.plan;
 
   return (
     <motion.div
@@ -337,7 +376,7 @@ const SuperadminClubDetail = () => {
           </CardContent>
         </Card>
 
-        {/* Kompanien + Aktive Ämter */}
+        {/* Rechte Spalte: Kompanien + Ämter + Paket */}
         <div className="space-y-4">
           {/* Kompanien */}
           <Card>
@@ -390,6 +429,66 @@ const SuperadminClubDetail = () => {
                   ))}
                 </ul>
               )}
+            </CardContent>
+          </Card>
+
+          {/* Paket verwalten */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Package className="w-4 h-4" />Paket verwalten
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Aktueller Plan */}
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Aktueller Plan</span>
+                <PlanBadge plan={club.plan} />
+              </div>
+
+              {/* Plan-Auswahl */}
+              <div>
+                <p className="text-xs text-muted-foreground mb-2">Plan ändern</p>
+                <div className="flex flex-wrap gap-2">
+                  {PLAN_OPTIONS.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      onClick={() => setSelectedPlan(value === club.plan ? "" : value)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                        activePlan === value
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Fehler */}
+              {mutationError && (
+                <p className="text-xs text-destructive flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />{mutationError}
+                </p>
+              )}
+
+              {/* Speichern */}
+              <Button
+                size="sm"
+                disabled={!planChanged || planMutation.isPending}
+                onClick={() => setShowConfirm(true)}
+                className="w-full"
+              >
+                {planMutation.isPending && (
+                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                )}
+                Plan speichern
+              </Button>
+
+              <p className="text-xs text-muted-foreground">
+                Änderungen wirken sich aktuell nicht auf den Portalzugang aus.
+              </p>
             </CardContent>
           </Card>
         </div>
@@ -592,6 +691,27 @@ const SuperadminClubDetail = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Bestätigungs-Dialog für Plan-Änderung */}
+      <AlertDialog open={showConfirm} onOpenChange={setShowConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Plan ändern?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Der Plan für <strong>{club.name}</strong> wird von{" "}
+              <strong>{club.plan}</strong> auf <strong>{selectedPlan}</strong> geändert.
+              Diese Aktion hat keinen Einfluss auf den Portalzugang der Mitglieder.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction onClick={() => planMutation.mutate(selectedPlan)}>
+              Ja, Plan ändern
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </motion.div>
   );
 };

@@ -391,6 +391,48 @@ router.get("/packages", requireSuperAdmin, async (req, res) => {
   }
 });
 
+// PATCH /api/superadmin/clubs/:id/plan – Plan eines Vereins ändern
+router.patch("/clubs/:id/plan", requireSuperAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { plan } = req.body;
+
+  const ALLOWED_PLANS = ["free", "starter", "premium", "enterprise"];
+  if (!plan || !ALLOWED_PLANS.includes(plan)) {
+    return res.status(400).json({ error: "Ungültiger Plan. Erlaubt: free, starter, premium, enterprise" });
+  }
+
+  try {
+    const current = await pool.query(
+      "SELECT plan, plan_started_at FROM clubs WHERE id = $1",
+      [id]
+    );
+    if (!current.rows[0]) {
+      return res.status(404).json({ error: "Verein nicht gefunden." });
+    }
+
+    const { plan: currentPlan, plan_started_at: currentStartedAt } = current.rows[0];
+
+    let newStartedAt;
+    if (plan === "free") {
+      newStartedAt = null;
+    } else if (!currentStartedAt || currentPlan === "free") {
+      newStartedAt = new Date();
+    } else {
+      newStartedAt = currentStartedAt;
+    }
+
+    await pool.query(
+      "UPDATE clubs SET plan = $1, plan_started_at = $2 WHERE id = $3",
+      [plan, newStartedAt, id]
+    );
+
+    res.json({ plan, plan_started_at: newStartedAt });
+  } catch (err) {
+    console.error("Superadmin plan update error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
 // GET /api/superadmin/settings – Systemübersicht (lesend, keine Secrets)
 router.get("/settings", requireSuperAdmin, async (req, res) => {
   try {
