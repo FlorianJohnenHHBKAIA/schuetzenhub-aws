@@ -58,6 +58,17 @@ import MagazinePDF from "./pages/portal/MagazinePDF";
 import MagazineSponsors from "./pages/portal/MagazineSponsors";
 import MagazineAds from "./pages/portal/MagazineAds";
 import NotFound from "./pages/NotFound";
+import SuperadminRoute from "./components/superadmin/SuperadminRoute";
+import SuperadminLayout from "./components/superadmin/SuperadminLayout";
+import SuperadminDashboard from "./pages/superadmin/SuperadminDashboard";
+import SuperadminClubs from "./pages/superadmin/SuperadminClubs";
+import SuperadminUsers from "./pages/superadmin/SuperadminUsers";
+import SuperadminRoles from "./pages/superadmin/SuperadminRoles";
+import SuperadminPackages from "./pages/superadmin/SuperadminPackages";
+import SuperadminReports from "./pages/superadmin/SuperadminReports";
+import SuperadminSettings from "./pages/superadmin/SuperadminSettings";
+import SuperadminClubDetail from "./pages/superadmin/SuperadminClubDetail";
+import SuperadminUserDetail from "./pages/superadmin/SuperadminUserDetail";
 
 const queryClient = new QueryClient();
 
@@ -125,6 +136,17 @@ const App = () => (
             <Route path="/portal/magazine/:id" element={<MagazineEditor />} />
             <Route path="/portal/magazine/:id/ads" element={<MagazineAds />} />
             <Route path="/portal/magazine/:id/pdf" element={<MagazinePDF />} />
+            <Route element={<SuperadminRoute />}>
+              <Route path="/superadmin" element={<SuperadminLayout><SuperadminDashboard /></SuperadminLayout>} />
+              <Route path="/superadmin/clubs" element={<SuperadminLayout><SuperadminClubs /></SuperadminLayout>} />
+              <Route path="/superadmin/clubs/:id" element={<SuperadminLayout><SuperadminClubDetail /></SuperadminLayout>} />
+              <Route path="/superadmin/users" element={<SuperadminLayout><SuperadminUsers /></SuperadminLayout>} />
+              <Route path="/superadmin/users/:id" element={<SuperadminLayout><SuperadminUserDetail /></SuperadminLayout>} />
+              <Route path="/superadmin/roles" element={<SuperadminLayout><SuperadminRoles /></SuperadminLayout>} />
+              <Route path="/superadmin/packages" element={<SuperadminLayout><SuperadminPackages /></SuperadminLayout>} />
+              <Route path="/superadmin/reports" element={<SuperadminLayout><SuperadminReports /></SuperadminLayout>} />
+              <Route path="/superadmin/settings" element={<SuperadminLayout><SuperadminSettings /></SuperadminLayout>} />
+            </Route>
             <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>

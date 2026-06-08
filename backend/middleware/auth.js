@@ -27,6 +27,16 @@ async function requireAuth(req, res, next) {
     );
 
     if (!memberRes.rows[0]) {
+      // Superadmin-Fallback: kein Mitglied nötig
+      const saRes = await pool.query(
+        "SELECT is_superadmin FROM auth_users WHERE id = $1 AND is_superadmin = true",
+        [req.userId]
+      );
+      if (saRes.rows[0]) {
+        req.isSuperAdmin = true;
+        req.isAdmin = false;
+        return next();
+      }
       return res.status(401).json({ error: "Mitglied nicht gefunden" });
     }
 
@@ -86,4 +96,32 @@ function requireActiveMember(req, res, next) {
   next();
 }
 
-module.exports = { requireAuth, requireAdmin, getUserPermissions, requireActiveMember };
+/**
+ * Middleware: Nur Superadmins (is_superadmin = true in auth_users) dürfen weiter.
+ * Kein members-Join notwendig – direkte Prüfung auf auth_users.
+ */
+async function requireSuperAdmin(req, res, next) {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Nicht autorisiert" });
+  }
+  const token = auth.slice(7);
+  try {
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const userRes = await pool.query(
+      "SELECT id, email FROM auth_users WHERE id = $1 AND is_superadmin = true",
+      [payload.sub]
+    );
+    if (!userRes.rows[0]) {
+      return res.status(403).json({ error: "Superadmin-Rechte erforderlich" });
+    }
+    req.userId = userRes.rows[0].id;
+    req.userEmail = userRes.rows[0].email;
+    req.isSuperAdmin = true;
+    next();
+  } catch {
+    return res.status(401).json({ error: "Ungültiger Token" });
+  }
+}
+
+module.exports = { requireAuth, requireAdmin, requireSuperAdmin, getUserPermissions, requireActiveMember };

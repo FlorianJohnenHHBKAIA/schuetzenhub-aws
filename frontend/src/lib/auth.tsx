@@ -31,6 +31,7 @@ interface AuthContextType {
   userRole: UserRole | null;
   permissions: UserPermission[];
   isAdmin: boolean;
+  isSuperAdmin: boolean;
   isLoading: boolean;
   hasPermission: (permissionKey: string, scopeType?: "club" | "company", scopeId?: string) => boolean;
   refreshPermissions: () => Promise<void>;
@@ -47,6 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [member, setMember] = useState<Member | null>(null);
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [permissions, setPermissions] = useState<UserPermission[]>([]);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadUserData = useCallback(async () => {
@@ -54,15 +56,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!token) { setIsLoading(false); return; }
 
     try {
-      const data = await apiJson<{ member: Member; userRole: UserRole; permissions: UserPermission[] }>("/api/auth/me");
+      const data = await apiJson<{ member: Member | null; userRole: UserRole | null; permissions: UserPermission[]; isSuperAdmin?: boolean; userId?: string; userEmail?: string }>("/api/auth/me");
+      setIsSuperAdmin(data.isSuperAdmin === true);
       setMember(data.member);
       setUserRole(data.userRole);
       setPermissions(data.permissions || []);
-      setUser({ id: data.member.user_id || data.member.id, email: data.member.email });
+      if (data.member) {
+        setUser({ id: data.member.user_id || data.member.id, email: data.member.email });
+      } else if (data.isSuperAdmin) {
+        setUser({ id: data.userId ?? "", email: data.userEmail ?? "" });
+      }
       setSession({ token });
     } catch {
       clearToken();
-      setMember(null); setUserRole(null); setPermissions([]); setUser(null); setSession(null);
+      setMember(null); setUserRole(null); setPermissions([]); setUser(null); setSession(null); setIsSuperAdmin(false);
     } finally {
       setIsLoading(false);
     }
@@ -97,12 +104,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     clearToken();
-    setMember(null); setUserRole(null); setPermissions([]); setUser(null); setSession(null);
+    setMember(null); setUserRole(null); setPermissions([]); setUser(null); setSession(null); setIsSuperAdmin(false);
   };
 
   const value: AuthContextType = {
     user, session, member, userRole, permissions,
     isAdmin: userRole?.role === "admin" || permissions.some(p => p.permission_key === "club.admin.full"),
+    isSuperAdmin,
     isLoading, hasPermission, refreshPermissions, signIn, signUp, signOut,
   };
 

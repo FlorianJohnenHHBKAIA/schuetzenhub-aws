@@ -23,6 +23,7 @@ if (process.env.USE_S3 !== "true") {
 // ─── Routen ───────────────────────────────────────────────────────────────────
 
 app.use("/api/auth", require("./routes/auth"));
+app.use("/api/superadmin", require("./routes/superadmin"));
 app.use("/api/members", require("./routes/members"));
 app.use("/api/events", require("./routes/events"));
 app.use("/api/rpc", require("./routes/rpc"));
