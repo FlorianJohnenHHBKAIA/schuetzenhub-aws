@@ -6,18 +6,60 @@ const { requireSuperAdmin } = require("../middleware/auth");
 // GET /api/superadmin/stats – Plattformweite KPIs
 router.get("/stats", requireSuperAdmin, async (req, res) => {
   try {
-    const [clubsTotal, clubsActive, usersTotal, openReportsRes] = await Promise.all([
+    const [
+      clubsTotal, clubsActive, clubsFree,
+      usersTotal, superadminsRes, openReportsRes,
+      publishedPostsRes, publishedEventsRes,
+      recentPostsRes, recentEventsRes,
+    ] = await Promise.all([
       pool.query("SELECT COUNT(*)::int AS count FROM clubs"),
       pool.query("SELECT COUNT(*)::int AS count FROM clubs WHERE plan IS DISTINCT FROM 'free'"),
+      pool.query("SELECT COUNT(*)::int AS count FROM clubs WHERE plan = 'free' OR plan IS NULL"),
       pool.query("SELECT COUNT(*)::int AS count FROM auth_users WHERE is_superadmin = false"),
+      pool.query("SELECT COUNT(*)::int AS count FROM auth_users WHERE is_superadmin = true"),
       pool.query("SELECT COUNT(*)::int AS count FROM reports WHERE status = 'open'"),
+      pool.query("SELECT COUNT(*)::int AS count FROM posts WHERE publication_status = 'published'"),
+      pool.query("SELECT COUNT(*)::int AS count FROM events WHERE publication_status = 'published'"),
+      pool.query(`
+        SELECT p.id, p.title, p.created_at, 'post' AS type, c.name AS club_name
+        FROM posts p JOIN clubs c ON c.id = p.club_id
+        WHERE p.publication_status = 'published'
+        ORDER BY p.created_at DESC LIMIT 5
+      `),
+      pool.query(`
+        SELECT e.id, e.title, e.created_at, 'event' AS type, c.name AS club_name
+        FROM events e JOIN clubs c ON c.id = e.club_id
+        WHERE e.publication_status = 'published'
+        ORDER BY e.created_at DESC LIMIT 5
+      `),
     ]);
+
+    const recentActivity = [...recentPostsRes.rows, ...recentEventsRes.rows]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 6)
+      .map((r) => ({
+        id: r.id,
+        title: r.title,
+        type: r.type,
+        clubName: r.club_name,
+        createdAt: r.created_at,
+      }));
 
     res.json({
       totalClubs: clubsTotal.rows[0].count,
       activeClubs: clubsActive.rows[0].count,
+      freeClubs: clubsFree.rows[0].count,
       totalUsers: usersTotal.rows[0].count,
+      superadmins: superadminsRes.rows[0].count,
       openReports: openReportsRes.rows[0].count,
+      publishedPosts: publishedPostsRes.rows[0].count,
+      publishedEvents: publishedEventsRes.rows[0].count,
+      system: {
+        env: process.env.NODE_ENV || "development",
+        storageProvider: process.env.USE_S3 === "true" ? "s3" : "local",
+        emailConfigured: false,
+      },
+      recentActivity,
     });
   } catch (err) {
     console.error("Superadmin stats error:", err);
