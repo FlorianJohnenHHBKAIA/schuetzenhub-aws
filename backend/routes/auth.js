@@ -232,6 +232,18 @@ router.post("/setup", async (req, res) => {
 
 // GET /api/auth/me – aktueller User + Member
 router.get("/me", requireAuth, async (req, res) => {
+  // Superadmin hat keinen members-Record
+  if (req.isSuperAdmin) {
+    return res.json({
+      member: null,
+      userRole: null,
+      permissions: [],
+      isSuperAdmin: true,
+      userId: req.userId,
+      userEmail: req.userEmail,
+    });
+  }
+
   try {
     const permissions = await pool.query(
       `SELECT p.key as permission_key, mra.scope_type, mra.scope_id
@@ -252,6 +264,7 @@ router.get("/me", requireAuth, async (req, res) => {
       member: req.member,
       userRole: roleRes.rows[0] || null,
       permissions: permissions.rows,
+      isSuperAdmin: false,
     });
   } catch (err) {
     console.error("Me-Fehler:", err);

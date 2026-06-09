@@ -30,7 +30,7 @@ const Auth = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string; firstName?: string; lastName?: string; club?: string; general?: string }>({});
   
-  const { signIn, user, isLoading } = useAuth();
+  const { signIn, user, isLoading, isSuperAdmin } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
@@ -63,8 +63,10 @@ const Auth = () => {
   });
 
   useEffect(() => {
-    if (user && !isLoading) navigate("/portal");
-  }, [user, isLoading, navigate]);
+    if (!isLoading && user) {
+      navigate(isSuperAdmin ? "/superadmin" : "/portal");
+    }
+  }, [user, isLoading, isSuperAdmin, navigate]);
 
   const validateForm = () => {
     const newErrors: typeof errors = {};

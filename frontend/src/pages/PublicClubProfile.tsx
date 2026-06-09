@@ -2,35 +2,43 @@ import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import { motion } from "framer-motion";
-import { 
-  Calendar, 
-  MapPin, 
-  Mail, 
-  Phone, 
-  Globe, 
-  Users, 
-  ArrowRight,
+import {
+  Calendar,
+  MapPin,
+  Mail,
+  Phone,
+  Globe,
+  Users,
   Shield,
-  Newspaper,
-  Building2,
-  ChevronDown,
-  Crown,
-  Heart,
-  Handshake,
-  Award,
-  Images,
   Menu,
   X,
+  ChevronRight,
+  ExternalLink,
+  CheckCircle,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ShareButtons } from "@/components/ui/share-buttons";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import { supabase, getStorageUrl } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
-import heroBg from "@/assets/hero-bg.jpg";
 import GallerySection from "@/components/landing/GallerySection";
 import PublicFooter from "@/components/public/PublicFooter";
+
+// ─── Interfaces ───────────────────────────────────────────────────────────────
 
 interface ClubData {
   id: string;
@@ -50,6 +58,12 @@ interface ClubData {
   join_cta_url: string | null;
   imprint_text: string | null;
   privacy_text: string | null;
+  claim_status: string | null;
+  plan: string | null;
+  founded_year: number | null;
+  street: string | null;
+  house_number: string | null;
+  state: string | null;
 }
 
 interface PublicEvent {
@@ -58,24 +72,10 @@ interface PublicEvent {
   start_at: string;
   end_at: string | null;
   location: string | null;
+  location_city: string | null;
+  event_type: string | null;
   category: string;
   description: string | null;
-}
-
-interface PublicPost {
-  id: string;
-  title: string;
-  content: string;
-  created_at: string;
-  category: string;
-  cover_image_path: string | null;
-}
-
-interface Company {
-  id: string;
-  name: string;
-  description: string | null;
-  logo_url: string | null;
 }
 
 interface GalleryImage {
@@ -85,243 +85,287 @@ interface GalleryImage {
   image_path: string;
 }
 
-const communityValues = [
-  {
-    icon: Handshake,
-    title: "Kameradschaft",
-    description: "Zusammenhalt und gegenseitige Unterstützung stehen im Mittelpunkt unserer Gemeinschaft."
-  },
-  {
-    icon: Crown,
-    title: "Tradition",
-    description: "Wir pflegen jahrhundertealte Bräuche und geben sie an kommende Generationen weiter."
-  },
-  {
-    icon: Heart,
-    title: "Engagement",
-    description: "Ehrenamtliches Engagement und aktive Teilnahme prägen das Vereinsleben."
-  },
-  {
-    icon: Award,
-    title: "Ehrungen",
-    description: "Wir würdigen langjährige Mitgliedschaft und besondere Verdienste."
-  }
-];
+interface RelatedClub {
+  id: string;
+  name: string;
+  slug: string;
+  location_city: string | null;
+  logo_url: string | null;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function scrollToId(id: string) {
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function formatEventDate(dateStr: string) {
+  return format(new Date(dateStr), "dd. MMMM yyyy", { locale: de });
+}
+
+function getEventTypeLabel(event: PublicEvent) {
+  if (event.event_type) return event.event_type;
+  const labels: Record<string, string> = {
+    training: "Training", meeting: "Versammlung", fest: "Fest",
+    work: "Arbeitsdienst", other: "Sonstiges",
+  };
+  return labels[event.category] ?? event.category;
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 const PublicClubProfile = () => {
   const { slug } = useParams<{ slug: string }>();
+
+  // Core data
   const [club, setClub] = useState<ClubData | null>(null);
   const [events, setEvents] = useState<PublicEvent[]>([]);
-  const [posts, setPosts] = useState<PublicPost[]>([]);
-  const [companies, setCompanies] = useState<Company[]>([]);
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
-  const [memberCount, setMemberCount] = useState(0);
+  const [relatedClubs, setRelatedClubs] = useState<RelatedClub[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [heroUrl, setHeroUrl] = useState<string | null>(null);
+
+  // Header / nav
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [headerSolid, setHeaderSolid] = useState(false);
 
+  // Claim dialog
+  const [showClaimDialog, setShowClaimDialog] = useState(false);
+  const [claimForm, setClaimForm] = useState({ firstname: "", lastname: "", position: "", email: "", phone: "", message: "" });
+  const [claimSubmitting, setClaimSubmitting] = useState(false);
+  const [claimSuccess, setClaimSuccess] = useState(false);
+  const [claimError, setClaimError] = useState<string | null>(null);
+
+  // Interest form
+  const [interestForm, setInterestForm] = useState({ name: "", email: "", message: "" });
+  const [interestSubmitting, setInterestSubmitting] = useState(false);
+  const [interestSuccess, setInterestSuccess] = useState(false);
+  const [interestError, setInterestError] = useState("");
+
+  // ── Data Fetching ────────────────────────────────────────────────────────
+
   useEffect(() => {
-    if (slug) {
-      fetchClubData();
-    }
+    if (slug) fetchAll();
   }, [slug]);
 
-  // Header background on scroll
   useEffect(() => {
-    const handleScroll = () => {
-      setHeaderSolid(window.scrollY > 50);
-    };
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
+    const handler = () => setHeaderSolid(window.scrollY > 50);
+    window.addEventListener("scroll", handler);
+    return () => window.removeEventListener("scroll", handler);
   }, []);
 
-  const fetchClubData = async () => {
+  async function fetchAll() {
     if (!slug) return;
-    
     try {
-      const { data: clubData, error: clubError } = await supabase
+      // Club
+      const { data: clubData, error } = await supabase
         .from("clubs")
         .select("*")
         .eq("slug", slug)
         .single();
+      if (error) throw error;
+      const c = clubData as ClubData;
+      setClub(c);
+      if (c.logo_path) setLogoUrl(getStorageUrl("club-assets", c.logo_path) || null);
+      if (c.hero_image_path) setHeroUrl(getStorageUrl("club-assets", c.hero_image_path) || null);
 
-      if (clubError) throw clubError;
-      const club = clubData as ClubData;
-      setClub(club);
-
-      if (club.logo_path) {
-        setLogoUrl(getStorageUrl("club-assets", club.logo_path) || "");
+      // Events via REST
+      const evRes = await fetch(`/api/events/public/${slug}`);
+      if (evRes.ok) {
+        const evData: PublicEvent[] = await evRes.json();
+        setEvents(evData.slice(0, 6));
       }
-      if (club.hero_image_path) {
-        setHeroUrl(getStorageUrl("club-assets", club.hero_image_path) || "");
+
+      // Gallery
+      const galRes = await fetch(`/api/public/gallery/${slug}`);
+      if (galRes.ok) {
+        const galData: GalleryImage[] = await galRes.json();
+        setGalleryImages(galData.slice(0, 8));
       }
 
-      const { data: eventsData } = await supabase
-        .from("events")
-        .select("id, title, start_at, end_at, location, category, description")
-        .eq("club_id", club.id)
-        .eq("audience", "public")
-        .eq("publication_status", "approved")
-        .gte("start_at", new Date().toISOString())
-        .order("start_at", { ascending: true })
-        .limit(5);
-
-      setEvents((eventsData as PublicEvent[]) || []);
-
-      const { data: postsData } = await supabase
-        .from("posts")
-        .select("id, title, content, created_at, category, cover_image_path")
-        .eq("club_id", club.id)
-        .eq("audience", "public")
-        .eq("publication_status", "approved")
-        .order("created_at", { ascending: false })
-        .limit(3);
-
-      setPosts((postsData as PublicPost[]) || []);
-
-      const { data: companiesData } = await supabase
-        .from("companies")
-        .select("id, name, description, logo_url")
-        .eq("club_id", club.id)
-        .order("name");
-
-      setCompanies((companiesData as Company[]) || []);
-
-      const galleryRes = await fetch(`/api/public/gallery/${slug}`);
-      const galleryData = galleryRes.ok ? await galleryRes.json() : [];
-      setGalleryImages(((galleryData as GalleryImage[]) || []).slice(0, 6));
-
-      // Get member count
-      const { count } = await supabase
-        .from("members")
-        .select("*", { count: "exact" })
-        .eq("club_id", club.id)
-        .in("status", ["active", "passive"]);
-
-      setMemberCount((count as number) || 0);
-
-    } catch (error) {
-      console.error("Error fetching club data:", error);
+      // Related clubs — same city first, fallback to state
+      const cityParam = c.location_city || c.city;
+      const stateParam = c.state;
+      const relatedParam = cityParam
+        ? `city=${encodeURIComponent(cityParam)}&limit=7`
+        : stateParam
+        ? `state=${encodeURIComponent(stateParam)}&limit=7`
+        : null;
+      if (relatedParam) {
+        const relRes = await fetch(`/api/public/clubs?${relatedParam}`);
+        if (relRes.ok) {
+          const relData = await relRes.json();
+          const items: RelatedClub[] = (relData.items ?? [])
+            .filter((rc: RelatedClub) => rc.slug !== slug)
+            .slice(0, 6);
+          setRelatedClubs(items);
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching club profile:", err);
     } finally {
       setIsLoading(false);
     }
-  };
+  }
 
-  const getCategoryLabel = (category: string) => {
-    const labels: Record<string, string> = {
-      training: "Training",
-      meeting: "Versammlung",
-      fest: "Fest",
-      work: "Arbeitsdienst",
-      other: "Sonstiges",
-      announcement: "Ankündigung",
-      info: "Information",
-      event: "Veranstaltung",
-      warning: "Hinweis",
-    };
-    return labels[category] || category;
-  };
+  // ── Claim handler ────────────────────────────────────────────────────────
+
+  async function handleClaimSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setClaimSubmitting(true);
+    setClaimError(null);
+    try {
+      const res = await fetch(`/api/public/clubs/${slug}/claim`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(claimForm),
+      });
+      const data = await res.json();
+      if (!res.ok) setClaimError(data.error || "Ein Fehler ist aufgetreten.");
+      else setClaimSuccess(true);
+    } catch {
+      setClaimError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
+    } finally {
+      setClaimSubmitting(false);
+    }
+  }
+
+  // ── Interest handler ─────────────────────────────────────────────────────
+
+  async function handleInterestSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setInterestSubmitting(true);
+    setInterestError("");
+    try {
+      const res = await fetch(`/api/public/clubs/${slug}/interest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(interestForm),
+      });
+      if (res.ok) {
+        setInterestSuccess(true);
+      } else {
+        const data = await res.json();
+        setInterestError(data.error || "Ein Fehler ist aufgetreten.");
+      }
+    } catch {
+      setInterestError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
+    } finally {
+      setInterestSubmitting(false);
+    }
+  }
+
+  // ── Loading / not found ───────────────────────────────────────────────────
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-forest-dark flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" />
       </div>
     );
   }
 
   if (!club) {
     return (
-      <div className="min-h-screen bg-forest-dark flex flex-col items-center justify-center">
-        <Shield className="w-16 h-16 text-gold mb-4" />
-        <h1 className="text-2xl font-bold text-cream mb-2">Verein nicht gefunden</h1>
-        <p className="text-cream/60 mb-4">Der gesuchte Verein existiert nicht.</p>
-        <Button variant="hero" asChild>
-          <Link to="/">Zur Startseite</Link>
-        </Button>
+      <div className="min-h-screen bg-forest-dark flex flex-col items-center justify-center gap-4">
+        <Shield className="w-16 h-16 text-gold" />
+        <h1 className="text-2xl font-bold text-cream">Verein nicht gefunden</h1>
+        <p className="text-cream/60">Der gesuchte Verein existiert nicht.</p>
+        <Button variant="hero" asChild><Link to="/">Zur Startseite</Link></Button>
       </div>
     );
   }
 
-  const locationString = [club.location_zip, club.location_city || club.city].filter(Boolean).join(" ");
-  const backgroundImage = heroUrl || heroBg;
-  const metaDescription = club.description 
-    ? club.description.substring(0, 155) + "..." 
-    : `${club.name}${locationString ? ` in ${locationString}` : ""} – Tradition, Kameradschaft und Gemeinschaft.`;
+  // ── Computed values ───────────────────────────────────────────────────────
+
+  const cityDisplay = club.location_city || club.city;
+  const locationString = [club.location_zip, cityDisplay].filter(Boolean).join(" ");
+  const metaTitle = `${club.name} | SchützenHub`;
+  const metaDescription = `Informationen, Veranstaltungen und Kontaktdaten der ${club.name}.`;
+  const pageUrl = `${window.location.origin}/verein/${slug}`;
+  const isVerified = club.plan && club.plan !== "free";
+  const isUnclaimed = club.claim_status === "unclaimed";
+  const hasAddress = !!(club.street || cityDisplay);
+  const hasContact = !!(club.contact_email || club.contact_phone || club.website_url);
 
   const navLinks = [
-    { to: `/verein/${slug}`, label: "Start", section: "hero" },
     { to: `/verein/${slug}/termine`, label: "Termine" },
     { to: `/verein/${slug}/aktuelles`, label: "Aktuelles" },
     { to: `/verein/${slug}/galerie`, label: "Galerie" },
     { to: `/verein/${slug}/mitmachen`, label: "Mitmachen" },
   ];
 
+  // Schema.org JSON-LD
+  const schemaOrg: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": "SportsClub",
+    name: club.name,
+    url: pageUrl,
+  };
+  if (club.founded_year) schemaOrg.foundingDate = String(club.founded_year);
+  if (club.contact_email) schemaOrg.email = club.contact_email;
+  if (club.contact_phone) schemaOrg.telephone = club.contact_phone;
+  if (club.website_url) schemaOrg.sameAs = club.website_url;
+  if (logoUrl) schemaOrg.logo = logoUrl;
+  if (heroUrl) schemaOrg.image = heroUrl;
+  const addressParts = {
+    streetAddress: [club.street, club.house_number].filter(Boolean).join(" ") || undefined,
+    addressLocality: cityDisplay || undefined,
+    postalCode: club.location_zip || undefined,
+    addressCountry: "DE",
+  };
+  if (addressParts.streetAddress || addressParts.addressLocality) {
+    schemaOrg.address = { "@type": "PostalAddress", ...addressParts };
+  }
+
   return (
     <div className="min-h-screen bg-forest-dark">
-      {/* SEO Meta Tags */}
+      {/* ── SEO ─────────────────────────────────────────────────────────── */}
       <Helmet>
-        <title>{club.name}{locationString ? ` – ${locationString}` : ""}</title>
+        <title>{metaTitle}</title>
         <meta name="description" content={metaDescription} />
         <meta property="og:title" content={club.name} />
         <meta property="og:description" content={metaDescription} />
         <meta property="og:type" content="website" />
-        {heroUrl && <meta property="og:image" content={heroUrl} />}
-        {logoUrl && !heroUrl && <meta property="og:image" content={logoUrl} />}
-        <meta property="og:url" content={`${window.location.origin}/verein/${slug}`} />
+        <meta property="og:url" content={pageUrl} />
+        {(heroUrl || logoUrl) && <meta property="og:image" content={(heroUrl || logoUrl)!} />}
         <meta name="twitter:card" content="summary_large_image" />
-        <link rel="canonical" href={`${window.location.origin}/verein/${slug}`} />
+        <link rel="canonical" href={pageUrl} />
+        <script type="application/ld+json">{JSON.stringify(schemaOrg)}</script>
       </Helmet>
 
-      {/* Header */}
+      {/* ── Header ──────────────────────────────────────────────────────── */}
       <header className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
         headerSolid ? "bg-forest-dark/95 backdrop-blur-md border-b border-gold/10" : "bg-transparent"
       }`}>
         <div className="container mx-auto px-6 h-16 flex items-center justify-between">
-          <Link to={`/verein/${slug}`} className="flex items-center gap-3 text-cream hover:text-gold transition-colors">
-            <div className="flex items-center gap-2">
-              {logoUrl ? (
-                <img src={logoUrl} alt={club.name} className="w-9 h-9 rounded-full object-cover border border-gold/30" />
-              ) : (
-                <Shield className="w-8 h-8 text-gold" />
-              )}
-              <span className="font-display font-semibold hidden sm:inline">{club.name}</span>
-            </div>
+          <Link to={`/verein/${slug}`} className="flex items-center gap-2 text-cream hover:text-gold transition-colors">
+            {logoUrl
+              ? <img src={logoUrl} alt={club.name} className="w-9 h-9 rounded-full object-cover border border-gold/30" />
+              : <Shield className="w-8 h-8 text-gold" />
+            }
+            <span className="font-semibold hidden sm:inline">{club.name}</span>
           </Link>
 
-          {/* Desktop Nav */}
           <nav className="hidden md:flex items-center gap-6">
-            {navLinks.slice(1).map((link) => (
-              <Link
-                key={link.to}
-                to={link.to}
-                className="text-cream/70 hover:text-gold text-sm font-medium transition-colors"
-              >
+            {navLinks.map((link) => (
+              <Link key={link.to} to={link.to} className="text-cream/70 hover:text-gold text-sm font-medium transition-colors">
                 {link.label}
               </Link>
             ))}
             <Button variant="hero" size="sm" asChild>
               <Link to={`/verein/${slug}/mitmachen`}>
-                <Users className="w-4 h-4 mr-2" />
-                Mitmachen
+                <Users className="w-4 h-4 mr-2" /> Mitmachen
               </Link>
             </Button>
           </nav>
 
-          {/* Mobile Menu Toggle */}
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="md:hidden text-cream"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          >
+          <Button variant="ghost" size="icon" className="md:hidden text-cream" onClick={() => setMobileMenuOpen((v) => !v)}>
             {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </Button>
         </div>
 
-        {/* Mobile Menu */}
         {mobileMenuOpen && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
@@ -342,8 +386,7 @@ const PublicClubProfile = () => {
               ))}
               <Button variant="hero" size="sm" className="mt-2" asChild>
                 <Link to="/auth" onClick={() => setMobileMenuOpen(false)}>
-                  <Shield className="w-4 h-4 mr-2" />
-                  Mitgliederportal
+                  <Shield className="w-4 h-4 mr-2" /> Mitgliederportal
                 </Link>
               </Button>
             </nav>
@@ -351,694 +394,488 @@ const PublicClubProfile = () => {
         )}
       </header>
 
-      {/* Hero Section */}
-      <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
-        <div 
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-          style={{ backgroundImage: `url(${backgroundImage})` }}
-        >
-          <div className="absolute inset-0 bg-gradient-to-b from-forest-dark/95 via-forest-dark/75 to-forest-dark" />
-          <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-gold/5 to-transparent" />
+      <main className="pt-16">
+        {/* ── Breadcrumbs ─────────────────────────────────────────────── */}
+        <div className="container mx-auto px-6 py-3">
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link to="/" className="text-cream/50 hover:text-gold text-xs transition-colors">Startseite</Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator className="text-cream/30">
+                <ChevronRight className="w-3 h-3" />
+              </BreadcrumbSeparator>
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link to="/vereine" className="text-cream/50 hover:text-gold text-xs transition-colors">Vereinsregister</Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator className="text-cream/30">
+                <ChevronRight className="w-3 h-3" />
+              </BreadcrumbSeparator>
+              <BreadcrumbItem>
+                <BreadcrumbPage className="text-cream/80 text-xs">{club.name}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
         </div>
 
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-20 left-10 w-32 h-32 border-l-2 border-t-2 border-gold/20" />
-          <div className="absolute top-20 right-10 w-32 h-32 border-r-2 border-t-2 border-gold/20" />
-          <div className="absolute bottom-20 left-10 w-32 h-32 border-l-2 border-b-2 border-gold/20" />
-          <div className="absolute bottom-20 right-10 w-32 h-32 border-r-2 border-b-2 border-gold/20" />
-          
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 0.15 }}
-            transition={{ duration: 3, ease: "easeOut" }}
-            className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] rounded-full bg-gold blur-[150px]"
-          />
-        </div>
+        {/* ── 1. HERO ─────────────────────────────────────────────────── */}
+        <section className="relative h-[420px] sm:h-[520px] overflow-hidden bg-forest-dark">
+          {heroUrl && (
+            <img
+              src={heroUrl}
+              alt={club.name}
+              className="absolute inset-0 w-full h-full object-cover opacity-35"
+            />
+          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-forest-dark via-forest-dark/60 to-transparent" />
 
-        <div className="relative z-10 container mx-auto px-6 py-20">
-          <div className="max-w-5xl mx-auto text-center">
-            {/* Logo */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.8 }}
-              className="mb-8"
-            >
-              <div className="inline-flex flex-col items-center">
-                <div className="w-28 h-28 rounded-full bg-gradient-to-br from-gold to-gold-dark flex items-center justify-center mb-4 shadow-xl shadow-gold/20 overflow-hidden">
-                  {logoUrl ? (
-                    <img src={logoUrl} alt={club.name} className="w-full h-full object-contain" />
-                  ) : (
-                    <Shield className="w-14 h-14 text-forest-dark" />
-                  )}
-                </div>
-                <div className="h-8 w-px bg-gradient-to-b from-gold to-transparent" />
-              </div>
-            </motion.div>
+          <div className="relative z-10 flex flex-col items-center justify-end h-full pb-12 px-4 text-center">
+            {logoUrl && (
+              <img
+                src={logoUrl}
+                alt={club.name}
+                className="w-20 h-20 rounded-full border-2 border-gold/60 object-cover mb-4 shadow-xl"
+              />
+            )}
 
-            {/* Location */}
-            {locationString && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: 0.2 }}
-                className="mb-6"
-              >
-                <span className="inline-flex items-center gap-2 px-6 py-2 text-gold text-sm font-medium tracking-[0.2em] uppercase">
-                  <MapPin className="w-4 h-4" />
-                  {locationString}
+            <div className="flex flex-wrap items-center justify-center gap-2 mb-3">
+              {isVerified && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-gold/20 text-gold text-xs rounded-full border border-gold/30">
+                  <Shield className="w-3 h-3" /> Verifizierter Verein
                 </span>
-              </motion.div>
-            )}
-
-            {/* Club Name */}
-            <motion.h1
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.3 }}
-              className="font-display text-4xl md:text-6xl lg:text-7xl font-bold text-cream mb-6 leading-[1.1]"
-            >
-              {club.name}
-            </motion.h1>
-
-            {/* Tagline */}
-            {club.tagline && (
-              <motion.p
-                initial={{ opacity: 0, y: 30 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.7, delay: 0.4 }}
-                className="text-xl md:text-2xl text-cream/70 mb-12 max-w-3xl mx-auto font-body leading-relaxed"
-              >
-                {club.tagline}
-              </motion.p>
-            )}
-
-            {/* CTA Buttons */}
-            <motion.div
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.7, delay: 0.5 }}
-              className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-16"
-            >
-              <Button variant="hero" size="xl" className="group min-w-[200px]" asChild>
-                <Link to={`/verein/${slug}/mitmachen`}>
-                  <Users className="w-5 h-5 mr-2" />
-                  Mitmachen
-                  <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
-                </Link>
-              </Button>
-              <Button variant="heroOutline" size="xl" className="min-w-[200px]" asChild>
-                <Link to={`/verein/${slug}/termine`}>
-                  <Calendar className="w-4 h-4 mr-2" />
-                  Termine
-                </Link>
-              </Button>
-            </motion.div>
-
-            {/* Quick Stats */}
-            <motion.div
-              initial={{ opacity: 0, y: 40 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.7 }}
-              className="grid grid-cols-2 md:grid-cols-4 max-w-3xl mx-auto"
-            >
-              {[
-                { icon: Users, value: memberCount > 0 ? memberCount.toString() : "-", label: "Mitglieder" },
-                { icon: Building2, value: companies.length.toString(), label: "Kompanien" },
-                { icon: Calendar, value: events.length.toString(), label: "Termine" },
-                { icon: Newspaper, value: posts.length.toString(), label: "Beiträge" },
-              ].map((stat, index) => (
-                <div key={index} className="relative px-4 py-4">
-                  {index > 0 && (
-                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-px h-12 bg-gradient-to-b from-transparent via-gold/30 to-transparent hidden md:block" />
-                  )}
-                  <div className="flex flex-col items-center">
-                    <stat.icon className="w-5 h-5 text-gold mb-2" />
-                    <span className="text-2xl md:text-3xl font-display font-bold text-cream">
-                      {stat.value}
-                    </span>
-                    <span className="text-cream/50 text-sm">{stat.label}</span>
-                  </div>
-                </div>
-              ))}
-            </motion.div>
-          </div>
-        </div>
-
-        {/* Scroll Indicator */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 1.5, duration: 0.5 }}
-          className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2"
-        >
-          <span className="text-cream/40 text-xs uppercase tracking-widest">Entdecken</span>
-          <motion.div
-            animate={{ y: [0, 6, 0] }}
-            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          >
-            <ChevronDown className="w-5 h-5 text-gold/60" />
-          </motion.div>
-        </motion.div>
-      </section>
-
-      {/* About Section */}
-      {club.description && (
-        <section id="about" className="py-24 md:py-32 bg-gradient-to-b from-forest-dark via-forest to-forest-dark relative overflow-hidden">
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            <div className="absolute top-0 left-1/4 w-96 h-96 rounded-full bg-gold/5 blur-[100px]" />
-          </div>
-
-          <div className="container mx-auto px-6 relative z-10">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.6 }}
-              className="text-center mb-16"
-            >
-              <motion.div
-                initial={{ scale: 0 }}
-                whileInView={{ scale: 1 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5 }}
-                className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gold/20 mb-6"
-              >
-                <Users className="w-8 h-8 text-gold" />
-              </motion.div>
-
-              <h2 className="font-display text-3xl md:text-5xl font-bold text-cream mb-6">
-                Über uns
-              </h2>
-              
-              <div className="w-24 h-1 bg-gradient-to-r from-gold to-gold-dark mx-auto mb-8" />
-              
-              <p className="text-cream/80 text-lg max-w-3xl mx-auto whitespace-pre-wrap leading-relaxed">
-                {club.description}
-              </p>
-            </motion.div>
-
-            {/* Values */}
-            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
-              {communityValues.map((value, index) => (
-                <motion.div
-                  key={index}
-                  initial={{ opacity: 0, y: 30 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.5, delay: index * 0.1 }}
-                  className="group"
-                >
-                  <div className="h-full p-6 rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 hover:border-gold/30 hover:bg-white/10 transition-all duration-300 text-center">
-                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gold/20 mb-4 group-hover:bg-gold/30 transition-colors">
-                      <value.icon className="w-6 h-6 text-gold" />
-                    </div>
-                    <h3 className="font-display text-lg font-semibold text-cream mb-2">
-                      {value.title}
-                    </h3>
-                    <p className="text-cream/60 text-sm leading-relaxed">
-                      {value.description}
-                    </p>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* Companies Section */}
-      {companies.length > 0 && (
-        <section className="py-24 md:py-32 bg-cream-dark relative overflow-hidden">
-          <div className="container mx-auto px-6 relative">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.6 }}
-              className="text-center mb-16"
-            >
-              <motion.div
-                initial={{ scale: 0 }}
-                whileInView={{ scale: 1 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5 }}
-                className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-forest/10 mb-6"
-              >
-                <Building2 className="w-8 h-8 text-forest" />
-              </motion.div>
-              
-              <h2 className="font-display text-3xl md:text-5xl font-bold text-foreground mb-6">
-                Unsere Kompanien
-              </h2>
-              
-              <div className="w-24 h-1 bg-gradient-to-r from-gold to-gold-dark mx-auto mb-6" />
-              
-              <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-                Unser Verein gliedert sich in {companies.length} Kompanie{companies.length > 1 ? "n" : ""}.
-              </p>
-            </motion.div>
-
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
-              {companies.map((company, index) => {
-                const companyLogoUrl = company.logo_url
-                  ? (company.logo_url.startsWith('/') || company.logo_url.startsWith('http')
-                      ? company.logo_url
-                      : (getStorageUrl("company-assets", company.logo_url) || ""))
-                  : null;
-                
-                return (
-                  <motion.div
-                    key={company.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true }}
-                    transition={{ duration: 0.5, delay: index * 0.1 }}
-                  >
-                    <Link 
-                      to={`/verein/${slug}/kompanie/${company.id}`}
-                      className="block bg-card p-6 rounded-2xl border-2 border-border hover:border-gold/30 hover:shadow-lg transition-all duration-300 group h-full"
-                    >
-                      <div className="flex items-center gap-4 mb-4">
-                        <div className="w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors overflow-hidden flex-shrink-0">
-                          {companyLogoUrl ? (
-                            <img src={companyLogoUrl} alt={company.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <Building2 className="w-7 h-7 text-primary" />
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="font-display text-xl font-semibold text-foreground group-hover:text-primary transition-colors truncate">
-                            {company.name}
-                          </h4>
-                          <span className="text-xs text-muted-foreground flex items-center gap-1 group-hover:text-primary/70 transition-colors">
-                            Profil ansehen
-                            <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
-                          </span>
-                        </div>
-                      </div>
-                      {company.description && (
-                        <p className="text-muted-foreground text-sm leading-relaxed line-clamp-3">
-                          {company.description}
-                        </p>
-                      )}
-                    </Link>
-                  </motion.div>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* Events Section */}
-      {events.length > 0 && (
-        <section id="events" className="py-24 md:py-32 bg-gradient-to-b from-forest-dark to-forest relative overflow-hidden">
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            <div className="absolute top-20 right-20 w-80 h-80 rounded-full bg-gold/5 blur-[100px]" />
-          </div>
-
-          <div className="container mx-auto px-6 relative z-10">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.6 }}
-              className="text-center mb-16"
-            >
-              <motion.div
-                initial={{ scale: 0 }}
-                whileInView={{ scale: 1 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5 }}
-                className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gold/20 mb-6"
-              >
-                <Calendar className="w-8 h-8 text-gold" />
-              </motion.div>
-
-              <h2 className="font-display text-3xl md:text-5xl font-bold text-cream mb-6">
-                Nächste Termine
-              </h2>
-              
-              <div className="w-24 h-1 bg-gradient-to-r from-gold to-gold-dark mx-auto" />
-            </motion.div>
-
-            <div className="max-w-4xl mx-auto space-y-4">
-              {events.map((event, index) => {
-                const startDate = new Date(event.start_at);
-                const endDate = event.end_at ? new Date(event.end_at) : null;
-                const shareUrl = `/verein/${slug}/termin/${event.id}`;
-                const shareDescription = event.description 
-                  ? event.description.substring(0, 100) 
-                  : `${format(startDate, "d. MMMM yyyy", { locale: de })} ${event.location ? `in ${event.location}` : ""}`;
-
-                return (
-                  <motion.div
-                    key={event.id}
-                    initial={{ opacity: 0, x: -20 }}
-                    whileInView={{ opacity: 1, x: 0 }}
-                    viewport={{ once: true }}
-                    transition={{ duration: 0.5, delay: index * 0.1 }}
-                    className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6 hover:border-gold/30 hover:bg-white/10 transition-all duration-300"
-                  >
-                    <Link to={shareUrl} className="flex gap-6 group">
-                      <div className="flex-shrink-0 w-20 h-20 bg-gold/20 rounded-xl flex flex-col items-center justify-center group-hover:bg-gold/30 transition-colors">
-                        <span className="text-sm text-gold font-medium uppercase">
-                          {format(startDate, "MMM", { locale: de })}
-                        </span>
-                        <span className="text-3xl font-bold text-cream">
-                          {format(startDate, "d")}
-                        </span>
-                      </div>
-
-                      <div className="flex-grow min-w-0">
-                        <h3 className="font-display text-xl font-semibold text-cream mb-2 group-hover:text-gold transition-colors">
-                          {event.title}
-                        </h3>
-                        <div className="flex flex-wrap items-center gap-3 text-cream/60 mb-2">
-                          <span className="text-sm font-medium">
-                            {format(startDate, "HH:mm", { locale: de })} Uhr
-                            {endDate && ` – ${format(endDate, "HH:mm", { locale: de })} Uhr`}
-                          </span>
-                          {event.location && (
-                            <>
-                              <span>•</span>
-                              <span className="flex items-center gap-1 text-sm">
-                                <MapPin className="w-4 h-4" />
-                                {event.location}
-                              </span>
-                            </>
-                          )}
-                        </div>
-                        {event.description && (
-                          <p className="text-cream/50 text-sm line-clamp-2">{event.description}</p>
-                        )}
-                        <Badge className="mt-3 bg-gold/20 text-gold border-gold/30 hover:bg-gold/30">
-                          {getCategoryLabel(event.category)}
-                        </Badge>
-                      </div>
-                    </Link>
-                    
-                    <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between">
-                      <span className="text-cream/50 text-sm">Termin teilen:</span>
-                      <ShareButtons 
-                        url={shareUrl} 
-                        title={event.title} 
-                        description={shareDescription}
-                        variant="compact"
-                        className="text-cream/80 hover:text-gold"
-                      />
-                    </div>
-                  </motion.div>
-                );
-              })}
-            </div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: 0.3 }}
-              className="text-center mt-12"
-            >
-              <Button variant="heroOutline" size="lg" asChild>
-                <Link to={`/verein/${slug}/termine`}>
-                  Alle Termine anzeigen
-                  <ArrowRight className="w-4 h-4 ml-2" />
-                </Link>
-              </Button>
-            </motion.div>
-          </div>
-        </section>
-      )}
-
-      {/* News Section */}
-      {posts.length > 0 && (
-        <section id="news" className="py-24 md:py-32 bg-cream-dark relative overflow-hidden">
-          <div className="container mx-auto px-6 relative z-10">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.6 }}
-              className="text-center mb-16"
-            >
-              <motion.div
-                initial={{ scale: 0 }}
-                whileInView={{ scale: 1 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5 }}
-                className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-forest/10 mb-6"
-              >
-                <Newspaper className="w-8 h-8 text-forest" />
-              </motion.div>
-
-              <h2 className="font-display text-3xl md:text-5xl font-bold text-foreground mb-6">
-                Aktuelles
-              </h2>
-              
-              <div className="w-24 h-1 bg-gradient-to-r from-gold to-gold-dark mx-auto" />
-            </motion.div>
-
-            <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-              {posts.map((post, index) => {
-                const shareUrl = `/verein/${slug}/beitrag/${post.id}`;
-                const shareDescription = post.content
-                  ? post.content?.replace(/<[^>]*>/g, "").substring(0, 100) ?? ""
-                  : "";
-
-                return (
-                  <motion.div
-                    key={post.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true }}
-                    transition={{ duration: 0.5, delay: index * 0.1 }}
-                    className="bg-card rounded-2xl overflow-hidden border-2 border-border hover:border-gold/30 hover:shadow-lg transition-all duration-300 group"
-                  >
-                    <Link to={shareUrl} className="block">
-                      {post.cover_image_path && (
-                        <div className="h-48 bg-muted overflow-hidden">
-                          <img
-                            src={`${getStorageUrl("post-images", post.cover_image_path) || ""}`}
-                            alt={post.title}
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          />
-                        </div>
-                      )}
-                      <div className="p-6 pb-0">
-                        <Badge variant="outline" className="text-xs mb-3 border-gold/30 text-gold-dark">
-                          {getCategoryLabel(post.category)}
-                        </Badge>
-                        <h3 className="font-display text-lg font-semibold text-foreground mb-2 line-clamp-2 group-hover:text-gold-dark transition-colors">
-                          {post.title}
-                        </h3>
-                        <p className="text-muted-foreground text-sm line-clamp-3 mb-4">
-                          {post.content?.replace(/<[^>]*>/g, "").substring(0, 120) ?? ""}...
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {format(new Date(post.created_at), "dd. MMMM yyyy", { locale: de })}
-                        </p>
-                      </div>
-                    </Link>
-                    
-                    <div className="px-6 py-4 border-t border-border flex items-center justify-between">
-                      <span className="text-muted-foreground text-sm">Teilen:</span>
-                      <ShareButtons 
-                        url={shareUrl} 
-                        title={post.title} 
-                        description={shareDescription}
-                        variant="compact"
-                      />
-                    </div>
-                  </motion.div>
-                );
-              })}
-            </div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: 0.3 }}
-              className="text-center mt-12"
-            >
-              <Button variant="outline" size="lg" asChild>
-                <Link to={`/verein/${slug}/aktuelles`}>
-                  Alle Beiträge anzeigen
-                  <ArrowRight className="w-4 h-4 ml-2" />
-                </Link>
-              </Button>
-            </motion.div>
-          </div>
-        </section>
-      )}
-
-      {/* Gallery Section */}
-      {galleryImages.length > 0 && (
-        <section className="py-24 md:py-32 bg-forest-dark relative overflow-hidden">
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            <motion.div
-              initial={{ opacity: 0 }}
-              whileInView={{ opacity: 0.05 }}
-              viewport={{ once: true }}
-              className="absolute top-0 right-0 w-[600px] h-[600px] rounded-full bg-gold blur-[150px]"
-            />
-          </div>
-
-          <div className="container mx-auto px-6 relative z-10">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.6 }}
-              className="text-center mb-16"
-            >
-              <motion.div
-                initial={{ scale: 0 }}
-                whileInView={{ scale: 1 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5 }}
-                className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gold/20 mb-6"
-              >
-                <Images className="w-8 h-8 text-gold" />
-              </motion.div>
-
-              <h2 className="font-display text-3xl md:text-5xl font-bold text-cream mb-6">
-                Galerie
-              </h2>
-              
-              <div className="w-24 h-1 bg-gradient-to-r from-gold to-gold-dark mx-auto" />
-            </motion.div>
-
-            <GallerySection 
-              images={galleryImages} 
-              
-              gridOnly
-            />
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: 0.3 }}
-              className="text-center mt-12"
-            >
-              <Button variant="heroOutline" size="lg" asChild>
-                <Link to={`/verein/${slug}/galerie`}>
-                  Alle Bilder ansehen
-                  <ArrowRight className="w-4 h-4 ml-2" />
-                </Link>
-              </Button>
-            </motion.div>
-          </div>
-        </section>
-      )}
-
-      {/* Join CTA Section */}
-      <section className="py-24 md:py-32 bg-gradient-to-b from-forest to-forest-dark relative overflow-hidden">
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 0.1 }}
-            transition={{ duration: 3 }}
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full bg-gold blur-[200px]"
-          />
-        </div>
-
-        <div className="absolute top-12 left-12 w-24 h-24 border-l border-t border-gold/20" />
-        <div className="absolute top-12 right-12 w-24 h-24 border-r border-t border-gold/20" />
-        <div className="absolute bottom-12 left-12 w-24 h-24 border-l border-b border-gold/20" />
-        <div className="absolute bottom-12 right-12 w-24 h-24 border-r border-b border-gold/20" />
-
-        <div className="container mx-auto px-6 relative z-10">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6 }}
-            className="max-w-3xl mx-auto text-center"
-          >
-            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-gold to-gold-dark mb-8 shadow-xl shadow-gold/20 overflow-hidden">
-              {logoUrl ? (
-                <img src={logoUrl} alt={club.name} className="w-full h-full object-contain" />
-              ) : (
-                <Shield className="w-10 h-10 text-forest-dark" />
+              )}
+              {isUnclaimed && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-amber-500/20 text-amber-300 text-xs rounded-full border border-amber-500/30">
+                  Noch nicht übernommen
+                </span>
               )}
             </div>
 
-            <h2 className="font-display text-3xl md:text-5xl font-bold text-cream mb-6">
-              Werde Teil unserer Gemeinschaft
-            </h2>
+            <h1 className="text-3xl sm:text-4xl font-bold text-cream mb-2 leading-tight max-w-2xl">
+              {club.name}
+            </h1>
 
-            <p className="text-cream/70 text-lg mb-10 max-w-2xl mx-auto">
-              Haben Sie Fragen zu unserem Verein oder möchten Sie Teil unserer Gemeinschaft werden?
-              Wir freuen uns auf Sie!
+            {(cityDisplay || club.founded_year) && (
+              <p className="text-cream/60 text-sm mb-6">
+                {[
+                  cityDisplay && <span key="city" className="flex items-center gap-1 inline-flex"><MapPin className="w-3.5 h-3.5" /> {cityDisplay}</span>,
+                  club.founded_year && `Gegründet ${club.founded_year}`,
+                ].filter(Boolean).reduce<React.ReactNode[]>((acc, el, i) => {
+                  if (i > 0) acc.push(<span key={`sep-${i}`} className="mx-2">·</span>);
+                  acc.push(el as React.ReactNode);
+                  return acc;
+                }, [])}
+              </p>
+            )}
+
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <Button
+                variant="hero"
+                onClick={() => scrollToId("events")}
+              >
+                <Calendar className="w-4 h-4 mr-2" /> Veranstaltungen
+              </Button>
+              <Button
+                variant="outline"
+                className="border-cream/30 text-cream hover:bg-cream/10"
+                onClick={() => scrollToId("contact")}
+              >
+                <Mail className="w-4 h-4 mr-2" /> Verein kontaktieren
+              </Button>
+            </div>
+          </div>
+        </section>
+
+        {/* ── 2. UPCOMING EVENTS ──────────────────────────────────────── */}
+        <section id="events" className="py-14 px-4">
+          <div className="max-w-5xl mx-auto">
+            <h2 className="text-2xl font-bold text-cream mb-2">Kommende Veranstaltungen</h2>
+            <p className="text-cream/50 text-sm mb-8">Aktuelle Termine von {club.name}</p>
+
+            {events.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 gap-4 text-cream/40 border border-cream/10 rounded-2xl">
+                <Calendar className="w-10 h-10 opacity-30" />
+                <p className="text-sm">Keine kommenden Veranstaltungen geplant.</p>
+                <Button variant="outline" className="border-cream/20 text-cream/70 hover:bg-cream/10 mt-2" asChild>
+                  <Link to={`/veranstaltungen?club=${club.id}`}>Alle Veranstaltungen ansehen</Link>
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {events.map((event) => {
+                    const eventDate = new Date(event.start_at);
+                    const day = format(eventDate, "dd", { locale: de });
+                    const month = format(eventDate, "MMM", { locale: de });
+                    const locationLabel = event.location_city || event.location || null;
+
+                    return (
+                      <div
+                        key={event.id}
+                        className="bg-forest-dark/50 border border-cream/10 rounded-xl p-5 hover:border-gold/30 transition-colors group"
+                      >
+                        <div className="flex items-start gap-4">
+                          <div className="shrink-0 flex flex-col items-center bg-gold/10 border border-gold/20 rounded-lg px-3 py-2 min-w-[56px]">
+                            <span className="text-gold text-xs font-medium uppercase">{month}</span>
+                            <span className="text-cream text-2xl font-bold leading-none">{day}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <span className="inline-block text-xs px-2 py-0.5 bg-gold/10 text-gold/80 rounded-full mb-2">
+                              {getEventTypeLabel(event)}
+                            </span>
+                            <h3 className="text-sm font-semibold text-cream leading-snug group-hover:text-gold transition-colors line-clamp-2">
+                              {event.title}
+                            </h3>
+                            {locationLabel && (
+                              <p className="text-xs text-cream/40 mt-1.5 flex items-center gap-1">
+                                <MapPin className="w-3 h-3 shrink-0" />
+                                {locationLabel}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="mt-4 pt-3 border-t border-cream/10">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-xs text-cream/60 hover:text-gold w-full justify-center"
+                            asChild
+                          >
+                            <Link to={`/verein/${slug}/termin/${event.id}`}>
+                              Veranstaltungsdetails <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                            </Link>
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-6 text-center">
+                  <Button variant="outline" className="border-cream/20 text-cream/70 hover:bg-cream/10" asChild>
+                    <Link to={`/veranstaltungen?club=${club.id}`}>Alle Veranstaltungen ansehen</Link>
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </section>
+
+        {/* ── 3. ABOUT ────────────────────────────────────────────────── */}
+        {club.description && (
+          <section className="py-14 px-4 bg-cream/5 border-y border-cream/10">
+            <div className="max-w-3xl mx-auto">
+              <h2 className="text-2xl font-bold text-cream mb-6">Über den Verein</h2>
+              <p className="text-cream/70 leading-relaxed whitespace-pre-line">{club.description}</p>
+            </div>
+          </section>
+        )}
+
+        {/* ── 4. GALLERY ──────────────────────────────────────────────── */}
+        {galleryImages.length > 0 && (
+          <section className="py-14 px-4">
+            <div className="max-w-5xl mx-auto">
+              <h2 className="text-2xl font-bold text-cream mb-2">Galerie</h2>
+              <p className="text-cream/50 text-sm mb-8">Eindrücke aus dem Vereinsleben</p>
+              <GallerySection images={galleryImages} gridOnly />
+              {galleryImages.length >= 8 && (
+                <div className="mt-6 text-center">
+                  <Button variant="outline" className="border-cream/20 text-cream/70 hover:bg-cream/10" asChild>
+                    <Link to={`/verein/${slug}/galerie`}>Alle Fotos ansehen</Link>
+                  </Button>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* ── 5. CONTACT ──────────────────────────────────────────────── */}
+        {hasContact && (
+          <section id="contact" className="py-14 px-4 bg-cream/5 border-y border-cream/10">
+            <div className="max-w-3xl mx-auto">
+              <h2 className="text-2xl font-bold text-cream mb-8">Kontakt</h2>
+              <div className="space-y-4">
+                {club.contact_email && (
+                  <a
+                    href={`mailto:${club.contact_email}`}
+                    className="flex items-center gap-4 p-4 bg-forest-dark border border-cream/10 rounded-xl hover:border-gold/30 transition-colors group"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-gold/10 flex items-center justify-center shrink-0">
+                      <Mail className="w-5 h-5 text-gold" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-cream/40 mb-0.5">E-Mail</p>
+                      <p className="text-sm text-cream group-hover:text-gold transition-colors">{club.contact_email}</p>
+                    </div>
+                  </a>
+                )}
+                {club.contact_phone && (
+                  <a
+                    href={`tel:${club.contact_phone}`}
+                    className="flex items-center gap-4 p-4 bg-forest-dark border border-cream/10 rounded-xl hover:border-gold/30 transition-colors group"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-gold/10 flex items-center justify-center shrink-0">
+                      <Phone className="w-5 h-5 text-gold" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-cream/40 mb-0.5">Telefon</p>
+                      <p className="text-sm text-cream group-hover:text-gold transition-colors">{club.contact_phone}</p>
+                    </div>
+                  </a>
+                )}
+                {club.website_url && (
+                  <a
+                    href={club.website_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-4 p-4 bg-forest-dark border border-cream/10 rounded-xl hover:border-gold/30 transition-colors group"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-gold/10 flex items-center justify-center shrink-0">
+                      <Globe className="w-5 h-5 text-gold" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-cream/40 mb-0.5">Website</p>
+                      <p className="text-sm text-cream group-hover:text-gold transition-colors truncate">
+                        {club.website_url.replace(/^https?:\/\//, "")}
+                      </p>
+                    </div>
+                    <ExternalLink className="w-4 h-4 text-cream/30 shrink-0" />
+                  </a>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ── 6. LOCATION ─────────────────────────────────────────────── */}
+        {hasAddress && (
+          <section className="py-14 px-4">
+            <div className="max-w-3xl mx-auto">
+              <h2 className="text-2xl font-bold text-cream mb-8">Standort</h2>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div className="p-5 bg-forest-dark/50 border border-cream/10 rounded-xl">
+                  <p className="text-xs text-cream/40 mb-3 uppercase tracking-wide">Adresse</p>
+                  <address className="not-italic text-cream/80 text-sm leading-relaxed">
+                    {[club.street, club.house_number].filter(Boolean).length > 0 && (
+                      <p>{[club.street, club.house_number].filter(Boolean).join(" ")}</p>
+                    )}
+                    {[club.location_zip, cityDisplay].filter(Boolean).length > 0 && (
+                      <p>{[club.location_zip, cityDisplay].filter(Boolean).join(" ")}</p>
+                    )}
+                    {club.state && <p className="text-cream/50 mt-1">{club.state}</p>}
+                  </address>
+                </div>
+                <div className="flex flex-col items-center justify-center p-5 bg-forest-dark/50 border border-cream/10 rounded-xl text-cream/30">
+                  <MapPin className="w-8 h-8 mb-2 opacity-30" />
+                  <p className="text-xs text-center">Interaktive Karte folgt</p>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ── 7. MEMBERSHIP INTEREST ──────────────────────────────────── */}
+        <section className="py-14 px-4 bg-cream/5 border-y border-cream/10">
+          <div className="max-w-xl mx-auto">
+            <h2 className="text-2xl font-bold text-cream mb-2">Interesse am Verein?</h2>
+            <p className="text-cream/50 text-sm mb-8">
+              Hinterlassen Sie Ihre Kontaktdaten — der Verein meldet sich bei Ihnen.
             </p>
 
-            <div className="flex flex-wrap justify-center gap-4 mb-12">
-              {club.contact_email && (
-                <a
-                  href={`mailto:${club.contact_email}`}
-                  className="flex items-center gap-3 px-6 py-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl text-cream hover:border-gold/30 hover:bg-white/10 transition-all"
-                >
-                  <Mail className="w-5 h-5 text-gold" />
-                  <span>{club.contact_email}</span>
-                </a>
-              )}
-              {club.contact_phone && (
-                <a
-                  href={`tel:${club.contact_phone}`}
-                  className="flex items-center gap-3 px-6 py-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl text-cream hover:border-gold/30 hover:bg-white/10 transition-all"
-                >
-                  <Phone className="w-5 h-5 text-gold" />
-                  <span>{club.contact_phone}</span>
-                </a>
-              )}
-              {club.website_url && (
-                <a
-                  href={club.website_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3 px-6 py-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl text-cream hover:border-gold/30 hover:bg-white/10 transition-all"
-                >
-                  <Globe className="w-5 h-5 text-gold" />
-                  <span>Website besuchen</span>
-                </a>
-              )}
-            </div>
+            {interestSuccess ? (
+              <div className="flex items-start gap-3 bg-green-500/10 border border-green-500/20 rounded-xl px-5 py-4">
+                <CheckCircle className="w-5 h-5 text-green-400 shrink-0 mt-0.5" />
+                <p className="text-sm text-green-300">
+                  Vielen Dank für Ihr Interesse. Der Verein wird informiert.
+                </p>
+              </div>
+            ) : (
+              <form onSubmit={handleInterestSubmit} className="space-y-4">
+                <div>
+                  <Label className="text-cream/80 text-sm mb-1.5 block">Name *</Label>
+                  <Input
+                    value={interestForm.name}
+                    onChange={(e) => setInterestForm((f) => ({ ...f, name: e.target.value }))}
+                    placeholder="Ihr Name"
+                    required
+                    className="bg-forest-dark border-cream/20 text-cream placeholder:text-cream/30 focus:border-gold/50"
+                  />
+                </div>
+                <div>
+                  <Label className="text-cream/80 text-sm mb-1.5 block">E-Mail *</Label>
+                  <Input
+                    type="email"
+                    value={interestForm.email}
+                    onChange={(e) => setInterestForm((f) => ({ ...f, email: e.target.value }))}
+                    placeholder="ihre@email.de"
+                    required
+                    className="bg-forest-dark border-cream/20 text-cream placeholder:text-cream/30 focus:border-gold/50"
+                  />
+                </div>
+                <div>
+                  <Label className="text-cream/80 text-sm mb-1.5 block">Nachricht</Label>
+                  <Textarea
+                    value={interestForm.message}
+                    onChange={(e) => setInterestForm((f) => ({ ...f, message: e.target.value }))}
+                    placeholder="Ihre Nachricht (optional)…"
+                    rows={3}
+                    className="bg-forest-dark border-cream/20 text-cream placeholder:text-cream/30 focus:border-gold/50 resize-none"
+                  />
+                </div>
+                {interestError && (
+                  <div className="flex items-center gap-2 text-sm text-destructive">
+                    <AlertCircle className="w-4 h-4 shrink-0" /> {interestError}
+                  </div>
+                )}
+                <Button type="submit" variant="hero" disabled={interestSubmitting} className="w-full">
+                  {interestSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Interesse bekunden"}
+                </Button>
+              </form>
+            )}
+          </div>
+        </section>
 
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Button variant="hero" size="xl" className="group" asChild>
-                <Link to={`/verein/${slug}/mitmachen`}>
-                  <Users className="w-5 h-5 mr-2" />
-                  Mitmachen
-                  <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
-                </Link>
-              </Button>
-              <Button variant="heroOutline" size="xl" asChild>
-                <Link to="/auth">
-                  <Shield className="w-4 h-4 mr-2" />
-                  Zum Mitgliederportal
-                </Link>
-              </Button>
+        {/* ── 8. CLAIM CLUB ───────────────────────────────────────────── */}
+        {isUnclaimed && (
+          <section className="py-14 px-4">
+            <div className="max-w-3xl mx-auto">
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-8 flex flex-col sm:flex-row sm:items-center gap-6">
+                <div className="flex-1">
+                  <h2 className="text-xl font-bold text-amber-200 mb-2">Ist das Ihr Verein?</h2>
+                  <p className="text-amber-200/70 text-sm leading-relaxed">
+                    Übernehmen Sie die Verwaltung dieser Vereinsseite und verwalten Sie Veranstaltungen,
+                    Mitglieder und Inhalte selbst.
+                  </p>
+                </div>
+                <Button
+                  className="shrink-0 bg-amber-500 hover:bg-amber-600 text-white border-0"
+                  onClick={() => setShowClaimDialog(true)}
+                >
+                  Verein übernehmen
+                </Button>
+              </div>
             </div>
-          </motion.div>
-        </div>
-      </section>
+          </section>
+        )}
 
-      {/* Footer */}
-      <PublicFooter
-        clubName={club.name}
-        clubSlug={club.slug}
-        logoUrl={logoUrl}
-        contactEmail={club.contact_email}
-        contactPhone={club.contact_phone}
-        websiteUrl={club.website_url}
-        locationCity={club.location_city || club.city}
-        imprintText={club.imprint_text}
-        privacyText={club.privacy_text}
-      />
+        {/* ── 9. RELATED CLUBS ────────────────────────────────────────── */}
+        {relatedClubs.length > 0 && (
+          <section className="py-14 px-4 bg-cream/5 border-t border-cream/10">
+            <div className="max-w-5xl mx-auto">
+              <h2 className="text-2xl font-bold text-cream mb-2">Weitere Vereine in der Region</h2>
+              <p className="text-cream/50 text-sm mb-8">
+                {cityDisplay ? `Vereine in ${cityDisplay} und Umgebung` : "Vereine in der Nähe"}
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                {relatedClubs.map((rc) => (
+                  <Link
+                    key={rc.id}
+                    to={`/verein/${rc.slug}`}
+                    className="flex flex-col items-center gap-2 p-4 bg-forest-dark border border-cream/10 rounded-xl hover:border-gold/30 hover:bg-cream/5 transition-colors text-center group"
+                  >
+                    {rc.logo_url ? (
+                      <img
+                        src={rc.logo_url}
+                        alt={rc.name}
+                        className="w-12 h-12 rounded-full object-cover border border-cream/10"
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-full bg-gold/10 flex items-center justify-center border border-gold/20">
+                        <Shield className="w-5 h-5 text-gold/60" />
+                      </div>
+                    )}
+                    <p className="text-xs font-medium text-cream/80 group-hover:text-gold transition-colors line-clamp-2 leading-tight">
+                      {rc.name}
+                    </p>
+                    {rc.location_city && (
+                      <p className="text-xs text-cream/40">{rc.location_city}</p>
+                    )}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ── 10. SEO CONTENT ─────────────────────────────────────────── */}
+        <section className="py-8 px-4 border-t border-cream/5">
+          <div className="max-w-3xl mx-auto">
+            <p className="text-xs text-cream/20 leading-relaxed">
+              Die {club.name} ist ein Schützenverein{cityDisplay ? ` in ${cityDisplay}` : ""}
+              {club.state ? ` und Teil der Schützentradition in ${club.state}` : ""}.
+              {club.founded_year ? ` Der Verein wurde ${club.founded_year} gegründet.` : ""}
+              {" "}Auf SchützenHub finden Sie aktuelle Informationen, Veranstaltungen und Kontaktdaten der {club.name}.
+            </p>
+          </div>
+        </section>
+      </main>
+
+      <PublicFooter />
+
+      {/* ── Claim Dialog ─────────────────────────────────────────────── */}
+      <Dialog open={showClaimDialog} onOpenChange={(o) => { if (!o) { setShowClaimDialog(false); setClaimSuccess(false); setClaimError(null); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Verein übernehmen</DialogTitle>
+          </DialogHeader>
+          {claimSuccess ? (
+            <div className="py-4 space-y-4">
+              <div className="flex items-start gap-3 bg-green-500/10 border border-green-500/20 rounded-lg px-4 py-3">
+                <CheckCircle className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
+                <p className="text-sm text-green-700">
+                  Ihre Anfrage wurde erfolgreich übermittelt. Wir prüfen Ihre Angaben und melden uns in Kürze.
+                </p>
+              </div>
+              <DialogFooter>
+                <Button onClick={() => { setShowClaimDialog(false); setClaimSuccess(false); }}>Schließen</Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <form onSubmit={handleClaimSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Vorname *</Label>
+                  <Input value={claimForm.firstname} onChange={(e) => setClaimForm((f) => ({ ...f, firstname: e.target.value }))} required />
+                </div>
+                <div>
+                  <Label>Nachname *</Label>
+                  <Input value={claimForm.lastname} onChange={(e) => setClaimForm((f) => ({ ...f, lastname: e.target.value }))} required />
+                </div>
+              </div>
+              <div>
+                <Label>Position im Verein</Label>
+                <Input value={claimForm.position} onChange={(e) => setClaimForm((f) => ({ ...f, position: e.target.value }))} placeholder="z.B. 1. Vorsitzender" />
+              </div>
+              <div>
+                <Label>E-Mail *</Label>
+                <Input type="email" value={claimForm.email} onChange={(e) => setClaimForm((f) => ({ ...f, email: e.target.value }))} required />
+              </div>
+              <div>
+                <Label>Telefon</Label>
+                <Input type="tel" value={claimForm.phone} onChange={(e) => setClaimForm((f) => ({ ...f, phone: e.target.value }))} />
+              </div>
+              <div>
+                <Label>Nachricht</Label>
+                <Textarea value={claimForm.message} onChange={(e) => setClaimForm((f) => ({ ...f, message: e.target.value }))} rows={3} placeholder="Weitere Angaben…" />
+              </div>
+              {claimError && (
+                <div className="flex items-center gap-2 text-sm text-destructive">
+                  <AlertCircle className="w-4 h-4 shrink-0" /> {claimError}
+                </div>
+              )}
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setShowClaimDialog(false)}>Abbrechen</Button>
+                <Button type="submit" disabled={claimSubmitting || !claimForm.firstname || !claimForm.lastname || !claimForm.email}>
+                  {claimSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Anfrage senden"}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

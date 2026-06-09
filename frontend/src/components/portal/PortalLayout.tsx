@@ -8,6 +8,7 @@ import {
   Menu,
   X,
   Shield,
+  ShieldAlert,
   ChevronRight,
   Globe,
   Clock,
@@ -45,7 +46,7 @@ const PortalLayout = ({ children }: PortalLayoutProps) => {
   const [clubInfo, setClubInfo] = useState<ClubInfo | null>(null);
   const [clubLogoUrl, setClubLogoUrl] = useState<string | null>(null);
   const navigate = useNavigate();
-  const { member, isAdmin, signOut, refreshPermissions } = useAuth();
+  const { member, isAdmin, isSuperAdmin, signOut, refreshPermissions } = useAuth();
   const { isAdminMode } = useUIMode();
   const {
     isOnboardingOpen,
@@ -300,6 +301,16 @@ const PortalLayout = ({ children }: PortalLayoutProps) => {
               </div>
               <ChevronRight className="w-4 h-4 text-sidebar-foreground/40 group-hover:text-sidebar-primary transition-colors shrink-0" />
             </button>
+            {isSuperAdmin && (
+              <Link
+                to="/superadmin"
+                onClick={closeSidebar}
+                className="flex items-center gap-2 mt-2 px-2 py-1.5 rounded-lg text-xs font-medium bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
+              >
+                <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                Superadmin-Bereich
+              </Link>
+            )}
           </div>
 
           {/* Desktop Notification Bell & Install Prompt */}

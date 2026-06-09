@@ -35,6 +35,7 @@ import {
   Users2,
   FolderOpen,
   ToggleRight,
+  PartyPopper,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -130,6 +131,7 @@ const adminMembersOrgItems: NavItem[] = [
 // Termine & Einsätze
 const adminEventsItems: NavItem[] = [
   { label: "Termine", href: "/portal/events", icon: Calendar, keywords: ["event", "veranstaltung", "kalender"] },
+  { label: "Festplaner", href: "/portal/festplaner", icon: PartyPopper, permission: "club.admin.full", keywords: ["fest", "schützenfest", "planer", "budget", "anbieter"] },
   // AUSKOMMENTIERT: Arbeitsdienste (Kann später wieder aktiviert werden)
   // { label: "Arbeitsdienste", href: "/portal/workshifts", icon: ClipboardList, keywords: ["schicht", "dienst", "helfer"] },
   // AUSKOMMENTIERT: Arbeitsdienste-Übersicht (Kann später wieder aktiviert werden)

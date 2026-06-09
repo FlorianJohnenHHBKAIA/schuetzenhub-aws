@@ -84,7 +84,7 @@ interface ParticipantCount {
 
 
 const Dashboard = () => {
-  const { member, isLoading: authLoading } = useAuth();
+  const { member, isLoading: authLoading, isSuperAdmin } = useAuth();
   const { isAdminMode, isLoaded: uiModeLoaded } = useUIMode();
   
   const [companyInfo, setCompanyInfo] = useState<CompanyInfo | null>(null);
@@ -298,6 +298,10 @@ const Dashboard = () => {
       setIsLoading(false);
     }
   };
+
+  if (!authLoading && isSuperAdmin) {
+    return <Navigate to="/superadmin" replace />;
+  }
 
   if (!authLoading && uiModeLoaded && isAdminMode) {
     return <Navigate to="/portal/admin" replace />;
