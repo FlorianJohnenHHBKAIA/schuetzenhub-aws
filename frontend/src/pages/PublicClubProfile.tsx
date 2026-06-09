@@ -19,7 +19,6 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -32,7 +31,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { supabase, getStorageUrl } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import GallerySection from "@/components/landing/GallerySection";
@@ -123,6 +121,7 @@ const PublicClubProfile = () => {
   const [galleryImages, setGalleryImages] = useState<GalleryImage[]>([]);
   const [relatedClubs, setRelatedClubs] = useState<RelatedClub[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isArchived, setIsArchived] = useState(false);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [heroUrl, setHeroUrl] = useState<string | null>(null);
 
@@ -159,16 +158,13 @@ const PublicClubProfile = () => {
     if (!slug) return;
     try {
       // Club
-      const { data: clubData, error } = await supabase
-        .from("clubs")
-        .select("*")
-        .eq("slug", slug)
-        .single();
-      if (error) throw error;
-      const c = clubData as ClubData;
+      const clubRes = await fetch(`/api/clubs/by-slug/${slug}`);
+      if (clubRes.status === 410) { setIsArchived(true); return; }
+      if (!clubRes.ok) throw new Error("Club not found");
+      const c = await clubRes.json() as ClubData & { logo_url?: string; hero_image_url?: string };
       setClub(c);
-      if (c.logo_path) setLogoUrl(getStorageUrl("club-assets", c.logo_path) || null);
-      if (c.hero_image_path) setHeroUrl(getStorageUrl("club-assets", c.hero_image_path) || null);
+      if (c.logo_url)       setLogoUrl(c.logo_url);
+      if (c.hero_image_url) setHeroUrl(c.hero_image_url);
 
       // Events via REST
       const evRes = await fetch(`/api/events/public/${slug}`);
@@ -262,6 +258,19 @@ const PublicClubProfile = () => {
     return (
       <div className="min-h-screen bg-forest-dark flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" />
+      </div>
+    );
+  }
+
+  if (isArchived) {
+    return (
+      <div className="min-h-screen bg-forest-dark flex flex-col items-center justify-center gap-4 px-4">
+        <Shield className="w-16 h-16 text-gold" />
+        <h1 className="text-2xl font-bold text-cream">Verein nicht verfügbar</h1>
+        <p className="text-cream/60 text-center max-w-sm">
+          Dieser Verein ist derzeit nicht öffentlich verfügbar.
+        </p>
+        <Button variant="hero" asChild><Link to="/">Zur Startseite</Link></Button>
       </div>
     );
   }

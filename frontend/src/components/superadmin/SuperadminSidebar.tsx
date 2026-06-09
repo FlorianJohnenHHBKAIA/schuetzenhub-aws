@@ -9,6 +9,7 @@ import {
   Settings,
   ClipboardList,
   Store,
+  ScrollText,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
   { label: "Meldungen & Compliance", to: "/superadmin/reports", icon: Flag },
   { label: "Übernahmeanfragen", to: "/superadmin/claim-requests", icon: ClipboardList },
   { label: "Anbieter", to: "/superadmin/providers", icon: Store },
+  { label: "Audit-Log", to: "/superadmin/audit-logs", icon: ScrollText },
   { label: "Systemeinstellungen", to: "/superadmin/settings", icon: Settings },
 ];
 

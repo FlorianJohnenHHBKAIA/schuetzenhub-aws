@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { v4: uuidv4 } = require("uuid");
 const pool = require("../db");
-const { requireAuth, requireActiveMember } = require("../middleware/auth");
+const { requireAuth, requireAdmin, requireActiveMember } = require("../middleware/auth");
 const multer = require("multer");
 const { saveFile, getPublicUrl, deleteFile } = require("../storage");
 const { insertNotifications, notifyPostPublished, getClubMemberIds, getCompanyMemberIds } = require("../lib/notifications");
@@ -36,19 +36,41 @@ router.get("/clubs/registration", async (req, res) => {
   }
 });
 
-// GET /api/clubs/by-slug/:slug – öffentliches Club-Profil
+// GET /api/clubs/by-slug/:slug – öffentliches Club-Profil (kein Auth)
 router.get("/clubs/by-slug/:slug", async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT id, name, slug, city, logo_path, hero_image_path, description, founded_year, website FROM clubs WHERE slug = $1",
+      `SELECT
+         id, name, slug,
+         city, location_city, location_zip,
+         tagline, description,
+         logo_path, hero_image_path,
+         contact_email, contact_phone, website_url,
+         join_cta_text, join_cta_url,
+         imprint_text, privacy_text,
+         claim_status, plan,
+         founded_year, street, house_number, state,
+         archived_at
+       FROM clubs
+       WHERE slug = $1
+         AND deleted_at IS NULL`,
       [req.params.slug]
     );
     if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
+
     const club = result.rows[0];
-    if (club.logo_path) club.logo_url = getPublicUrl("club-assets", club.logo_path);
-    if (club.hero_image_path) club.hero_image_url = getPublicUrl("club-assets", club.hero_image_path);
+
+    if (club.archived_at) {
+      return res.status(410).json({ error: "archived" });
+    }
+    delete club.archived_at;
+
+    if (club.logo_path)       club.logo_url       = getPublicUrl("club-assets", club.logo_path);
+    if (club.hero_image_path) club.hero_image_url  = getPublicUrl("club-assets", club.hero_image_path);
+
     res.json(club);
   } catch (err) {
+    console.error("GET /clubs/by-slug error:", err);
     res.status(500).json({ error: "Serverfehler" });
   }
 });
@@ -383,6 +405,10 @@ router.get("/events/:id", requireAuth, async (req, res) => {
 router.post("/events", requireAuth, async (req, res) => {
   const { title, description, location, start_at, end_at, category, owner_type, owner_id, audience, publication_status } = req.body;
   if (!title || !start_at) return res.status(400).json({ error: "Titel und Startdatum erforderlich" });
+  const VALID_AUDIENCES = ['club_internal', 'public', 'company_only'];
+  if (audience && !VALID_AUDIENCES.includes(audience)) {
+    return res.status(400).json({ error: "Ungültiger Wert für audience" });
+  }
   const id = uuidv4();
   try {
     const result = await pool.query(
@@ -399,6 +425,10 @@ router.post("/events", requireAuth, async (req, res) => {
 
 router.put("/events/:id", requireAuth, async (req, res) => {
   const { title, description, location, start_at, end_at, category, owner_type, owner_id, audience, publication_status, internal_notes, responsible_member_id } = req.body;
+  const VALID_AUDIENCES = ['club_internal', 'public', 'company_only'];
+  if (audience && !VALID_AUDIENCES.includes(audience)) {
+    return res.status(400).json({ error: "Ungültiger Wert für audience" });
+  }
   try {
     const result = await pool.query(
       `UPDATE events SET
@@ -1680,7 +1710,7 @@ router.delete("/magazine-ads/:id", requireAuth, async (req, res) => {
 
 // ─── Public URLs helper ───────────────────────────────────────────────────────
 
-router.get("/storage-url", (req, res) => {
+router.get("/storage-url", requireAuth, (req, res) => {
   const { bucket, path: filePath } = req.query;
   if (!bucket || !filePath) return res.status(400).json({ error: "bucket und path erforderlich" });
   res.json({ url: getPublicUrl(bucket, filePath) });
@@ -1760,12 +1790,15 @@ router.get("/documents/download", requireAuth, async (req, res) => {
 router.post("/gallery/upload", requireAuth, async (req, res) => {
   try {
     const { member_id, club_id, company_id, image_path, visibility, usage_permission, description, status } = req.body;
+    if (club_id && club_id !== req.clubId) {
+      return res.status(403).json({ error: "Keine Berechtigung für diesen Verein" });
+    }
     const id = uuidv4();
     await pool.query(
-      `INSERT INTO member_gallery_images 
+      `INSERT INTO member_gallery_images
        (id, member_id, club_id, company_id, image_path, visibility, usage_permission, description, status)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [id, member_id, club_id, company_id || null, image_path, visibility, usage_permission || "internal", description || null, status || "pending"]
+      [id, member_id, req.clubId, company_id || null, image_path, visibility, usage_permission || "internal", description || null, status || "pending"]
     );
     res.json({ id });
   } catch (err) {
@@ -1853,7 +1886,7 @@ router.get("/appointments", requireAuth, async (req, res) => {
 });
 
 // POST /api/appointments
-router.post("/appointments", requireAuth, async (req, res) => {
+router.post("/appointments", requireAuth, requireAdmin, async (req, res) => {
   try {
     let { member_id, title, role_id, scope_type, scope_id, valid_from, valid_to } = req.body;
     
@@ -1894,7 +1927,7 @@ router.post("/appointments", requireAuth, async (req, res) => {
 });
 
 // PUT /api/appointments/:id
-router.put("/appointments/:id", requireAuth, async (req, res) => {
+router.put("/appointments/:id", requireAuth, requireAdmin, async (req, res) => {
   try {
     let { member_id, title, role_id, scope_type, scope_id, valid_from, valid_to } = req.body;
 
@@ -1952,7 +1985,7 @@ router.put("/appointments/:id", requireAuth, async (req, res) => {
 });
 
 // DELETE /api/appointments/:id
-router.delete("/appointments/:id", requireAuth, async (req, res) => {
+router.delete("/appointments/:id", requireAuth, requireAdmin, async (req, res) => {
   try {
     // Erst Appointment lesen, um member_role_assignments bereinigen zu können
     const aptRes = await pool.query(
@@ -2008,7 +2041,7 @@ router.get("/delegations", requireAuth, async (req, res) => {
 });
 
 // POST /api/delegations
-router.post("/delegations", requireAuth, async (req, res) => {
+router.post("/delegations", requireAuth, requireAdmin, async (req, res) => {
   try {
     const { from_member_id, to_member_id, title, valid_from, valid_to } = req.body;
     const id = uuidv4();
@@ -2025,7 +2058,7 @@ router.post("/delegations", requireAuth, async (req, res) => {
 });
 
 // PUT /api/delegations/:id
-router.put("/delegations/:id", requireAuth, async (req, res) => {
+router.put("/delegations/:id", requireAuth, requireAdmin, async (req, res) => {
   try {
     const { title, valid_from, valid_to } = req.body;
     const result = await pool.query(
@@ -2045,7 +2078,7 @@ router.put("/delegations/:id", requireAuth, async (req, res) => {
 });
 
 // DELETE /api/delegations/:id
-router.delete("/delegations/:id", requireAuth, async (req, res) => {
+router.delete("/delegations/:id", requireAuth, requireAdmin, async (req, res) => {
   try {
     await pool.query(
       "DELETE FROM delegations WHERE id = $1 AND club_id = $2",
@@ -2235,7 +2268,7 @@ router.get("/role-permissions", requireAuth, async (req, res) => {
 });
 
 // POST /api/role-permissions
-router.post("/role-permissions", requireAuth, async (req, res) => {
+router.post("/role-permissions", requireAuth, requireAdmin, async (req, res) => {
   try {
     const { role_id, permission_id } = req.body;
     if (!role_id || !permission_id) {
@@ -2269,7 +2302,7 @@ router.post("/role-permissions", requireAuth, async (req, res) => {
 });
 
 // DELETE /api/role-permissions/:id
-router.delete("/role-permissions/:id", requireAuth, async (req, res) => {
+router.delete("/role-permissions/:id", requireAuth, requireAdmin, async (req, res) => {
   try {
     // Verifiziere dass die role_permission zum Club des Users gehört
     const { rows: rp } = await pool.query(

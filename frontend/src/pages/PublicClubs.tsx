@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import { useQuery } from "@tanstack/react-query";
 import { Search, MapPin, Calendar, Shield, ArrowRight, ChevronLeft, ChevronRight, Building2, CheckCircle } from "lucide-react";
@@ -46,7 +46,6 @@ const SELECT_CLASS = "bg-forest-dark/80 border border-gold/20 text-cream text-sm
 // ─── ClubCard ────────────────────────────────────────────────────────────────
 
 const ClubCard = ({ club }: { club: PublicClub }) => {
-  const navigate = useNavigate();
   const locationParts = [club.location_zip, club.location_city || club.city].filter(Boolean);
   const locationStr = locationParts.length > 0
     ? `${locationParts.join(" ")}${club.state ? ` · ${club.state}` : ""}`
@@ -55,8 +54,10 @@ const ClubCard = ({ club }: { club: PublicClub }) => {
   const isUnclaimed = club.claim_status === "unclaimed";
 
   return (
-    <div
-      onClick={() => navigate(`/verein/${club.slug}`)}
+    <a
+      href={`/verein/${club.slug}`}
+      target="_blank"
+      rel="noopener noreferrer"
       className="bg-white/5 border border-gold/10 rounded-xl p-5 flex gap-4 cursor-pointer hover:border-gold/30 hover:bg-white/8 transition-all duration-200 group"
     >
       {/* Logo */}
@@ -119,7 +120,7 @@ const ClubCard = ({ club }: { club: PublicClub }) => {
           </span>
         </div>
       </div>
-    </div>
+    </a>
   );
 };
 

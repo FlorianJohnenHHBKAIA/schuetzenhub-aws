@@ -79,6 +79,7 @@ import SuperadminClaimRequests from "./pages/superadmin/SuperadminClaimRequests"
 import SuperadminClaimRequestDetail from "./pages/superadmin/SuperadminClaimRequestDetail";
 import SuperadminProviders from "./pages/superadmin/SuperadminProviders";
 import SuperadminProviderDetail from "./pages/superadmin/SuperadminProviderDetail";
+import SuperadminAuditLogs from "./pages/superadmin/SuperadminAuditLogs";
 import Festplaner from "./pages/portal/Festplaner";
 import FestplanerDetail from "./pages/portal/FestplanerDetail";
 
@@ -171,6 +172,7 @@ const App = () => (
               <Route path="/superadmin/providers" element={<SuperadminLayout><SuperadminProviders /></SuperadminLayout>} />
               <Route path="/superadmin/providers/:id" element={<SuperadminLayout><SuperadminProviderDetail /></SuperadminLayout>} />
               <Route path="/superadmin/settings" element={<SuperadminLayout><SuperadminSettings /></SuperadminLayout>} />
+              <Route path="/superadmin/audit-logs" element={<SuperadminLayout><SuperadminAuditLogs /></SuperadminLayout>} />
             </Route>
             <Route path="*" element={<NotFound />} />
             </Routes>

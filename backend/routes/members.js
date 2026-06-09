@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { v4: uuidv4 } = require("uuid");
 const pool = require("../db");
-const { requireAuth, requireActiveMember } = require("../middleware/auth");
+const { requireAuth, requireAdmin, requireActiveMember } = require("../middleware/auth");
 const multer = require("multer");
 const { saveFile, getPublicUrl } = require("../storage");
 const { insertNotifications } = require("../lib/notifications");
@@ -78,7 +78,7 @@ router.get("/pending", requireAuth, async (req, res) => {
 });
 
 // POST /api/members/:id/approve – Mitglied annehmen (prospect → active)
-router.post("/:id/approve", requireAuth, async (req, res) => {
+router.post("/:id/approve", requireAuth, requireAdmin, async (req, res) => {
   try {
     const result = await pool.query(
       "UPDATE members SET status = 'active', updated_at = now() WHERE id = $1 AND club_id = $2 RETURNING *",
@@ -101,7 +101,7 @@ router.post("/:id/approve", requireAuth, async (req, res) => {
 });
 
 // POST /api/members/:id/reject – Mitgliedsanfrage ablehnen (prospect → resigned)
-router.post("/:id/reject", requireAuth, async (req, res) => {
+router.post("/:id/reject", requireAuth, requireAdmin, async (req, res) => {
   try {
     const result = await pool.query(
       "UPDATE members SET status = 'resigned', updated_at = now() WHERE id = $1 AND club_id = $2 RETURNING id",
@@ -143,7 +143,7 @@ router.get("/:id", requireAuth, requireActiveMember, async (req, res) => {
 });
 
 // POST /api/members
-router.post("/", requireAuth, async (req, res) => {
+router.post("/", requireAuth, requireAdmin, async (req, res) => {
   const {
     first_name, last_name, email, phone, street, zip, city, status,
     birthday, member_since,
@@ -174,7 +174,7 @@ router.post("/", requireAuth, async (req, res) => {
 });
 
 // PUT /api/members/:id
-router.put("/:id", requireAuth, async (req, res) => {
+router.put("/:id", requireAuth, requireAdmin, async (req, res) => {
   const {
     first_name, last_name, email, phone, street, zip, city, status,
     birthday, member_since, title, bio, avatar_url, cover_url
@@ -217,7 +217,7 @@ router.put("/:id", requireAuth, async (req, res) => {
 });
 
 // DELETE /api/members/:id
-router.delete("/:id", requireAuth, async (req, res) => {
+router.delete("/:id", requireAuth, requireAdmin, async (req, res) => {
   try {
     await pool.query(
       "DELETE FROM members WHERE id = $1 AND club_id = $2",

@@ -367,7 +367,7 @@ router.post("/forgot-password", async (req, res) => {
       );
 
       // TODO: Hier E-Mail mit Reset-Link versenden
-      const resetUrl = `http://localhost:8080/auth?token=${token}`;
+      const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/auth?token=${token}`;
       console.log(`[Passwort-Reset] Link für ${email}: ${resetUrl}`);
     }
 
