@@ -7,6 +7,8 @@ import {
   Package,
   Flag,
   Settings,
+  ClipboardList,
+  Store,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -16,6 +18,8 @@ const NAV_ITEMS = [
   { label: "Rollen & Rechte", to: "/superadmin/roles", icon: ShieldCheck },
   { label: "Pakete & Abrechnung", to: "/superadmin/packages", icon: Package },
   { label: "Meldungen & Compliance", to: "/superadmin/reports", icon: Flag },
+  { label: "Übernahmeanfragen", to: "/superadmin/claim-requests", icon: ClipboardList },
+  { label: "Anbieter", to: "/superadmin/providers", icon: Store },
   { label: "Systemeinstellungen", to: "/superadmin/settings", icon: Settings },
 ];
 

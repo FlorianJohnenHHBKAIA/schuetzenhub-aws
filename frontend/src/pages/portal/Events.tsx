@@ -176,6 +176,8 @@ const Events = () => {
   const [ownerType, setOwnerType] = useState<OwnerType>("club");
   const [audience, setAudience] = useState<EventAudience>("club_internal");
 
+  const [eventType, setEventType] = useState("");
+
   const [filterOwner, setFilterOwner] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
@@ -250,6 +252,8 @@ const Events = () => {
     }
   };
 
+  const EVENT_TYPES = ["Schützenfest","Bezirksfest","Königsschießen","Jubiläum","Generalversammlung","Vereinsabend","Umzug","Sonstiges"];
+
   const resetForm = () => {
     setTitle("");
     setDescription("");
@@ -257,6 +261,7 @@ const Events = () => {
     setStartAt("");
     setEndAt("");
     setCategory("other");
+    setEventType("");
     setOwnerType(canManageClubEvents ? "club" : "company");
     setAudience("club_internal");
     setFormOwnerId(userCompanyScope || userCompanyId || "");
@@ -273,6 +278,7 @@ const Events = () => {
     setStartAt(event.start_at.slice(0, 16));
     setEndAt(event.end_at?.slice(0, 16) || "");
     setCategory(event.category);
+    setEventType((event as Event & { event_type?: string }).event_type || "");
     setOwnerType(event.owner_type);
     setFormOwnerId(event.owner_id);
     setAudience(event.audience);
@@ -298,7 +304,7 @@ const Events = () => {
         : (audience === "public" ? "club_internal" : audience);
 
       if (editingEvent) {
-        const updateData: EventUpdateData = {
+        const updateData: EventUpdateData & { event_type?: string | null } = {
           club_id: member.club_id,
           owner_type: ownerType,
           owner_id: ownerId,
@@ -310,6 +316,7 @@ const Events = () => {
           category,
           audience: effectiveAudience,
           updated_by_member_id: member.id,
+          event_type: eventType || null,
         };
 
         if (ownerType === "company") {
@@ -332,7 +339,7 @@ const Events = () => {
         toast.success("Termin aktualisiert");
       } else {
         // Neuen Termin über Backend-API erstellen
-        const insertData: EventInsertData = {
+        const insertData: EventInsertData & { event_type?: string | null } = {
           club_id: member.club_id,
           owner_type: ownerType,
           owner_id: ownerId,
@@ -344,6 +351,7 @@ const Events = () => {
           category,
           audience: effectiveAudience,
           created_by_member_id: member.id,
+          event_type: eventType || null,
           // Frontend bestimmt den initialen Publikationsstatus basierend auf Berechtigungen
           publication_status: ownerType === "company"
             ? "approved"
@@ -773,6 +781,17 @@ const Events = () => {
                   {Object.entries(categoryLabels).map(([key, { label }]) => <SelectItem key={key} value={key}>{label}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>
+            <div>
+              <Label>Veranstaltungstyp <span className="text-muted-foreground text-xs">(öffentlich)</span></Label>
+              <Select value={eventType} onValueChange={setEventType}>
+                <SelectTrigger><SelectValue placeholder="Kein Typ" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Kein Typ</SelectItem>
+                  {EVENT_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">Wird im öffentlichen Veranstaltungskalender als Badge angezeigt</p>
             </div>
             <div><Label>Beschreibung</Label><Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Zusätzliche Informationen..." rows={3} /></div>
           </div>

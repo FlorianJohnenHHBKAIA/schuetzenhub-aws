@@ -2443,4 +2443,328 @@ router.post("/archive/entries", requireAuth, async (req, res) => {
   }
 });
 
+// ─── Public Providers ─────────────────────────────────────────────────────────
+
+// GET /api/public/providers – Dienstleisterverzeichnis (kein Auth)
+router.get("/public/providers", async (req, res) => {
+  const {
+    search, type, state, sort = "name_asc",
+    page = "1", limit = "24",
+  } = req.query;
+
+  const pageNum  = Math.max(1, parseInt(page, 10) || 1);
+  const pageSize = Math.min(200, Math.max(1, parseInt(limit, 10) || 24));
+  const offset   = (pageNum - 1) * pageSize;
+
+  const conditions = ["p.is_public = true"];
+  const params = [];
+
+  if (search?.trim()) {
+    params.push(`%${search.trim()}%`);
+    const n = params.length;
+    conditions.push(`(p.company_name ILIKE $${n} OR p.city ILIKE $${n} OR p.description ILIKE $${n})`);
+  }
+  if (type?.trim()) {
+    params.push(type.trim());
+    conditions.push(`p.provider_type = $${params.length}`);
+  }
+  if (state?.trim()) {
+    params.push(state.trim());
+    conditions.push(`p.state = $${params.length}`);
+  }
+
+  const ORDER = { name_asc: "p.company_name ASC", created_desc: "p.created_at DESC" }[sort] ?? "p.company_name ASC";
+  const where = conditions.join(" AND ");
+
+  try {
+    const [rowsRes, countRes] = await Promise.all([
+      pool.query(`
+        SELECT p.id, p.company_name, p.slug, p.provider_type, p.description,
+               p.city, p.state, p.is_verified, p.logo_path
+        FROM providers p
+        WHERE ${where}
+        ORDER BY ${ORDER}
+        LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+      `, [...params, pageSize, offset]),
+      pool.query(`SELECT COUNT(*)::int AS total FROM providers p WHERE ${where}`, params),
+    ]);
+
+    const items = rowsRes.rows.map((p) => ({
+      ...p,
+      logo_url: p.logo_path ? getPublicUrl("provider-assets", p.logo_path) : null,
+    }));
+
+    res.json({ items, total: countRes.rows[0].total, page: pageNum, pages: Math.ceil(countRes.rows[0].total / pageSize) });
+  } catch (err) {
+    console.error("GET /public/providers error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// GET /api/public/providers/:slug – Einzelner Anbieter (kein Auth)
+router.get("/public/providers/:slug", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM providers WHERE slug = $1 AND is_public = true",
+      [req.params.slug]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden." });
+    const p = result.rows[0];
+    if (p.logo_path) p.logo_url = getPublicUrl("provider-assets", p.logo_path);
+    if (p.hero_image_path) p.hero_image_url = getPublicUrl("provider-assets", p.hero_image_path);
+    res.json(p);
+  } catch (err) {
+    console.error("GET /public/providers/:slug error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// POST /api/public/providers/:slug/inquire – Kontaktanfrage (kein Auth)
+router.post("/public/providers/:slug/inquire", async (req, res) => {
+  const { firstname, lastname, email, phone, message } = req.body;
+  if (!firstname?.trim() || !lastname?.trim() || !email?.trim() || !message?.trim()) {
+    return res.status(400).json({ error: "Vorname, Nachname, E-Mail und Nachricht sind Pflichtfelder." });
+  }
+  try {
+    const providerRes = await pool.query(
+      "SELECT id FROM providers WHERE slug = $1 AND is_public = true",
+      [req.params.slug]
+    );
+    if (!providerRes.rows[0]) return res.status(404).json({ error: "Anbieter nicht gefunden." });
+    await pool.query(
+      `INSERT INTO provider_inquiries (provider_id, firstname, lastname, email, phone, message)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [providerRes.rows[0].id, firstname.trim(), lastname.trim(), email.trim(), phone?.trim() || null, message.trim()]
+    );
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    console.error("POST /public/providers/:slug/inquire error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// ─── Public Events ────────────────────────────────────────────────────────────
+
+// GET /api/public/events – Öffentlicher Veranstaltungskalender (kein Auth)
+router.get("/public/events", async (req, res) => {
+  const {
+    search, state, city, club_id, event_type,
+    from, to, sort = "start_asc",
+    page = "1", limit = "24",
+  } = req.query;
+
+  const pageNum  = Math.max(1, parseInt(page, 10) || 1);
+  const pageSize = Math.min(200, Math.max(1, parseInt(limit, 10) || 24));
+  const offset   = (pageNum - 1) * pageSize;
+
+  const conditions = ["e.audience = 'public'", "e.publication_status = 'approved'", "c.deleted_at IS NULL"];
+  const params = [];
+
+  if (search?.trim()) {
+    params.push(`%${search.trim()}%`);
+    const n = params.length;
+    conditions.push(`(e.title ILIKE $${n} OR e.description ILIKE $${n} OR c.name ILIKE $${n} OR COALESCE(e.location_city, e.location) ILIKE $${n})`);
+  }
+  if (state?.trim()) {
+    params.push(state.trim());
+    conditions.push(`COALESCE(e.location_state, c.state) = $${params.length}`);
+  }
+  if (city?.trim()) {
+    params.push(`%${city.trim()}%`);
+    conditions.push(`(e.location_city ILIKE $${params.length} OR e.location ILIKE $${params.length})`);
+  }
+  if (club_id?.trim()) {
+    params.push(club_id.trim());
+    conditions.push(`e.club_id = $${params.length}`);
+  }
+  if (event_type?.trim()) {
+    params.push(event_type.trim());
+    conditions.push(`e.event_type = $${params.length}`);
+  }
+  if (from?.trim()) {
+    params.push(from.trim());
+    conditions.push(`e.start_at >= $${params.length}`);
+  }
+  if (to?.trim()) {
+    params.push(to.trim());
+    conditions.push(`e.start_at <= $${params.length}`);
+  }
+
+  const ORDER = { start_asc: "e.start_at ASC", start_desc: "e.start_at DESC", created_desc: "e.created_at DESC" }[sort] ?? "e.start_at ASC";
+  const where = conditions.join(" AND ");
+
+  try {
+    const [rowsRes, countRes] = await Promise.all([
+      pool.query(`
+        SELECT e.id, e.title, e.description, e.event_type,
+               e.location, e.location_name, e.location_street, e.location_zip,
+               e.location_city, e.location_state,
+               e.start_at, e.end_at, e.club_id, e.created_at,
+               c.name AS club_name, c.slug AS club_slug
+        FROM events e
+        JOIN clubs c ON c.id = e.club_id
+        WHERE ${where}
+        ORDER BY ${ORDER}
+        LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+      `, [...params, pageSize, offset]),
+      pool.query(`SELECT COUNT(*)::int AS total FROM events e JOIN clubs c ON c.id = e.club_id WHERE ${where}`, params),
+    ]);
+
+    res.json({
+      items: rowsRes.rows,
+      total: countRes.rows[0].total,
+      page: pageNum,
+      pages: Math.ceil(countRes.rows[0].total / pageSize),
+    });
+  } catch (err) {
+    console.error("GET /public/events error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// GET /api/public/events/:id – Einzelne öffentliche Veranstaltung (kein Auth)
+router.get("/public/events/:id", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT e.*, c.name AS club_name, c.slug AS club_slug, c.logo_path
+      FROM events e
+      JOIN clubs c ON c.id = e.club_id
+      WHERE e.id = $1 AND e.audience = 'public' AND e.publication_status = 'approved'
+        AND c.deleted_at IS NULL
+    `, [req.params.id]);
+    if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden." });
+    const row = result.rows[0];
+    if (row.logo_path) row.logo_url = getPublicUrl("club-assets", row.logo_path);
+    res.json(row);
+  } catch (err) {
+    console.error("GET /public/events/:id error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// ─── Public Clubs Directory ───────────────────────────────────────────────────
+
+// GET /api/public/clubs – Öffentliches Vereinsregister (kein Auth)
+router.get("/public/clubs", async (req, res) => {
+  const { search, state, city, status, sort = "name_asc", page = "1", limit = "24" } = req.query;
+
+  const pageNum  = Math.max(1, parseInt(page, 10) || 1);
+  const pageSize = Math.min(100, Math.max(1, parseInt(limit, 10) || 24));
+  const offset   = (pageNum - 1) * pageSize;
+
+  const conditions = ["c.is_public = true", "c.deleted_at IS NULL"];
+  const params = [];
+
+  if (search?.trim()) {
+    params.push(`%${search.trim()}%`);
+    const n = params.length;
+    conditions.push(`(c.name ILIKE $${n} OR c.location_city ILIKE $${n} OR c.location_zip ILIKE $${n} OR c.description ILIKE $${n})`);
+  }
+  if (state?.trim()) {
+    params.push(state.trim());
+    conditions.push(`c.state = $${params.length}`);
+  }
+  if (city?.trim()) {
+    params.push(`%${city.trim()}%`);
+    conditions.push(`COALESCE(c.location_city, c.city) ILIKE $${params.length}`);
+  }
+  if (status === "managed")   conditions.push("c.plan IS DISTINCT FROM 'free'");
+  if (status === "unclaimed") conditions.push("c.claim_status = 'unclaimed'");
+
+  const ORDER = { name_asc: "c.name ASC", created_desc: "c.created_at DESC", updated_desc: "c.updated_at DESC" }[sort] ?? "c.name ASC";
+  const where = conditions.join(" AND ");
+
+  try {
+    const [rowsRes, countRes] = await Promise.all([
+      pool.query(`
+        SELECT c.id, c.name, c.slug,
+               c.location_city, c.location_zip, c.city, c.state,
+               c.description, c.founded_year, c.logo_path,
+               c.claim_status, c.plan, c.created_at, c.updated_at
+        FROM clubs c
+        WHERE ${where}
+        ORDER BY ${ORDER}
+        LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+      `, [...params, pageSize, offset]),
+      pool.query(`SELECT COUNT(*)::int AS total FROM clubs c WHERE ${where}`, params),
+    ]);
+
+    const items = rowsRes.rows.map((c) => ({
+      ...c,
+      logo_url: c.logo_path ? getPublicUrl("club-assets", c.logo_path) : null,
+    }));
+
+    res.json({
+      items,
+      total: countRes.rows[0].total,
+      page: pageNum,
+      pages: Math.ceil(countRes.rows[0].total / pageSize),
+    });
+  } catch (err) {
+    console.error("GET /public/clubs error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// ─── Public Claim ─────────────────────────────────────────────────────────────
+
+// POST /api/public/clubs/:slug/claim – Übernahmeanfrage einreichen (kein Auth)
+router.post("/public/clubs/:slug/claim", async (req, res) => {
+  const { slug } = req.params;
+  const { firstname, lastname, position, email, phone, message } = req.body;
+
+  if (!firstname?.trim() || !lastname?.trim() || !email?.trim()) {
+    return res.status(400).json({ error: "Vorname, Nachname und E-Mail sind Pflichtfelder." });
+  }
+
+  try {
+    const clubRes = await pool.query(
+      "SELECT id, claim_status FROM clubs WHERE slug = $1 AND deleted_at IS NULL",
+      [slug]
+    );
+    if (!clubRes.rows[0]) return res.status(404).json({ error: "Verein nicht gefunden." });
+    if (clubRes.rows[0].claim_status !== "unclaimed") {
+      return res.status(409).json({ error: "Für diesen Verein liegt bereits eine Anfrage vor oder er wurde bereits übernommen." });
+    }
+
+    const clubId = clubRes.rows[0].id;
+
+    await pool.query(
+      `INSERT INTO club_claim_requests (club_id, firstname, lastname, position, email, phone, message)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [clubId, firstname.trim(), lastname.trim(), position?.trim() || null, email.trim(), phone?.trim() || null, message?.trim() || null]
+    );
+
+    await pool.query("UPDATE clubs SET claim_status = 'requested' WHERE id = $1", [clubId]);
+
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    console.error("POST /public/clubs/:slug/claim error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// POST /api/public/clubs/:slug/interest – Interessenbekundung eines Besuchers (kein Auth)
+router.post("/public/clubs/:slug/interest", async (req, res) => {
+  const { name, email, message } = req.body;
+  if (!name?.trim() || !email?.trim()) {
+    return res.status(400).json({ error: "Name und E-Mail sind Pflichtfelder." });
+  }
+  try {
+    const clubRes = await pool.query(
+      "SELECT id FROM clubs WHERE slug = $1 AND deleted_at IS NULL",
+      [req.params.slug]
+    );
+    if (!clubRes.rows[0]) return res.status(404).json({ error: "Verein nicht gefunden." });
+    await pool.query(
+      "INSERT INTO club_interest_requests (club_id, name, email, message) VALUES ($1, $2, $3, $4)",
+      [clubRes.rows[0].id, name.trim(), email.trim(), message?.trim() || null]
+    );
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    console.error("POST /public/clubs/:slug/interest error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
 module.exports = router;

@@ -26,6 +26,7 @@ app.use("/api/auth", require("./routes/auth"));
 app.use("/api/superadmin", require("./routes/superadmin"));
 app.use("/api/members", require("./routes/members"));
 app.use("/api/events", require("./routes/events"));
+app.use("/api/festplaner", require("./routes/festplaner"));
 app.use("/api/rpc", require("./routes/rpc"));
 app.use("/api/functions", require("./routes/rpc"));
 app.use("/api", require("./routes/api"));

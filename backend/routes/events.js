@@ -106,6 +106,7 @@ router.post("/", requireAuth, async (req, res) => {
     title, description, location, start_at, end_at, category,
     owner_type, owner_id, audience, publication_status,
     approved_at, approved_by_member_id,
+    event_type, location_name, location_street, location_zip, location_city, location_state,
   } = req.body;
 
   if (!title || !start_at) {
@@ -117,14 +118,17 @@ router.post("/", requireAuth, async (req, res) => {
     const result = await pool.query(
       `INSERT INTO events (id, club_id, title, description, location, start_at, end_at,
         category, owner_type, owner_id, audience, publication_status,
-        created_by_member_id, approved_at, approved_by_member_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+        created_by_member_id, approved_at, approved_by_member_id,
+        event_type, location_name, location_street, location_zip, location_city, location_state)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
        RETURNING *`,
       [id, req.clubId, title, description || null, location || null,
        start_at, end_at || null, category || "other",
        owner_type || "club", owner_id || req.clubId,
        audience || "club_internal", publication_status || "draft",
-       req.member.id, approved_at || null, approved_by_member_id || null]
+       req.member.id, approved_at || null, approved_by_member_id || null,
+       event_type || null, location_name || null, location_street || null,
+       location_zip || null, location_city || null, location_state || null]
     );
     const event = result.rows[0];
     if (event.publication_status === "approved") {
@@ -146,6 +150,7 @@ router.put("/:id", requireAuth, async (req, res) => {
     owner_type, owner_id, audience, publication_status,
     approved_at, approved_by_member_id, rejection_reason,
     submitted_at, responsible_member_id,
+    event_type, location_name, location_street, location_zip, location_city, location_state,
   } = req.body;
 
   try {
@@ -173,7 +178,13 @@ router.put("/:id", requireAuth, async (req, res) => {
         rejection_reason = $13,
         submitted_at = $14,
         responsible_member_id = $15,
-        updated_by_member_id = $16
+        updated_by_member_id = $16,
+        event_type = $19,
+        location_name = $20,
+        location_street = $21,
+        location_zip = $22,
+        location_city = $23,
+        location_state = $24
        WHERE id = $17 AND club_id = $18
        RETURNING *`,
       [title, description ?? null, location ?? null, start_at, end_at ?? null,
@@ -181,7 +192,9 @@ router.put("/:id", requireAuth, async (req, res) => {
        approved_at ?? null, approved_by_member_id ?? null,
        rejection_reason ?? null, submitted_at ?? null,
        responsible_member_id ?? null,
-       req.member.id, req.params.id, req.clubId]
+       req.member.id, req.params.id, req.clubId,
+       event_type ?? null, location_name ?? null, location_street ?? null,
+       location_zip ?? null, location_city ?? null, location_state ?? null]
     );
     if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
     const event = result.rows[0];

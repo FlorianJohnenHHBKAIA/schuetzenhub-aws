@@ -69,6 +69,17 @@ import SuperadminReports from "./pages/superadmin/SuperadminReports";
 import SuperadminSettings from "./pages/superadmin/SuperadminSettings";
 import SuperadminClubDetail from "./pages/superadmin/SuperadminClubDetail";
 import SuperadminUserDetail from "./pages/superadmin/SuperadminUserDetail";
+import PublicClubs from "./pages/PublicClubs";
+import PublicProviders from "./pages/PublicProviders";
+import PublicProviderDetail from "./pages/PublicProviderDetail";
+import PublicVEvents from "./pages/PublicVEvents";
+import PublicVEventDetail from "./pages/PublicVEventDetail";
+import SuperadminClaimRequests from "./pages/superadmin/SuperadminClaimRequests";
+import SuperadminClaimRequestDetail from "./pages/superadmin/SuperadminClaimRequestDetail";
+import SuperadminProviders from "./pages/superadmin/SuperadminProviders";
+import SuperadminProviderDetail from "./pages/superadmin/SuperadminProviderDetail";
+import Festplaner from "./pages/portal/Festplaner";
+import FestplanerDetail from "./pages/portal/FestplanerDetail";
 
 const queryClient = new QueryClient();
 
@@ -87,6 +98,11 @@ const App = () => (
             <Route path="/install" element={<Install />} />
             <Route path="/termine" element={<PublicEvents />} />
             <Route path="/aktuelles" element={<PublicNews />} />
+            <Route path="/vereine" element={<PublicClubs />} />
+            <Route path="/anbieter" element={<PublicProviders />} />
+            <Route path="/anbieter/:slug" element={<PublicProviderDetail />} />
+            <Route path="/veranstaltungen" element={<PublicVEvents />} />
+            <Route path="/veranstaltungen/:id" element={<PublicVEventDetail />} />
             <Route path="/verein/:slug" element={<PublicClubProfile />} />
             <Route path="/verein/:slug/kompanie/:companyId" element={<PublicCompanyProfile />} />
             <Route path="/verein/:slug/termin/:eventId" element={<PublicEventDetail />} />
@@ -136,6 +152,8 @@ const App = () => (
             <Route path="/portal/magazine/:id" element={<MagazineEditor />} />
             <Route path="/portal/magazine/:id/ads" element={<MagazineAds />} />
             <Route path="/portal/magazine/:id/pdf" element={<MagazinePDF />} />
+            <Route path="/portal/festplaner" element={<Festplaner />} />
+            <Route path="/portal/festplaner/:id" element={<FestplanerDetail />} />
             <Route element={<SuperadminRoute />}>
               <Route path="/superadmin" element={<SuperadminLayout><SuperadminDashboard /></SuperadminLayout>} />
               <Route path="/superadmin/clubs" element={<SuperadminLayout><SuperadminClubs /></SuperadminLayout>} />
@@ -145,6 +163,10 @@ const App = () => (
               <Route path="/superadmin/roles" element={<SuperadminLayout><SuperadminRoles /></SuperadminLayout>} />
               <Route path="/superadmin/packages" element={<SuperadminLayout><SuperadminPackages /></SuperadminLayout>} />
               <Route path="/superadmin/reports" element={<SuperadminLayout><SuperadminReports /></SuperadminLayout>} />
+              <Route path="/superadmin/claim-requests" element={<SuperadminLayout><SuperadminClaimRequests /></SuperadminLayout>} />
+              <Route path="/superadmin/claim-requests/:id" element={<SuperadminLayout><SuperadminClaimRequestDetail /></SuperadminLayout>} />
+              <Route path="/superadmin/providers" element={<SuperadminLayout><SuperadminProviders /></SuperadminLayout>} />
+              <Route path="/superadmin/providers/:id" element={<SuperadminLayout><SuperadminProviderDetail /></SuperadminLayout>} />
               <Route path="/superadmin/settings" element={<SuperadminLayout><SuperadminSettings /></SuperadminLayout>} />
             </Route>
             <Route path="*" element={<NotFound />} />

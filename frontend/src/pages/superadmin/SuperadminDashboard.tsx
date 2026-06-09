@@ -5,7 +5,8 @@ import { de } from "date-fns/locale";
 import {
   Building2, CheckCircle2, Users, Flag,
   Package, ShieldAlert, FileText, CalendarDays,
-  ArrowRight, ShieldCheck, LayoutGrid, Settings2, Mail, HardDrive,
+  ArrowRight, ShieldCheck, LayoutGrid, Settings2, Mail, HardDrive, ClipboardList, Globe,
+  Store, BadgeCheck, MessageSquare,
 } from "lucide-react";
 import { apiJson } from "@/integrations/api/client";
 
@@ -32,6 +33,12 @@ interface SuperadminStats {
   openReports: number;
   publishedPosts: number;
   publishedEvents: number;
+  openClaimRequests: number;
+  publicClubs: number;
+  publicEvents: number;
+  totalProviders: number;
+  verifiedProviders: number;
+  totalProviderInquiries: number;
   system: SystemInfo;
   recentActivity: ActivityItem[];
 }
@@ -39,15 +46,19 @@ interface SuperadminStats {
 // ── Hilfs-Komponenten ────────────────────────────────────────────────────────
 
 const KpiCard = ({
-  label, value, icon: Icon, color, loading,
+  label, value, icon: Icon, color, loading, onClick,
 }: {
   label: string;
   value: number | undefined;
   icon: React.ElementType;
   color: string;
   loading: boolean;
+  onClick?: () => void;
 }) => (
-  <div className="bg-card border rounded-xl p-5 flex items-start gap-4">
+  <div
+    className={`bg-card border rounded-xl p-5 flex items-start gap-4 ${onClick ? "cursor-pointer hover:bg-muted/30 transition-colors" : ""}`}
+    onClick={onClick}
+  >
     <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${color}`}>
       <Icon className="w-5 h-5" />
     </div>
@@ -129,13 +140,21 @@ const SuperadminDashboard = () => {
       </div>
 
       {/* KPI-Reihe 1 */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
         <KpiCard
           label="Vereine gesamt"
           value={stats?.totalClubs}
           icon={Building2}
           color="bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400"
           loading={isLoading}
+        />
+        <KpiCard
+          label="Öffentliche Vereine"
+          value={stats?.publicClubs ?? 0}
+          icon={Globe}
+          color="bg-sky-100 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400"
+          loading={isLoading}
+          onClick={() => window.open("/vereine", "_blank")}
         />
         <KpiCard
           label="Aktive Pakete"
@@ -161,7 +180,7 @@ const SuperadminDashboard = () => {
       </div>
 
       {/* KPI-Reihe 2 */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-4">
         <KpiCard
           label="Kostenlose Vereine"
           value={stats?.freeClubs}
@@ -188,6 +207,48 @@ const SuperadminDashboard = () => {
           value={stats?.publishedEvents}
           icon={CalendarDays}
           color="bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400"
+          loading={isLoading}
+        />
+        <KpiCard
+          label="Öffentl. Veranstaltungen"
+          value={stats?.publicEvents ?? 0}
+          icon={CalendarDays}
+          color="bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400"
+          loading={isLoading}
+          onClick={() => window.open("/veranstaltungen", "_blank")}
+        />
+        <KpiCard
+          label="Übernahmeanfragen"
+          value={stats?.openClaimRequests ?? 0}
+          icon={ClipboardList}
+          color="bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400"
+          loading={isLoading}
+          onClick={() => navigate("/superadmin/claim-requests")}
+        />
+      </div>
+
+      {/* KPI-Reihe 3 – Anbieter */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        <KpiCard
+          label="Anbieter"
+          value={stats?.totalProviders ?? 0}
+          icon={Store}
+          color="bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400"
+          loading={isLoading}
+          onClick={() => navigate("/superadmin/providers")}
+        />
+        <KpiCard
+          label="Verifizierte Anbieter"
+          value={stats?.verifiedProviders ?? 0}
+          icon={BadgeCheck}
+          color="bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400"
+          loading={isLoading}
+        />
+        <KpiCard
+          label="Anbieter-Anfragen"
+          value={stats?.totalProviderInquiries ?? 0}
+          icon={MessageSquare}
+          color="bg-violet-100 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400"
           loading={isLoading}
         />
       </div>
