@@ -40,7 +40,7 @@ async function apiFetch(
     headers,
   });
 
-  if (response.status === 401) {
+  if (response.status === 401 && getToken()) {
     clearToken();
     window.location.href = "/auth";
   }
