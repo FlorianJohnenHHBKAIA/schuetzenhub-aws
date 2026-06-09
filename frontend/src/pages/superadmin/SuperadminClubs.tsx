@@ -32,6 +32,7 @@ interface ClubRow {
   active_members: number;
   total_members: number;
   admin_count: number;
+  archived_at: string | null;
 }
 
 interface CreateClubForm {
@@ -145,6 +146,7 @@ const SuperadminClubs = () => {
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("alle");
+  const [archiveFilter, setArchiveFilter] = useState<"all" | "active" | "archived">("all");
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState<CreateClubForm>(EMPTY_FORM);
   const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -215,7 +217,11 @@ const SuperadminClubs = () => {
       c.slug.toLowerCase().includes(q);
     const matchesStatus =
       statusFilter === "alle" || c.sales_status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesArchive =
+      archiveFilter === "all" ||
+      (archiveFilter === "active" && !c.archived_at) ||
+      (archiveFilter === "archived" && !!c.archived_at);
+    return matchesSearch && matchesStatus && matchesArchive;
   });
 
   const canSubmit = form.name.trim().length > 0 && !createMutation.isPending;
@@ -274,6 +280,28 @@ const SuperadminClubs = () => {
         ))}
       </div>
 
+      {/* Archiv-Filter-Chips */}
+      <div className="flex flex-wrap gap-2">
+        {(["all", "active", "archived"] as const).map((val) => {
+          const label = val === "all" ? "Alle" : val === "active" ? "Aktiv" : "Archiviert";
+          return (
+            <button
+              key={val}
+              onClick={() => setArchiveFilter(val)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                archiveFilter === val
+                  ? val === "archived"
+                    ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                    : "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Error state */}
       {isError && (
         <div className="flex items-center gap-3 p-4 rounded-lg bg-destructive/10 text-destructive text-sm">
@@ -328,7 +356,14 @@ const SuperadminClubs = () => {
                   >
                     {/* Verein */}
                     <td className="px-4 py-3">
-                      <p className="font-medium text-foreground">{club.name}</p>
+                      <p className="font-medium text-foreground flex items-center gap-2">
+                        {club.name}
+                        {club.archived_at && (
+                          <span className="text-xs px-1.5 py-0.5 bg-red-500/15 text-red-400 border border-red-500/30 rounded">
+                            Archiviert
+                          </span>
+                        )}
+                      </p>
                       <p className="text-xs text-muted-foreground">{club.slug}</p>
                     </td>
 

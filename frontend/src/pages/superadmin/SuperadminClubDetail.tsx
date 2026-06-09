@@ -9,7 +9,7 @@ import {
   Users, UserCheck, Shield, CalendarDays,
   Building2, Save, Upload, Trash2,
   ExternalLink, Package, StickyNote, ImageIcon,
-  FileText, Calendar,
+  FileText, Calendar, Archive, ArchiveRestore, AlertTriangle,
 } from "lucide-react";
 import { apiJson, apiUpload, getStorageUrl } from "@/integrations/api/client";
 import { Button } from "@/components/ui/button";
@@ -62,6 +62,10 @@ interface ClubDetail {
   is_public: boolean;
   is_internal: boolean;
   claim_status: string;
+  // Archive (Migration C)
+  archived_at: string | null;
+  archived_by: string | null;
+  archive_reason: string | null;
   // Aggregates
   member_stats: { total: number; active: number; passive: number; prospect: number; resigned: number };
   admin_count: number;
@@ -353,6 +357,11 @@ const SuperadminClubDetail = () => {
   // ── Notes state ─────────────────────────────────────────────────────────────
   const [newNote, setNewNote] = useState("");
 
+  // Archive state
+  const [showArchiveDialog, setShowArchiveDialog] = useState(false);
+  const [showUnarchiveDialog, setShowUnarchiveDialog] = useState(false);
+  const [archiveReason, setArchiveReason] = useState("");
+
   // ── Track which section is saving ───────────────────────────────────────────
   const savingSectionRef = useRef<string | null>(null);
 
@@ -513,6 +522,30 @@ const SuperadminClubDetail = () => {
     onError: () => {
       setShowPlanConfirm(false);
       setPlanError("Plan konnte nicht gespeichert werden.");
+    },
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: (reason: string) =>
+      apiJson(`/api/superadmin/clubs/${id}/archive`, {
+        method: "PATCH",
+        body: JSON.stringify({ reason }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["superadmin-club", id] });
+      queryClient.invalidateQueries({ queryKey: ["superadmin-clubs"] });
+      setShowArchiveDialog(false);
+      setArchiveReason("");
+    },
+  });
+
+  const unarchiveMutation = useMutation({
+    mutationFn: () =>
+      apiJson(`/api/superadmin/clubs/${id}/unarchive`, { method: "PATCH" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["superadmin-club", id] });
+      queryClient.invalidateQueries({ queryKey: ["superadmin-clubs"] });
+      setShowUnarchiveDialog(false);
     },
   });
 
@@ -1074,6 +1107,52 @@ const SuperadminClubDetail = () => {
             <p className="text-xs text-muted-foreground">Keine Auswirkung auf Portalzugang.</p>
           </SidebarCard>
 
+          {/* Archivierung */}
+          <SidebarCard title="Archivierung">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Status</span>
+              {club.archived_at ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/30">
+                  <Archive className="w-3 h-3" /> Archiviert
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/15 text-green-400 border border-green-500/30">
+                  Aktiv
+                </span>
+              )}
+            </div>
+            {club.archived_at && (
+              <div className="space-y-1 text-xs text-muted-foreground">
+                <p>Archiviert am: {format(new Date(club.archived_at), "dd.MM.yyyy", { locale: de })}</p>
+                {club.archive_reason && (
+                  <p className="italic">„{club.archive_reason}"</p>
+                )}
+              </div>
+            )}
+            {club.archived_at ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => setShowUnarchiveDialog(true)}
+              >
+                <ArchiveRestore className="w-3.5 h-3.5 mr-1.5" />
+                Archivierung aufheben
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full text-destructive hover:text-destructive border-destructive/30 hover:border-destructive/60"
+                onClick={() => setShowArchiveDialog(true)}
+              >
+                <Archive className="w-3.5 h-3.5 mr-1.5" />
+                Verein archivieren
+              </Button>
+            )}
+            <p className="text-xs text-muted-foreground">Kein Datenverlust. Aktion ist umkehrbar.</p>
+          </SidebarCard>
+
           {/* Öffentliche Seite */}
           <SidebarCard title="Öffentliche Vereinsseite">
             <Button
@@ -1106,6 +1185,64 @@ const SuperadminClubDetail = () => {
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
             <AlertDialogAction onClick={() => planMutation.mutate(selectedPlan)}>
               Ja, Plan ändern
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Archive-Dialog */}
+      <AlertDialog open={showArchiveDialog} onOpenChange={setShowArchiveDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Verein archivieren?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-700 dark:text-amber-300 text-sm">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <p>Der Verein wird als archiviert markiert. Bestehende Mitglieder behalten weiterhin Zugriff auf das Portal. Daten werden nicht gelöscht.</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Grund (optional)</label>
+                  <textarea
+                    value={archiveReason}
+                    onChange={(e) => setArchiveReason(e.target.value)}
+                    rows={3}
+                    placeholder="Begründung für die Archivierung…"
+                    className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90"
+              onClick={() => archiveMutation.mutate(archiveReason)}
+              disabled={archiveMutation.isPending}
+            >
+              {archiveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Archivieren"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Unarchive-Dialog */}
+      <AlertDialog open={showUnarchiveDialog} onOpenChange={setShowUnarchiveDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Archivierung aufheben?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Möchten Sie die Archivierung aufheben? Der Verein wird wieder als aktiv geführt.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => unarchiveMutation.mutate()}
+              disabled={unarchiveMutation.isPending}
+            >
+              {unarchiveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Aufheben"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

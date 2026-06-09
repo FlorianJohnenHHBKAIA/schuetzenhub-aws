@@ -248,6 +248,7 @@ router.get("/clubs", requireSuperAdmin, async (req, res) => {
         c.plan,
         c.plan_started_at,
         c.sales_status,
+        c.archived_at,
         c.created_at,
         (SELECT COUNT(*)::int FROM members WHERE club_id = c.id AND status = 'active') AS active_members,
         (SELECT COUNT(*)::int FROM members WHERE club_id = c.id)                       AS total_members,
@@ -1014,6 +1015,55 @@ router.patch("/providers/:id/hero", requireSuperAdmin, upload.single("file"), as
     res.json({ hero_image_path: destPath, url: getPublicUrl("provider-assets", destPath) });
   } catch (err) {
     console.error("PATCH /providers/:id/hero error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// PATCH /api/superadmin/clubs/:id/archive – Verein archivieren
+router.patch("/clubs/:id/archive", requireSuperAdmin, async (req, res) => {
+  const { reason } = req.body;
+  try {
+    const clubRes = await pool.query(
+      "SELECT id, archived_at FROM clubs WHERE id = $1",
+      [req.params.id]
+    );
+    if (!clubRes.rows[0]) return res.status(404).json({ error: "Verein nicht gefunden." });
+    if (clubRes.rows[0].archived_at) {
+      return res.status(409).json({ error: "Verein ist bereits archiviert." });
+    }
+    const result = await pool.query(
+      `UPDATE clubs SET archived_at = now(), archived_by = $1, archive_reason = $2
+       WHERE id = $3
+       RETURNING id, archived_at, archived_by, archive_reason`,
+      [req.userId, reason?.trim() || null, req.params.id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("PATCH /superadmin/clubs/:id/archive error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// PATCH /api/superadmin/clubs/:id/unarchive – Archivierung aufheben
+router.patch("/clubs/:id/unarchive", requireSuperAdmin, async (req, res) => {
+  try {
+    const clubRes = await pool.query(
+      "SELECT id, archived_at FROM clubs WHERE id = $1",
+      [req.params.id]
+    );
+    if (!clubRes.rows[0]) return res.status(404).json({ error: "Verein nicht gefunden." });
+    if (!clubRes.rows[0].archived_at) {
+      return res.status(409).json({ error: "Verein ist nicht archiviert." });
+    }
+    const result = await pool.query(
+      `UPDATE clubs SET archived_at = null, archived_by = null, archive_reason = null
+       WHERE id = $1
+       RETURNING id`,
+      [req.params.id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("PATCH /superadmin/clubs/:id/unarchive error:", err);
     res.status(500).json({ error: "Serverfehler" });
   }
 });
