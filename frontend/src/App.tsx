@@ -47,6 +47,7 @@ import PostDetail from "./pages/portal/PostDetail";
 import PostApprovals from "./pages/portal/PostApprovals";
 import Settings from "./pages/portal/Settings";
 import NotificationSettings from "./pages/portal/NotificationSettings";
+import AccountSettings from "./pages/portal/AccountSettings";
 import ClubProfile from "./pages/portal/ClubProfile";
 import Gallery from "./pages/portal/Gallery";
 import PrivateArchive from "./pages/portal/PrivateArchive";
@@ -147,6 +148,7 @@ const App = () => (
             <Route path="/portal/posts/:id" element={<PostDetail />} />
             <Route path="/portal/post-approvals" element={<PostApprovals />} />
             <Route path="/portal/settings" element={<Settings />} />
+            <Route path="/portal/account" element={<AccountSettings />} />
             <Route path="/portal/notifications" element={<NotificationSettings />} />
             <Route path="/portal/magazine" element={<Magazines />} />
             <Route path="/portal/magazine/sponsors" element={<MagazineSponsors />} />

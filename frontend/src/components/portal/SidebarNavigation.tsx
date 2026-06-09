@@ -91,6 +91,7 @@ const memberCommunityItems: NavItem[] = [
 // Mein Bereich - Persönliche Daten & Anerkennung
 const memberPersonalItems: NavItem[] = [
   { label: "Mein Profil", href: "/portal/profile", icon: UserCircle, keywords: ["profil", "account", "ich", "daten"] },
+  { label: "Kontoeinstellungen", href: "/portal/account", icon: UserCog, keywords: ["konto", "account", "passwort", "datenschutz", "profil"] },
   { label: "Meine Auszeichnungen", href: "/portal/my-awards", icon: Sparkles, keywords: ["orden", "ehren", "auszeichnung", "stolz"] },
   // AUSKOMMENTIERT: Mein Engagement unter "Mein Bereich" (Kann spaeter wieder aktiviert werden)
   // { label: "Mein Engagement", href: "/portal/workshifts/overview", icon: BarChart3, keywords: ["einsatz", "stunden", "statistik", "engagement"] },
@@ -158,6 +159,7 @@ const adminContentItems: NavItem[] = [
 
 // Einstellungen & System
 const adminSystemItems: NavItem[] = [
+  { label: "Kontoeinstellungen", href: "/portal/account", icon: UserCog, keywords: ["konto", "account", "passwort", "datenschutz", "profil"] },
   { label: "Rollen & Rechte", href: "/portal/permissions", icon: Key, permission: "club.roles.manage", keywords: ["permission", "berechtigung", "recht", "rolle"] },
   // { label: "Delegierte Rechte", href: "/portal/delegations", icon: UserCog, permission: "company.delegations.manage", keywords: ["delegation", "berechtigung", "weitergabe"] },
   { label: "Jahresübersicht", href: "/portal/reports/yearly", icon: BarChart3, permission: "club.admin.full", keywords: ["report", "auswertung", "jahresbericht", "statistik"] },

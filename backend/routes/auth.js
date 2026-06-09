@@ -33,6 +33,10 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ error: "Ungültige Anmeldedaten" });
     }
 
+    if (user.deactivated_at) {
+      return res.status(403).json({ error: "Dieses Konto wurde deaktiviert" });
+    }
+
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
       return res.status(401).json({ error: "Ungültige Anmeldedaten" });

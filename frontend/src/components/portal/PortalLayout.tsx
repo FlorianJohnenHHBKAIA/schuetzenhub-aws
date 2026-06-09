@@ -14,6 +14,7 @@ import {
   Clock,
   AlertCircle,
   RefreshCw,
+  UserCog,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -311,6 +312,14 @@ const PortalLayout = ({ children }: PortalLayoutProps) => {
                 Superadmin-Bereich
               </Link>
             )}
+            <Link
+              to="/portal/account"
+              onClick={closeSidebar}
+              className="flex items-center gap-2 mt-2 px-2 py-1.5 rounded-lg text-xs font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
+            >
+              <UserCog className="w-3.5 h-3.5 shrink-0" />
+              Kontoeinstellungen
+            </Link>
           </div>
 
           {/* Desktop Notification Bell & Install Prompt */}

@@ -24,6 +24,9 @@ async function requireAuth(req, res, next) {
     if (!authUser) {
       return res.status(401).json({ error: "Benutzer nicht gefunden" });
     }
+    if (authUser.deactivated_at) {
+      return res.status(401).json({ error: "Konto deaktiviert" });
+    }
 
     req.userEmail = authUser.email;
     req.isSuperAdmin = authUser.is_superadmin === true;
