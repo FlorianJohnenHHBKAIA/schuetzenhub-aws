@@ -853,7 +853,7 @@ const AdminHome = () => {
             )}
             {hasPermission("club.admin.full") && (
               <Button variant="ghost" size="sm" asChild>
-                <Link to="/portal/yearly-reports" className="gap-2">
+                <Link to="/portal/reports/yearly" className="gap-2">
                   <BarChart3 className="w-4 h-4" />
                   Jahresübersicht
                 </Link>

@@ -107,6 +107,7 @@ const App = () => (
             <Route path="/portal/workshifts" element={<WorkShifts />} />
             <Route path="/portal/workshifts/report" element={<WorkShiftsReport />} />
             <Route path="/portal/workshifts/overview" element={<WorkShiftsOverview />} />
+            <Route path="/portal/yearly-reports" element={<Navigate to="/portal/reports/yearly" replace />} />
             <Route path="/portal/reports/yearly" element={<YearlyReports />} />
             <Route path="/portal/awards" element={<Awards />} />
             <Route path="/portal/my-awards" element={<MyAwards />} />
