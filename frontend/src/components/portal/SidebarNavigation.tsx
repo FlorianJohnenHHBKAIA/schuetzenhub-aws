@@ -17,6 +17,7 @@ import {
   ClipboardList,
   FileText,
   Megaphone,
+  MessageSquare,
   SendHorizontal,
   Globe,
   Images,
@@ -37,6 +38,7 @@ import {
   ToggleRight,
   PartyPopper,
 } from "lucide-react";
+import { MessagesBadge } from "@/components/portal/messages/MessagesBadge";
 import { Input } from "@/components/ui/input";
 import {
   Tooltip,
@@ -96,6 +98,7 @@ const memberPersonalItems: NavItem[] = [
   // AUSKOMMENTIERT: Mein Engagement unter "Mein Bereich" (Kann spaeter wieder aktiviert werden)
   // { label: "Mein Engagement", href: "/portal/workshifts/overview", icon: BarChart3, keywords: ["einsatz", "stunden", "statistik", "engagement"] },
   { label: "Benachrichtigungen", href: "/portal/notifications", icon: Bell, keywords: ["notification", "meldung", "alarm"] },
+  { label: "Nachrichten", href: "/portal/messages", icon: MessageSquare, keywords: ["nachrichten", "chat", "direktnachricht", "konversation", "nachricht"] },
 ];
 
 // Verein - Vereinsweite Informationen & Dokumente
@@ -287,6 +290,7 @@ export function SidebarNavigation({ onNavigate, onRestartOnboarding }: SidebarNa
         >
           <item.icon className="w-4 h-4 shrink-0" />
           <span className="truncate flex-1">{item.label}</span>
+          {item.href === "/portal/messages" && <MessagesBadge />}
           {active && <ChevronRight className="w-4 h-4 shrink-0" />}
         </Link>
         

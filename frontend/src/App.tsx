@@ -82,6 +82,7 @@ import SuperadminProviderDetail from "./pages/superadmin/SuperadminProviderDetai
 import SuperadminAuditLogs from "./pages/superadmin/SuperadminAuditLogs";
 import Festplaner from "./pages/portal/Festplaner";
 import FestplanerDetail from "./pages/portal/FestplanerDetail";
+import Messages from "./pages/portal/Messages";
 
 const queryClient = new QueryClient();
 
@@ -158,6 +159,8 @@ const App = () => (
             <Route path="/portal/magazine/:id/pdf" element={<MagazinePDF />} />
             <Route path="/portal/festplaner" element={<Festplaner />} />
             <Route path="/portal/festplaner/:id" element={<FestplanerDetail />} />
+            <Route path="/portal/messages" element={<Messages />} />
+            <Route path="/portal/messages/:conversationId" element={<Messages />} />
             <Route element={<SuperadminRoute />}>
               <Route path="/superadmin" element={<SuperadminLayout><SuperadminDashboard /></SuperadminLayout>} />
               <Route path="/superadmin/clubs" element={<SuperadminLayout><SuperadminClubs /></SuperadminLayout>} />
