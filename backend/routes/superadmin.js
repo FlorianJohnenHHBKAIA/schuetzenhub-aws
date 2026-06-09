@@ -5,6 +5,7 @@ const multer = require("multer");
 const pool = require("../db");
 const { requireSuperAdmin } = require("../middleware/auth");
 const { saveFile, getPublicUrl } = require("../storage");
+const { logAuditEvent, ACTIONS } = require("../utils/auditLog");
 
 const upload = multer({ dest: "tmp/" });
 
@@ -296,6 +297,13 @@ router.post("/clubs", requireSuperAdmin, async (req, res) => {
       sales_status || "recherchiert",
     ]);
 
+    logAuditEvent(pool, {
+      userId: req.userId, userEmail: req.userEmail,
+      action: ACTIONS.CLUB_CREATED, entityType: 'club', entityId: result.rows[0].id,
+      afterState: result.rows[0],
+      req,
+    });
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error("Superadmin create club error:", err);
@@ -313,6 +321,14 @@ router.patch("/clubs/:id/logo", requireSuperAdmin, upload.single("file"), async 
     const destPath = `${id}/logo-${Date.now()}.${ext}`;
     await saveFile(req.file, "club-assets", destPath);
     await pool.query("UPDATE clubs SET logo_path = $1 WHERE id = $2", [destPath, id]);
+
+    logAuditEvent(pool, {
+      userId: req.userId, userEmail: req.userEmail,
+      action: ACTIONS.CLUB_LOGO_UPLOADED, entityType: 'club', entityId: id,
+      metadata: { path: destPath, url: getPublicUrl("club-assets", destPath) },
+      req,
+    });
+
     res.json({ logo_path: destPath, url: getPublicUrl("club-assets", destPath) });
   } catch (err) {
     console.error("Superadmin logo upload error:", err);
@@ -353,6 +369,10 @@ router.patch("/clubs/:id", requireSuperAdmin, async (req, res) => {
       }
     }
 
+    const snapshotCols = fields.join(", ");
+    const snapshot = await pool.query(`SELECT ${snapshotCols} FROM clubs WHERE id = $1`, [id]);
+    if (!snapshot.rows[0]) return res.status(404).json({ error: "Verein nicht gefunden." });
+
     const values = fields.map((field) => {
       const val = req.body[field];
       if (field === "name") return typeof val === "string" ? val.trim() || null : null;
@@ -372,6 +392,15 @@ router.patch("/clubs/:id", requireSuperAdmin, async (req, res) => {
     if (!result.rows[0]) {
       return res.status(404).json({ error: "Verein nicht gefunden." });
     }
+
+    logAuditEvent(pool, {
+      userId: req.userId, userEmail: req.userEmail,
+      action: ACTIONS.CLUB_UPDATED, entityType: 'club', entityId: id,
+      beforeState: snapshot.rows[0],
+      afterState: Object.fromEntries(fields.map((f, i) => [f, values[i]])),
+      req,
+    });
+
     res.json(result.rows[0]);
   } catch (err) {
     console.error("Superadmin club update error:", err);
@@ -389,6 +418,14 @@ router.patch("/clubs/:id/hero", requireSuperAdmin, upload.single("file"), async 
     const destPath = `${id}/hero-${Date.now()}.${ext}`;
     await saveFile(req.file, "club-assets", destPath);
     await pool.query("UPDATE clubs SET hero_image_path = $1 WHERE id = $2", [destPath, id]);
+
+    logAuditEvent(pool, {
+      userId: req.userId, userEmail: req.userEmail,
+      action: ACTIONS.CLUB_HERO_UPLOADED, entityType: 'club', entityId: id,
+      metadata: { path: destPath, url: getPublicUrl("club-assets", destPath) },
+      req,
+    });
+
     res.json({ hero_image_path: destPath, url: getPublicUrl("club-assets", destPath) });
   } catch (err) {
     console.error("Superadmin hero upload error:", err);
@@ -425,6 +462,13 @@ router.post("/clubs/:id/notes", requireSuperAdmin, async (req, res) => {
       "INSERT INTO club_notes (club_id, note, created_by) VALUES ($1, $2, $3) RETURNING id, note, created_at",
       [id, note.trim(), req.userId]
     );
+    logAuditEvent(pool, {
+      userId: req.userId, userEmail: req.userEmail,
+      action: ACTIONS.CLUB_NOTE_CREATED, entityType: 'club', entityId: id,
+      afterState: { note_id: result.rows[0].id, note: result.rows[0].note },
+      req,
+    });
+
     res.status(201).json({ ...result.rows[0], created_by_email: req.userEmail });
   } catch (err) {
     console.error("Superadmin create note error:", err);
@@ -436,7 +480,16 @@ router.post("/clubs/:id/notes", requireSuperAdmin, async (req, res) => {
 router.delete("/clubs/:id/notes/:noteId", requireSuperAdmin, async (req, res) => {
   const { id, noteId } = req.params;
   try {
+    const noteRes = await pool.query("SELECT note FROM club_notes WHERE id = $1 AND club_id = $2", [noteId, id]);
     await pool.query("DELETE FROM club_notes WHERE id = $1 AND club_id = $2", [noteId, id]);
+
+    logAuditEvent(pool, {
+      userId: req.userId, userEmail: req.userEmail,
+      action: ACTIONS.CLUB_NOTE_DELETED, entityType: 'club', entityId: id,
+      beforeState: noteRes.rows[0] ? { note_id: noteId, note: noteRes.rows[0].note } : { note_id: noteId },
+      req,
+    });
+
     res.json({ ok: true });
   } catch (err) {
     console.error("Superadmin delete note error:", err);
@@ -655,6 +708,15 @@ router.patch("/clubs/:id/plan", requireSuperAdmin, async (req, res) => {
       [plan, newStartedAt, id]
     );
 
+    logAuditEvent(pool, {
+      userId: req.userId, userEmail: req.userEmail,
+      action: ACTIONS.CLUB_PLAN_CHANGED, entityType: 'club', entityId: id,
+      beforeState: { plan: currentPlan, plan_started_at: currentStartedAt },
+      afterState:  { plan, plan_started_at: newStartedAt },
+      metadata:    { changed_from: currentPlan, changed_to: plan },
+      req,
+    });
+
     res.json({ plan, plan_started_at: newStartedAt });
   } catch (err) {
     console.error("Superadmin plan update error:", err);
@@ -852,6 +914,14 @@ router.post("/claim-requests/:id/approve", requireSuperAdmin, async (req, res) =
     await client.query("UPDATE clubs SET claim_status = 'claimed' WHERE id = $1", [claim.club_id]);
 
     await client.query("COMMIT");
+
+    logAuditEvent(pool, {
+      userId: req.userId, userEmail: req.userEmail,
+      action: ACTIONS.CLAIM_REQUEST_APPROVED, entityType: 'claim_request', entityId: id,
+      metadata: { club_id: claim.club_id, email: claim.email, invitation_created: invitationCreated },
+      req,
+    });
+
     res.json({ ok: true, invitationCreated });
   } catch (err) {
     await client.query("ROLLBACK");
@@ -878,6 +948,13 @@ router.post("/claim-requests/:id/reject", requireSuperAdmin, async (req, res) =>
       [req.userId, id]
     );
     await pool.query("UPDATE clubs SET claim_status = 'unclaimed' WHERE id = $1", [claimRes.rows[0].club_id]);
+
+    logAuditEvent(pool, {
+      userId: req.userId, userEmail: req.userEmail,
+      action: ACTIONS.CLAIM_REQUEST_REJECTED, entityType: 'claim_request', entityId: id,
+      metadata: { club_id: claimRes.rows[0].club_id },
+      req,
+    });
 
     res.json({ ok: true });
   } catch (err) {
@@ -944,6 +1021,13 @@ router.post("/providers", requireSuperAdmin, async (req, res) => {
        RETURNING id, company_name, slug, provider_type, city, state, is_public, is_verified, created_at`,
       [company_name.trim(), slug, provider_type.trim(), city?.trim() || null, state?.trim() || null]
     );
+    logAuditEvent(pool, {
+      userId: req.userId, userEmail: req.userEmail,
+      action: ACTIONS.PROVIDER_CREATED, entityType: 'provider', entityId: result.rows[0].id,
+      afterState: result.rows[0],
+      req,
+    });
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error("POST /providers error:", err);
@@ -972,6 +1056,10 @@ router.patch("/providers/:id", requireSuperAdmin, async (req, res) => {
       const conflict = await pool.query("SELECT id FROM providers WHERE slug = $1 AND id != $2", [slug, id]);
       if (conflict.rows[0]) return res.status(409).json({ error: "Dieser Slug ist bereits vergeben." });
     }
+    const snapshotCols = fields.join(", ");
+    const snapshot = await pool.query(`SELECT ${snapshotCols} FROM providers WHERE id = $1`, [id]);
+    if (!snapshot.rows[0]) return res.status(404).json({ error: "Nicht gefunden." });
+
     const setClauses = fields.map((f, i) => `${f} = $${i + 1}`).join(", ");
     const values = fields.map((f) => req.body[f] ?? null);
     values.push(id);
@@ -980,6 +1068,15 @@ router.patch("/providers/:id", requireSuperAdmin, async (req, res) => {
       values
     );
     if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden." });
+
+    logAuditEvent(pool, {
+      userId: req.userId, userEmail: req.userEmail,
+      action: ACTIONS.PROVIDER_UPDATED, entityType: 'provider', entityId: id,
+      beforeState: snapshot.rows[0],
+      afterState: Object.fromEntries(fields.map((f, i) => [f, values[i]])),
+      req,
+    });
+
     res.json(result.rows[0]);
   } catch (err) {
     console.error("PATCH /providers/:id error:", err);
@@ -996,6 +1093,14 @@ router.patch("/providers/:id/logo", requireSuperAdmin, upload.single("file"), as
     const destPath = `${id}/logo-${Date.now()}.${ext}`;
     await saveFile(req.file, "provider-assets", destPath);
     await pool.query("UPDATE providers SET logo_path = $1, updated_at = now() WHERE id = $2", [destPath, id]);
+
+    logAuditEvent(pool, {
+      userId: req.userId, userEmail: req.userEmail,
+      action: ACTIONS.PROVIDER_LOGO_UPLOADED, entityType: 'provider', entityId: id,
+      metadata: { path: destPath, url: getPublicUrl("provider-assets", destPath) },
+      req,
+    });
+
     res.json({ logo_path: destPath, url: getPublicUrl("provider-assets", destPath) });
   } catch (err) {
     console.error("PATCH /providers/:id/logo error:", err);
@@ -1012,6 +1117,14 @@ router.patch("/providers/:id/hero", requireSuperAdmin, upload.single("file"), as
     const destPath = `${id}/hero-${Date.now()}.${ext}`;
     await saveFile(req.file, "provider-assets", destPath);
     await pool.query("UPDATE providers SET hero_image_path = $1, updated_at = now() WHERE id = $2", [destPath, id]);
+
+    logAuditEvent(pool, {
+      userId: req.userId, userEmail: req.userEmail,
+      action: ACTIONS.PROVIDER_HERO_UPLOADED, entityType: 'provider', entityId: id,
+      metadata: { path: destPath, url: getPublicUrl("provider-assets", destPath) },
+      req,
+    });
+
     res.json({ hero_image_path: destPath, url: getPublicUrl("provider-assets", destPath) });
   } catch (err) {
     console.error("PATCH /providers/:id/hero error:", err);
@@ -1037,6 +1150,14 @@ router.patch("/clubs/:id/archive", requireSuperAdmin, async (req, res) => {
        RETURNING id, archived_at, archived_by, archive_reason`,
       [req.userId, reason?.trim() || null, req.params.id]
     );
+
+    logAuditEvent(pool, {
+      userId: req.userId, userEmail: req.userEmail,
+      action: ACTIONS.CLUB_ARCHIVED, entityType: 'club', entityId: req.params.id,
+      metadata: { reason: reason?.trim() || null },
+      req,
+    });
+
     res.json(result.rows[0]);
   } catch (err) {
     console.error("PATCH /superadmin/clubs/:id/archive error:", err);
@@ -1061,9 +1182,75 @@ router.patch("/clubs/:id/unarchive", requireSuperAdmin, async (req, res) => {
        RETURNING id`,
       [req.params.id]
     );
+
+    logAuditEvent(pool, {
+      userId: req.userId, userEmail: req.userEmail,
+      action: ACTIONS.CLUB_UNARCHIVED, entityType: 'club', entityId: req.params.id,
+      req,
+    });
+
     res.json(result.rows[0]);
   } catch (err) {
     console.error("PATCH /superadmin/clubs/:id/unarchive error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// ─── Audit-Log ────────────────────────────────────────────────────────────────
+
+// GET /api/superadmin/audit-logs – Superadmin-Aktionen einsehen
+router.get("/audit-logs", requireSuperAdmin, async (req, res) => {
+  const {
+    entity_type = null,
+    entity_id   = null,
+    action      = null,
+    performed_by = null,
+    from        = null,
+    to          = null,
+    limit       = "50",
+    offset      = "0",
+  } = req.query;
+
+  const maxLimit = Math.min(parseInt(limit, 10) || 50, 200);
+  const safeOffset = parseInt(offset, 10) || 0;
+
+  try {
+    const result = await pool.query(
+      `SELECT
+         al.id,
+         al.action,
+         al.entity_type,
+         al.entity_id,
+         al.actor_email,
+         al.performed_by,
+         al.before_state,
+         al.after_state,
+         al.metadata,
+         al.ip_address,
+         al.created_at,
+         c.name  AS club_name,
+         c.slug  AS club_slug,
+         p.company_name AS provider_name,
+         p.slug         AS provider_slug
+       FROM superadmin_audit_logs al
+       LEFT JOIN clubs c
+         ON c.id = al.entity_id AND al.entity_type = 'club'
+       LEFT JOIN providers p
+         ON p.id = al.entity_id AND al.entity_type = 'provider'
+       WHERE
+         ($1::text IS NULL OR al.entity_type = $1)
+         AND ($2::uuid IS NULL OR al.entity_id = $2::uuid)
+         AND ($3::text IS NULL OR al.action = $3)
+         AND ($4::uuid IS NULL OR al.performed_by = $4::uuid)
+         AND ($5::timestamptz IS NULL OR al.created_at >= $5::timestamptz)
+         AND ($6::timestamptz IS NULL OR al.created_at <= $6::timestamptz)
+       ORDER BY al.created_at DESC
+       LIMIT $7 OFFSET $8`,
+      [entity_type, entity_id, action, performed_by, from, to, maxLimit, safeOffset]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("GET /superadmin/audit-logs error:", err);
     res.status(500).json({ error: "Serverfehler" });
   }
 });

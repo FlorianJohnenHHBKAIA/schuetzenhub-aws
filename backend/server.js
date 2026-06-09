@@ -5,6 +5,7 @@ const path = require("path");
 const { UPLOAD_BASE } = require("./storage");
 
 const app = express();
+app.set("trust proxy", true);
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
