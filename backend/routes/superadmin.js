@@ -45,6 +45,8 @@ router.get("/stats", requireSuperAdmin, async (req, res) => {
       recentPostsRes, recentEventsRes,
       openClaimRequestsRes, publicClubsRes, publicEventsRes,
       totalProvidersRes, verifiedProvidersRes, totalProviderInquiriesRes,
+      newInterestRequestsRes, openContactRequestsRes, openMembershipRequestsRes,
+      openAccessRequestsRes,
     ] = await Promise.all([
       pool.query("SELECT COUNT(*)::int AS count FROM clubs"),
       pool.query("SELECT COUNT(*)::int AS count FROM clubs WHERE plan IS DISTINCT FROM 'free'"),
@@ -72,6 +74,10 @@ router.get("/stats", requireSuperAdmin, async (req, res) => {
       pool.query("SELECT COUNT(*)::int AS count FROM providers"),
       pool.query("SELECT COUNT(*)::int AS count FROM providers WHERE is_verified = true"),
       pool.query("SELECT COUNT(*)::int AS count FROM provider_inquiries"),
+      pool.query("SELECT COUNT(*)::int AS count FROM club_interest_requests WHERE status = 'new'"),
+      pool.query("SELECT COUNT(*)::int AS count FROM club_interest_requests WHERE request_type = 'club_contact' AND status IN ('new','in_progress')"),
+      pool.query("SELECT COUNT(*)::int AS count FROM club_interest_requests WHERE request_type = 'membership_interest' AND status IN ('new','in_progress')"),
+      pool.query("SELECT COUNT(*)::int AS count FROM club_access_requests WHERE status IN ('new','in_progress')"),
     ]);
 
     const recentActivity = [...recentPostsRes.rows, ...recentEventsRes.rows]
@@ -100,6 +106,10 @@ router.get("/stats", requireSuperAdmin, async (req, res) => {
       totalProviders: totalProvidersRes.rows[0].count,
       verifiedProviders: verifiedProvidersRes.rows[0].count,
       totalProviderInquiries: totalProviderInquiriesRes.rows[0].count,
+      newInterestRequests: newInterestRequestsRes.rows[0].count,
+      openContactRequests: openContactRequestsRes.rows[0].count,
+      openMembershipRequests: openMembershipRequestsRes.rows[0].count,
+      openAccessRequests: openAccessRequestsRes.rows[0].count,
       system: {
         env: process.env.NODE_ENV || "development",
         storageProvider: process.env.USE_S3 === "true" ? "s3" : "local",
@@ -1251,6 +1261,256 @@ router.get("/audit-logs", requireSuperAdmin, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error("GET /superadmin/audit-logs error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// ── Superadmin Inbox ──────────────────────────────────────────────────────────
+
+// GET /api/superadmin/inbox – UNION aus interest + claim requests
+router.get("/inbox", requireSuperAdmin, async (req, res) => {
+  const { type, status, club_id } = req.query;
+  try {
+    const conditions = [];
+    const params = [];
+
+    // Build interest filter
+    const iConditions = ["1=1"];
+    if (club_id) { params.push(club_id); iConditions.push(`cir.club_id = $${params.length}::uuid`); }
+    if (status && status !== "all") { params.push(status); iConditions.push(`cir.status = $${params.length}`); }
+
+    // Build claim filter – map status 'new'→'open', others direct
+    const cConditions = ["1=1"];
+    const cParams = [];
+    if (club_id) { cParams.push(club_id); cConditions.push(`cr.club_id = $${cParams.length}::uuid`); }
+    if (status && status !== "all") {
+      const mappedStatus = status === "new" ? "open" : status;
+      cParams.push(mappedStatus);
+      cConditions.push(`cr.status = $${cParams.length}`);
+    }
+
+    // Build access filter
+    const aConditions = ["1=1"];
+    const aParams = [];
+    if (club_id) { aParams.push(club_id); aConditions.push(`car.club_id = $${aParams.length}::uuid`); }
+    if (status && status !== "all") { aParams.push(status); aConditions.push(`car.status = $${aParams.length}`); }
+
+    // We use parameterised queries separately and merge in JS to avoid complex UNION param indexing
+    const interestQuery = `
+      SELECT cir.id, 'interest' AS source,
+             cir.request_type AS type,
+             cir.club_id, c.name AS club_name, c.slug AS club_slug,
+             cir.name, cir.email, cir.phone, cir.message,
+             cir.status, cir.created_at, cir.internal_note
+      FROM club_interest_requests cir
+      JOIN clubs c ON c.id = cir.club_id
+      WHERE ${iConditions.join(" AND ")}
+    `;
+
+    const claimQuery = `
+      SELECT cr.id, 'claim' AS source,
+             'claim' AS type,
+             cr.club_id, c.name AS club_name, c.slug AS club_slug,
+             concat(cr.firstname, ' ', cr.lastname) AS name,
+             cr.email, cr.phone, cr.message,
+             cr.status, cr.created_at, NULL::text AS internal_note
+      FROM club_claim_requests cr
+      JOIN clubs c ON c.id = cr.club_id
+      WHERE ${cConditions.join(" AND ")}
+    `;
+
+    const accessQuery = `
+      SELECT car.id, 'access' AS source,
+             'access_request' AS type,
+             car.club_id, c.name AS club_name, c.slug AS club_slug,
+             concat(car.firstname, ' ', car.lastname) AS name,
+             car.email, car.phone, car.message,
+             car.status, car.created_at, car.internal_note
+      FROM club_access_requests car
+      JOIN clubs c ON c.id = car.club_id
+      WHERE ${aConditions.join(" AND ")}
+    `;
+
+    const [interestRes, claimRes, accessRes] = await Promise.all([
+      pool.query(interestQuery, params),
+      pool.query(claimQuery, cParams),
+      pool.query(accessQuery, aParams),
+    ]);
+
+    let rows = [...interestRes.rows, ...claimRes.rows, ...accessRes.rows];
+
+    // type filter (applied after merge)
+    if (type && type !== "all") {
+      rows = rows.filter((r) => r.type === type);
+    }
+
+    rows.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    rows = rows.slice(0, 100);
+
+    res.json(rows);
+  } catch (err) {
+    console.error("GET /superadmin/inbox error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// GET /api/superadmin/inbox/stats
+router.get("/inbox/stats", requireSuperAdmin, async (req, res) => {
+  try {
+    const [newInterest, openContact, openMembership, openClaims, openAccess] = await Promise.all([
+      pool.query("SELECT COUNT(*)::int AS count FROM club_interest_requests WHERE status = 'new'"),
+      pool.query("SELECT COUNT(*)::int AS count FROM club_interest_requests WHERE request_type = 'club_contact' AND status IN ('new','in_progress')"),
+      pool.query("SELECT COUNT(*)::int AS count FROM club_interest_requests WHERE request_type = 'membership_interest' AND status IN ('new','in_progress')"),
+      pool.query("SELECT COUNT(*)::int AS count FROM club_claim_requests WHERE status = 'open'"),
+      pool.query("SELECT COUNT(*)::int AS count FROM club_access_requests WHERE status IN ('new','in_progress')"),
+    ]);
+    res.json({
+      newInterestRequests: newInterest.rows[0].count,
+      openContactRequests: openContact.rows[0].count,
+      openMembershipRequests: openMembership.rows[0].count,
+      openClaimRequests: openClaims.rows[0].count,
+      openAccessRequests: openAccess.rows[0].count,
+    });
+  } catch (err) {
+    console.error("GET /superadmin/inbox/stats error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// PATCH /api/superadmin/inbox/interest/:id
+router.patch("/inbox/interest/:id", requireSuperAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { status, internal_note } = req.body;
+  const validStatuses = ["new", "in_progress", "done", "archived"];
+  if (status && !validStatuses.includes(status)) {
+    return res.status(400).json({ error: "Ungültiger Status." });
+  }
+  try {
+    const setClauses = [];
+    const params = [];
+    if (status !== undefined) {
+      params.push(status); setClauses.push(`status = $${params.length}`);
+      if (status === "done") {
+        params.push(req.userId); setClauses.push(`handled_by = $${params.length}`);
+        setClauses.push("handled_at = now()");
+      }
+    }
+    if (internal_note !== undefined) {
+      params.push(internal_note); setClauses.push(`internal_note = $${params.length}`);
+    }
+    if (setClauses.length === 0) return res.status(400).json({ error: "Keine Felder angegeben." });
+    params.push(id);
+    const result = await pool.query(
+      `UPDATE club_interest_requests SET ${setClauses.join(", ")} WHERE id = $${params.length} RETURNING *`,
+      params
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden." });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("PATCH /superadmin/inbox/interest/:id error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// PATCH /api/superadmin/inbox/claim/:id – nur internal_note (status via approve/reject)
+router.patch("/inbox/claim/:id", requireSuperAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { internal_note } = req.body;
+  if (internal_note === undefined) return res.status(400).json({ error: "Keine Felder angegeben." });
+  try {
+    const result = await pool.query(
+      "UPDATE club_claim_requests SET internal_note = $1 WHERE id = $2 RETURNING *",
+      [internal_note, id]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden." });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("PATCH /superadmin/inbox/claim/:id error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// PATCH /api/superadmin/inbox/access/:id
+router.patch("/inbox/access/:id", requireSuperAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { status, internal_note } = req.body;
+  const validStatuses = ["new", "in_progress", "done", "archived"];
+  if (status && !validStatuses.includes(status)) {
+    return res.status(400).json({ error: "Ungültiger Status." });
+  }
+  try {
+    const setClauses = [];
+    const params = [];
+    if (status !== undefined) {
+      params.push(status); setClauses.push(`status = $${params.length}`);
+      if (status === "done") {
+        params.push(req.userId); setClauses.push(`handled_by = $${params.length}`);
+        setClauses.push("handled_at = now()");
+      }
+    }
+    if (internal_note !== undefined) {
+      params.push(internal_note); setClauses.push(`internal_note = $${params.length}`);
+    }
+    if (setClauses.length === 0) return res.status(400).json({ error: "Keine Felder angegeben." });
+    params.push(id);
+    const result = await pool.query(
+      `UPDATE club_access_requests SET ${setClauses.join(", ")} WHERE id = $${params.length} RETURNING *`,
+      params
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden." });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("PATCH /superadmin/inbox/access/:id error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// GET /api/superadmin/clubs/:id/requests – letzte Anfragen für einen Verein
+router.get("/clubs/:id/requests", requireSuperAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [interestRes, claimRes, accessRes] = await Promise.all([
+      pool.query(`
+        SELECT cir.id, 'interest' AS source, cir.request_type AS type,
+               cir.club_id, c.name AS club_name, c.slug AS club_slug,
+               cir.name, cir.email, cir.phone, cir.message,
+               cir.status, cir.created_at, cir.internal_note
+        FROM club_interest_requests cir
+        JOIN clubs c ON c.id = cir.club_id
+        WHERE cir.club_id = $1
+        ORDER BY cir.created_at DESC LIMIT 10
+      `, [id]),
+      pool.query(`
+        SELECT cr.id, 'claim' AS source, 'claim' AS type,
+               cr.club_id, c.name AS club_name, c.slug AS club_slug,
+               concat(cr.firstname, ' ', cr.lastname) AS name,
+               cr.email, cr.phone, cr.message,
+               cr.status, cr.created_at, NULL::text AS internal_note
+        FROM club_claim_requests cr
+        JOIN clubs c ON c.id = cr.club_id
+        WHERE cr.club_id = $1
+        ORDER BY cr.created_at DESC LIMIT 10
+      `, [id]),
+      pool.query(`
+        SELECT car.id, 'access' AS source, 'access_request' AS type,
+               car.club_id, c.name AS club_name, c.slug AS club_slug,
+               concat(car.firstname, ' ', car.lastname) AS name,
+               car.email, car.phone, car.message,
+               car.status, car.created_at, car.internal_note
+        FROM club_access_requests car
+        JOIN clubs c ON c.id = car.club_id
+        WHERE car.club_id = $1
+        ORDER BY car.created_at DESC LIMIT 10
+      `, [id]),
+    ]);
+
+    const rows = [...interestRes.rows, ...claimRes.rows, ...accessRes.rows]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 10);
+
+    res.json(rows);
+  } catch (err) {
+    console.error("GET /superadmin/clubs/:id/requests error:", err);
     res.status(500).json({ error: "Serverfehler" });
   }
 });

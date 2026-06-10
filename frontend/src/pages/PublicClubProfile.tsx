@@ -35,6 +35,7 @@ import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import GallerySection from "@/components/landing/GallerySection";
 import PublicFooter from "@/components/public/PublicFooter";
+import ClubClaimDialog from "@/components/public/ClubClaimDialog";
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -131,16 +132,19 @@ const PublicClubProfile = () => {
 
   // Claim dialog
   const [showClaimDialog, setShowClaimDialog] = useState(false);
-  const [claimForm, setClaimForm] = useState({ firstname: "", lastname: "", position: "", email: "", phone: "", message: "" });
-  const [claimSubmitting, setClaimSubmitting] = useState(false);
-  const [claimSuccess, setClaimSuccess] = useState(false);
-  const [claimError, setClaimError] = useState<string | null>(null);
 
   // Interest form
   const [interestForm, setInterestForm] = useState({ name: "", email: "", message: "" });
   const [interestSubmitting, setInterestSubmitting] = useState(false);
   const [interestSuccess, setInterestSuccess] = useState(false);
   const [interestError, setInterestError] = useState("");
+
+  // Contact dialog (unclaimed clubs)
+  const [contactDialogOpen, setContactDialogOpen] = useState(false);
+  const [contactForm, setContactForm] = useState({ name: "", email: "", phone: "", message: "" });
+  const [contactSubmitting, setContactSubmitting] = useState(false);
+  const [contactSuccess, setContactSuccess] = useState(false);
+  const [contactError, setContactError] = useState("");
 
   // ── Data Fetching ────────────────────────────────────────────────────────
 
@@ -207,25 +211,7 @@ const PublicClubProfile = () => {
 
   // ── Claim handler ────────────────────────────────────────────────────────
 
-  async function handleClaimSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setClaimSubmitting(true);
-    setClaimError(null);
-    try {
-      const res = await fetch(`/api/public/clubs/${slug}/claim`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(claimForm),
-      });
-      const data = await res.json();
-      if (!res.ok) setClaimError(data.error || "Ein Fehler ist aufgetreten.");
-      else setClaimSuccess(true);
-    } catch {
-      setClaimError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
-    } finally {
-      setClaimSubmitting(false);
-    }
-  }
+
 
   // ── Interest handler ─────────────────────────────────────────────────────
 
@@ -237,7 +223,7 @@ const PublicClubProfile = () => {
       const res = await fetch(`/api/public/clubs/${slug}/interest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(interestForm),
+        body: JSON.stringify({ ...interestForm, request_type: "membership_interest" }),
       });
       if (res.ok) {
         setInterestSuccess(true);
@@ -249,6 +235,29 @@ const PublicClubProfile = () => {
       setInterestError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
     } finally {
       setInterestSubmitting(false);
+    }
+  }
+
+  async function handleContactSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setContactSubmitting(true);
+    setContactError("");
+    try {
+      const res = await fetch(`/api/public/clubs/${slug}/interest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...contactForm, request_type: "club_contact" }),
+      });
+      if (res.ok) {
+        setContactSuccess(true);
+      } else {
+        const data = await res.json();
+        setContactError(data.error || "Ein Fehler ist aufgetreten.");
+      }
+    } catch {
+      setContactError("Verbindungsfehler. Bitte versuchen Sie es erneut.");
+    } finally {
+      setContactSubmitting(false);
     }
   }
 
@@ -694,6 +703,21 @@ const PublicClubProfile = () => {
               Hinterlassen Sie Ihre Kontaktdaten — der Verein meldet sich bei Ihnen.
             </p>
 
+            {isUnclaimed && (
+              <div className="mb-6 space-y-3">
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 text-sm text-amber-200/80 leading-relaxed">
+                  Dieses Vereinsprofil wird aktuell durch SchützenHub verwaltet. Ihre Anfrage wird an das SchützenHub-Team übermittelt.
+                </div>
+                <Button
+                  variant="outline"
+                  className="w-full border-cream/20 text-cream hover:bg-cream/10"
+                  onClick={() => { setContactDialogOpen(true); setContactSuccess(false); setContactError(""); }}
+                >
+                  Verein kontaktieren
+                </Button>
+              </div>
+            )}
+
             {interestSuccess ? (
               <div className="flex items-start gap-3 bg-green-500/10 border border-green-500/20 rounded-xl px-5 py-4">
                 <CheckCircle className="w-5 h-5 text-green-400 shrink-0 mt-0.5" />
@@ -825,60 +849,80 @@ const PublicClubProfile = () => {
       <PublicFooter />
 
       {/* ── Claim Dialog ─────────────────────────────────────────────── */}
-      <Dialog open={showClaimDialog} onOpenChange={(o) => { if (!o) { setShowClaimDialog(false); setClaimSuccess(false); setClaimError(null); } }}>
-        <DialogContent className="sm:max-w-md">
+      <ClubClaimDialog
+        clubSlug={slug}
+        clubName={club?.name ?? ""}
+        open={showClaimDialog}
+        onOpenChange={setShowClaimDialog}
+      />
+
+      {/* ── Kontaktdialog (unclaimed) ──────────────────────────────────── */}
+      <Dialog open={contactDialogOpen} onOpenChange={(o) => { if (!o) { setContactDialogOpen(false); setContactSuccess(false); setContactError(""); setContactForm({ name: "", email: "", phone: "", message: "" }); } }}>
+        <DialogContent className="sm:max-w-md bg-forest-dark border-cream/10">
           <DialogHeader>
-            <DialogTitle>Verein übernehmen</DialogTitle>
+            <DialogTitle className="text-cream">Verein kontaktieren</DialogTitle>
           </DialogHeader>
-          {claimSuccess ? (
-            <div className="py-4 space-y-4">
-              <div className="flex items-start gap-3 bg-green-500/10 border border-green-500/20 rounded-lg px-4 py-3">
-                <CheckCircle className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
-                <p className="text-sm text-green-700">
-                  Ihre Anfrage wurde erfolgreich übermittelt. Wir prüfen Ihre Angaben und melden uns in Kürze.
-                </p>
-              </div>
-              <DialogFooter>
-                <Button onClick={() => { setShowClaimDialog(false); setClaimSuccess(false); }}>Schließen</Button>
-              </DialogFooter>
+          {contactSuccess ? (
+            <div className="flex items-start gap-3 bg-green-500/10 border border-green-500/20 rounded-xl px-5 py-4">
+              <CheckCircle className="w-5 h-5 text-green-400 shrink-0 mt-0.5" />
+              <p className="text-sm text-green-300">
+                Vielen Dank! Ihre Anfrage wurde erfolgreich übermittelt.
+              </p>
             </div>
           ) : (
-            <form onSubmit={handleClaimSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>Vorname *</Label>
-                  <Input value={claimForm.firstname} onChange={(e) => setClaimForm((f) => ({ ...f, firstname: e.target.value }))} required />
-                </div>
-                <div>
-                  <Label>Nachname *</Label>
-                  <Input value={claimForm.lastname} onChange={(e) => setClaimForm((f) => ({ ...f, lastname: e.target.value }))} required />
-                </div>
+            <form onSubmit={handleContactSubmit} className="space-y-4">
+              <div>
+                <Label className="text-cream/80 text-sm mb-1.5 block">Name *</Label>
+                <Input
+                  value={contactForm.name}
+                  onChange={(e) => setContactForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="Ihr Name"
+                  required
+                  className="bg-forest-dark border-cream/20 text-cream placeholder:text-cream/30 focus:border-gold/50"
+                />
               </div>
               <div>
-                <Label>Position im Verein</Label>
-                <Input value={claimForm.position} onChange={(e) => setClaimForm((f) => ({ ...f, position: e.target.value }))} placeholder="z.B. 1. Vorsitzender" />
+                <Label className="text-cream/80 text-sm mb-1.5 block">E-Mail *</Label>
+                <Input
+                  type="email"
+                  value={contactForm.email}
+                  onChange={(e) => setContactForm((f) => ({ ...f, email: e.target.value }))}
+                  placeholder="ihre@email.de"
+                  required
+                  className="bg-forest-dark border-cream/20 text-cream placeholder:text-cream/30 focus:border-gold/50"
+                />
               </div>
               <div>
-                <Label>E-Mail *</Label>
-                <Input type="email" value={claimForm.email} onChange={(e) => setClaimForm((f) => ({ ...f, email: e.target.value }))} required />
+                <Label className="text-cream/80 text-sm mb-1.5 block">Telefon (optional)</Label>
+                <Input
+                  type="tel"
+                  value={contactForm.phone}
+                  onChange={(e) => setContactForm((f) => ({ ...f, phone: e.target.value }))}
+                  placeholder="+49 123 456789"
+                  className="bg-forest-dark border-cream/20 text-cream placeholder:text-cream/30 focus:border-gold/50"
+                />
               </div>
               <div>
-                <Label>Telefon</Label>
-                <Input type="tel" value={claimForm.phone} onChange={(e) => setClaimForm((f) => ({ ...f, phone: e.target.value }))} />
+                <Label className="text-cream/80 text-sm mb-1.5 block">Nachricht</Label>
+                <Textarea
+                  value={contactForm.message}
+                  onChange={(e) => setContactForm((f) => ({ ...f, message: e.target.value }))}
+                  placeholder="Wie können wir Ihnen helfen?"
+                  rows={3}
+                  className="bg-forest-dark border-cream/20 text-cream placeholder:text-cream/30 focus:border-gold/50 resize-none"
+                />
               </div>
-              <div>
-                <Label>Nachricht</Label>
-                <Textarea value={claimForm.message} onChange={(e) => setClaimForm((f) => ({ ...f, message: e.target.value }))} rows={3} placeholder="Weitere Angaben…" />
-              </div>
-              {claimError && (
+              {contactError && (
                 <div className="flex items-center gap-2 text-sm text-destructive">
-                  <AlertCircle className="w-4 h-4 shrink-0" /> {claimError}
+                  <AlertCircle className="w-4 h-4 shrink-0" /> {contactError}
                 </div>
               )}
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setShowClaimDialog(false)}>Abbrechen</Button>
-                <Button type="submit" disabled={claimSubmitting || !claimForm.firstname || !claimForm.lastname || !claimForm.email}>
-                  {claimSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Anfrage senden"}
+                <Button type="button" variant="ghost" className="text-cream/60" onClick={() => setContactDialogOpen(false)}>
+                  Abbrechen
+                </Button>
+                <Button type="submit" variant="hero" disabled={contactSubmitting}>
+                  {contactSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Nachricht senden"}
                 </Button>
               </DialogFooter>
             </form>

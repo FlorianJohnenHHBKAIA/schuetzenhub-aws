@@ -6,7 +6,7 @@ import {
   Building2, CheckCircle2, Users, Flag,
   Package, ShieldAlert, FileText, CalendarDays,
   ArrowRight, ShieldCheck, LayoutGrid, Settings2, Mail, HardDrive, ClipboardList, Globe,
-  Store, BadgeCheck, MessageSquare,
+  Store, BadgeCheck, MessageSquare, Inbox, MessageCircle, UserPlus, KeyRound,
 } from "lucide-react";
 import { apiJson } from "@/integrations/api/client";
 
@@ -39,6 +39,10 @@ interface SuperadminStats {
   totalProviders: number;
   verifiedProviders: number;
   totalProviderInquiries: number;
+  newInterestRequests: number;
+  openContactRequests: number;
+  openMembershipRequests: number;
+  openAccessRequests: number;
   system: SystemInfo;
   recentActivity: ActivityItem[];
 }
@@ -250,6 +254,50 @@ const SuperadminDashboard = () => {
           icon={MessageSquare}
           color="bg-violet-100 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400"
           loading={isLoading}
+        />
+      </div>
+
+      {/* KPI-Reihe 4 – Vereinsanfragen */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+        <KpiCard
+          label="Neue Vereinsanfragen"
+          value={stats?.newInterestRequests ?? 0}
+          icon={Inbox}
+          color="bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400"
+          loading={isLoading}
+          onClick={() => navigate("/superadmin/inbox")}
+        />
+        <KpiCard
+          label="Offene Kontaktanfragen"
+          value={stats?.openContactRequests ?? 0}
+          icon={MessageCircle}
+          color="bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400"
+          loading={isLoading}
+          onClick={() => navigate("/superadmin/inbox?type=club_contact")}
+        />
+        <KpiCard
+          label="Offene Mitgliedschaftsanfragen"
+          value={stats?.openMembershipRequests ?? 0}
+          icon={UserPlus}
+          color="bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400"
+          loading={isLoading}
+          onClick={() => navigate("/superadmin/inbox?type=membership_interest")}
+        />
+        <KpiCard
+          label="Übernahmeanfragen"
+          value={stats?.openClaimRequests ?? 0}
+          icon={ClipboardList}
+          color="bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400"
+          loading={isLoading}
+          onClick={() => navigate("/superadmin/claim-requests")}
+        />
+        <KpiCard
+          label="Zugangsanfragen"
+          value={stats?.openAccessRequests ?? 0}
+          icon={KeyRound}
+          color="bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400"
+          loading={isLoading}
+          onClick={() => navigate("/superadmin/inbox?type=access_request")}
         />
       </div>
 

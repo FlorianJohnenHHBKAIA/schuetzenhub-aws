@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
@@ -9,7 +9,7 @@ import {
   Users, UserCheck, Shield, CalendarDays,
   Building2, Save, Upload, Trash2,
   ExternalLink, Package, StickyNote, ImageIcon,
-  FileText, Calendar, Archive, ArchiveRestore, AlertTriangle,
+  FileText, Calendar, Archive, ArchiveRestore, AlertTriangle, Inbox,
 } from "lucide-react";
 import { apiJson, apiUpload, getStorageUrl } from "@/integrations/api/client";
 import { Button } from "@/components/ui/button";
@@ -96,6 +96,17 @@ interface ClubNote {
   note: string;
   created_at: string;
   created_by_email: string;
+}
+
+interface ClubRequest {
+  id: string;
+  source: "interest" | "claim";
+  type: "membership_interest" | "club_contact" | "claim";
+  name: string;
+  email: string;
+  status: string;
+  created_at: string;
+  message: string | null;
 }
 
 interface StammdatenForm {
@@ -383,6 +394,13 @@ const SuperadminClubDetail = () => {
     useQuery<ClubNote[]>({
       queryKey: ["superadmin-club-notes", id],
       queryFn: () => apiJson<ClubNote[]>(`/api/superadmin/clubs/${id}/notes`),
+      enabled: !!id,
+    });
+
+  const { data: clubRequests = [], isLoading: requestsLoading } =
+    useQuery<ClubRequest[]>({
+      queryKey: ["superadmin-club-requests", id],
+      queryFn: () => apiJson<ClubRequest[]>(`/api/superadmin/clubs/${id}/requests`),
       enabled: !!id,
     });
 
@@ -881,7 +899,45 @@ const SuperadminClubDetail = () => {
             </div>
           </SectionCard>
 
-          {/* 6. Mitgliederliste */}
+          {/* 6. Öffentliche Anfragen */}
+          <SectionCard title="Öffentliche Anfragen" icon={Inbox}>
+            {requestsLoading && (
+              <div className="space-y-2">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-10 bg-muted rounded-lg animate-pulse" />
+                ))}
+              </div>
+            )}
+            {!requestsLoading && clubRequests.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">Keine Anfragen vorhanden.</p>
+            )}
+            {!requestsLoading && clubRequests.length > 0 && (
+              <div className="space-y-1.5">
+                {clubRequests.map((req) => {
+                  const typeLabel = req.type === "membership_interest" ? "Mitgliedschaft" : req.type === "club_contact" ? "Kontakt" : "Übernahme";
+                  const typeColor = req.type === "membership_interest" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" : req.type === "club_contact" ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400";
+                  const statusOpen = ["new", "open", "in_progress"].includes(req.status);
+                  return (
+                    <div key={`${req.source}-${req.id}`} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${statusOpen ? "bg-muted/60" : "bg-muted/20"}`}>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${typeColor}`}>{typeLabel}</span>
+                      <span className="font-medium text-foreground truncate flex-1">{req.name}</span>
+                      <span className="text-muted-foreground text-xs shrink-0">{format(new Date(req.created_at), "dd.MM.yy", { locale: de })}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div className="pt-1">
+              <Link
+                to={`/superadmin/inbox?club_id=${id}`}
+                className="text-xs text-primary hover:underline flex items-center gap-1"
+              >
+                <Inbox className="w-3 h-3" /> Alle Anfragen in der Inbox →
+              </Link>
+            </div>
+          </SectionCard>
+
+          {/* 7. Mitgliederliste */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">

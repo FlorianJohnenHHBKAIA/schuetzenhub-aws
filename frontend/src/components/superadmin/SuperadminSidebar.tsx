@@ -10,6 +10,7 @@ import {
   ClipboardList,
   Store,
   ScrollText,
+  Inbox,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
   { label: "Pakete & Abrechnung", to: "/superadmin/packages", icon: Package },
   { label: "Meldungen & Compliance", to: "/superadmin/reports", icon: Flag },
   { label: "Übernahmeanfragen", to: "/superadmin/claim-requests", icon: ClipboardList },
+  { label: "Inbox", to: "/superadmin/inbox", icon: Inbox },
   { label: "Anbieter", to: "/superadmin/providers", icon: Store },
   { label: "Audit-Log", to: "/superadmin/audit-logs", icon: ScrollText },
   { label: "Systemeinstellungen", to: "/superadmin/settings", icon: Settings },

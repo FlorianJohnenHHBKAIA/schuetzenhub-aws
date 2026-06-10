@@ -148,7 +148,7 @@ router.post("/register", async (req, res) => {
 
 // POST /api/auth/setup – Erstmalige Vereinseinrichtung
 router.post("/setup", async (req, res) => {
-  const { clubName, clubSlug, city, firstName, lastName, email, password } =
+  const { clubName, clubSlug, city, firstName, lastName, email, password, force } =
     req.body;
 
   if (!clubName || !clubSlug || !firstName || !lastName || !email || !password) {
@@ -158,6 +158,30 @@ router.post("/setup", async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+
+    // Duplikat-Prüfung (überspringen wenn force === true)
+    if (!force) {
+      const dupRes = await client.query(
+        `SELECT id, name, slug,
+                COALESCE(location_city, city) AS city,
+                location_zip AS zip, claim_status
+         FROM clubs
+         WHERE deleted_at IS NULL
+           AND (
+             LOWER(TRIM(name)) = LOWER(TRIM($1))
+             OR name ILIKE $2
+           )
+         LIMIT 5`,
+        [clubName, `%${clubName}%`]
+      );
+      if (dupRes.rows.length > 0) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          message: "Mögliche doppelte Vereinsprofile gefunden.",
+          matches: dupRes.rows,
+        });
+      }
+    }
 
     // Slug prüfen
     const slugCheck = await client.query(

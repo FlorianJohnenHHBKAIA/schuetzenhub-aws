@@ -2683,6 +2683,85 @@ router.get("/public/events/:id", async (req, res) => {
 
 // ─── Public Clubs Directory ───────────────────────────────────────────────────
 
+// GET /api/public/clubs/check – Vereinssuche & Duplikat-Prüfung (kein Auth)
+// Supports: q (combined), name, city, zip
+router.get("/public/clubs/check", async (req, res) => {
+  const { q, name, city = "", zip = "" } = req.query;
+
+  let searchText = name?.trim() ?? "";
+  let searchZip  = zip?.trim() ?? "";
+  const searchCity = city?.trim() ?? "";
+
+  if (q?.trim()) {
+    const zipMatch = q.trim().match(/\b(\d{4,5})\b/);
+    if (zipMatch) {
+      searchZip  = zipMatch[1];
+      searchText = q.trim().replace(zipMatch[0], "").trim();
+    } else {
+      searchText = q.trim();
+    }
+  }
+
+  if (!searchText && !searchZip && !searchCity) {
+    return res.status(400).json({ error: "Mindestens ein Suchbegriff erforderlich." });
+  }
+
+  try {
+    const params = [];
+    const conditions = ["c.deleted_at IS NULL"];
+
+    if (searchText) {
+      params.push(`%${searchText}%`);
+      const n = params.length;
+      conditions.push(
+        `(c.name ILIKE $${n} OR COALESCE(c.location_city, c.city) ILIKE $${n} OR c.slug ILIKE $${n} OR c.club_number ILIKE $${n})`
+      );
+    }
+    if (searchCity) {
+      params.push(`%${searchCity}%`);
+      conditions.push(`COALESCE(c.location_city, c.city) ILIKE $${params.length}`);
+    }
+    if (searchZip) {
+      params.push(searchZip);
+      conditions.push(`(c.location_zip = $${params.length} OR c.location_zip ILIKE $${params.length} || '%')`);
+    }
+
+    const result = await pool.query(
+      `SELECT c.id, c.name, c.slug,
+              COALESCE(c.location_city, c.city) AS city,
+              c.location_zip AS zip, c.claim_status, c.logo_path
+       FROM clubs c
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY c.name ASC
+       LIMIT 10`,
+      params
+    );
+
+    const matches = result.rows.map((c) => ({
+      id: c.id,
+      name: c.name,
+      slug: c.slug,
+      city: c.city,
+      zip: c.zip,
+      claim_status: c.claim_status,
+      logo_url: c.logo_path ? getPublicUrl("club-assets", c.logo_path) : null,
+    }));
+
+    // Keep backward-compat fields for the duplicate check in POST /api/auth/setup frontend
+    const exactMatches = matches.filter(
+      (m) => m.name.toLowerCase().trim() === searchText.toLowerCase().trim()
+    );
+    const similarMatches = matches.filter(
+      (m) => m.name.toLowerCase().trim() !== searchText.toLowerCase().trim()
+    );
+
+    res.json({ matches, exactMatches, similarMatches });
+  } catch (err) {
+    console.error("GET /public/clubs/check error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
 // GET /api/public/clubs – Öffentliches Vereinsregister (kein Auth)
 router.get("/public/clubs", async (req, res) => {
   const { search, state, city, status, sort = "name_asc", page = "1", limit = "24" } = req.query;
@@ -2785,9 +2864,13 @@ router.post("/public/clubs/:slug/claim", async (req, res) => {
 
 // POST /api/public/clubs/:slug/interest – Interessenbekundung eines Besuchers (kein Auth)
 router.post("/public/clubs/:slug/interest", async (req, res) => {
-  const { name, email, message } = req.body;
+  const { name, email, message, phone, request_type = "membership_interest" } = req.body;
   if (!name?.trim() || !email?.trim()) {
     return res.status(400).json({ error: "Name und E-Mail sind Pflichtfelder." });
+  }
+  const validTypes = ["membership_interest", "club_contact"];
+  if (!validTypes.includes(request_type)) {
+    return res.status(400).json({ error: "Ungültiger request_type." });
   }
   try {
     const clubRes = await pool.query(
@@ -2796,12 +2879,51 @@ router.post("/public/clubs/:slug/interest", async (req, res) => {
     );
     if (!clubRes.rows[0]) return res.status(404).json({ error: "Verein nicht gefunden." });
     await pool.query(
-      "INSERT INTO club_interest_requests (club_id, name, email, message) VALUES ($1, $2, $3, $4)",
-      [clubRes.rows[0].id, name.trim(), email.trim(), message?.trim() || null]
+      `INSERT INTO club_interest_requests (club_id, name, email, message, phone, request_type)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        clubRes.rows[0].id,
+        name.trim(),
+        email.trim(),
+        message?.trim() || null,
+        phone?.trim() || null,
+        request_type,
+      ]
     );
     res.status(201).json({ ok: true });
   } catch (err) {
     console.error("POST /public/clubs/:slug/interest error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// POST /api/public/clubs/:slug/access-request – Zugangsanfrage für bereits verwalteten Verein (kein Auth)
+router.post("/public/clubs/:slug/access-request", async (req, res) => {
+  const { firstname, lastname, email, phone, message } = req.body;
+  if (!firstname?.trim() || !lastname?.trim() || !email?.trim()) {
+    return res.status(400).json({ error: "Vorname, Nachname und E-Mail sind Pflichtfelder." });
+  }
+  try {
+    const clubRes = await pool.query(
+      "SELECT id FROM clubs WHERE slug = $1 AND deleted_at IS NULL",
+      [req.params.slug]
+    );
+    if (!clubRes.rows[0]) return res.status(404).json({ error: "Verein nicht gefunden." });
+    await pool.query(
+      `INSERT INTO club_access_requests (club_id, firstname, lastname, email, phone, message)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        clubRes.rows[0].id,
+        firstname.trim(),
+        lastname.trim(),
+        email.trim(),
+        phone?.trim() || null,
+        message?.trim() || null,
+      ]
+    );
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    console.error("POST /public/clubs/:slug/access-request error:", err);
     res.status(500).json({ error: "Serverfehler" });
   }
 });
