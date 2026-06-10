@@ -239,6 +239,9 @@ router.post("/setup", async (req, res) => {
       [uuidv4(), userId, clubId]
     );
 
+    // BHDS-Standardauszeichnungen für neuen Verein anlegen
+    await client.query("SELECT seed_bhds_awards_for_club($1)", [clubId]);
+
     await client.query("COMMIT");
 
     const token = signToken(userId, email.toLowerCase().trim());

@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/lib/auth";
-import { supabase, getStorageUrl } from "@/integrations/api/client";
+import { supabase, getStorageUrl, apiJson } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
 import { useWorkShiftStats } from "@/hooks/useWorkShiftStats";
 import MemberProfileEditDialog from "@/components/portal/MemberProfileEditDialog";
@@ -43,6 +43,17 @@ interface MemberAward {
   description: string | null;
   awarded_at: string;
   award_type: string;
+  award_type_id: string | null;
+  awarded_by: string | null;
+  notes: string | null;
+  certificate_url: string | null;
+  award_type_info: {
+    id: string;
+    name: string;
+    icon: string;
+    category: string;
+    is_bhds_standard: boolean;
+  } | null;
 }
 
 interface CompanyMembership {
@@ -129,13 +140,8 @@ const MemberProfile = () => {
       if (memberError) throw memberError;
       setMemberData(memberRaw as MemberData);
 
-      const { data: awardsData } = await supabase
-        .from("member_awards")
-        .select("*")
-        .eq("member_id", id)
-        .eq("status", "approved")
-        .order("awarded_at", { ascending: false });
-      setAwards((awardsData as MemberAward[]) || []);
+      const awardsData = await apiJson<MemberAward[]>(`/api/awards?member_id=${id}&status=approved`);
+      setAwards(awardsData || []);
 
       const { data: membershipsData } = await supabase
         .from("member_company_memberships")
@@ -214,8 +220,7 @@ const MemberProfile = () => {
   const handleDeleteAward = async () => {
     if (!awardToDelete) return;
     try {
-      const { error } = await supabase.from("member_awards").delete().eq("id", awardToDelete.id);
-      if (error) throw error;
+      await apiJson(`/api/awards/${awardToDelete.id}`, { method: "DELETE" });
       toast({ title: "Auszeichnung gelöscht" });
       fetchMemberData();
     } catch (error: unknown) {
@@ -339,14 +344,20 @@ const MemberProfile = () => {
             {awards.length > 0 ? (
               <div className="flex flex-wrap gap-3">
                 {awards.slice(0, 8).map((award) => {
-                  const typeConfig = getAwardTypeConfig(award.award_type);
+                  const iconName = award.award_type_info?.icon || award.award_type || "medal";
+                  const typeConfig = getAwardTypeConfig(iconName);
                   const AwardIcon = typeConfig.icon;
+                  const displayTitle = award.award_type_info?.name || award.title;
+                  const tooltipParts = [displayTitle];
+                  if (award.awarded_by) tooltipParts.push(`Verliehen von: ${award.awarded_by}`);
+                  if (award.description) tooltipParts.push(award.description);
+                  tooltipParts.push(formatDate(award.awarded_at));
                   return (
-                    <div key={award.id} className="group relative flex items-center gap-2 px-4 py-2 bg-card rounded-full border hover:bg-muted/50 transition-colors cursor-default" title={`${award.title}${award.description ? ` - ${award.description}` : ''} (${formatDate(award.awarded_at)})`}>
+                    <div key={award.id} className="group relative flex items-center gap-2 px-4 py-2 bg-card rounded-full border hover:bg-muted/50 transition-colors cursor-default" title={tooltipParts.join(' · ')}>
                       <div className={`w-6 h-6 rounded-full ${typeConfig.bgColor} flex items-center justify-center`}>
                         <AwardIcon className={`w-3.5 h-3.5 ${typeConfig.color}`} />
                       </div>
-                      <span className="text-sm font-medium">{award.title}</span>
+                      <span className="text-sm font-medium">{displayTitle}</span>
                       <span className="text-xs text-muted-foreground">{format(new Date(award.awarded_at), "yyyy", { locale: de })}</span>
                     </div>
                   );
@@ -474,8 +485,11 @@ const MemberProfile = () => {
             });
 
             awards.forEach(award => {
-              const typeConfig = getAwardTypeConfig(award.award_type);
-              chronicleEvents.push({ type: 'award', title: award.title, subtitle: award.description || undefined, date: award.awarded_at, endDate: null, isActive: false, icon: typeConfig.icon, iconBgColor: typeConfig.bgColor, iconColor: typeConfig.color, award: award });
+              const iconName = award.award_type_info?.icon || award.award_type || "medal";
+              const typeConfig = getAwardTypeConfig(iconName);
+              const displayTitle = award.award_type_info?.name || award.title;
+              const subtitle = [award.awarded_by ? `Von: ${award.awarded_by}` : null, award.description].filter(Boolean).join(' · ') || undefined;
+              chronicleEvents.push({ type: 'award', title: displayTitle, subtitle, date: award.awarded_at, endDate: null, isActive: false, icon: typeConfig.icon, iconBgColor: typeConfig.bgColor, iconColor: typeConfig.color, award: award });
             });
 
             chronicleEvents.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());

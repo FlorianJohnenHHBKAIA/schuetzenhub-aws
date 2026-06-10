@@ -1074,14 +1074,16 @@ router.post("/work-shift-assignments/bulk-status", requireAuth, async (req, res)
 
 router.get(["/awards", "/member_awards", "/awards/requests", "/award-requests"], requireAuth, async (req, res) => {
   try {
-    const { member_id, status } = req.query;
+    const { member_id, status, award_type_id, category } = req.query;
     let query = `
-      SELECT ma.*, at.name as award_type_name, at.icon as award_type_icon,
+      SELECT ma.*,
+             at.name as award_type_name, at.icon as award_type_icon,
+             at.category as award_type_category, at.is_bhds_standard as award_is_bhds_standard,
              m.first_name, m.last_name, m.avatar_url,
              r.first_name as requester_first_name, r.last_name as requester_last_name,
              appr.first_name as approver_first_name, appr.last_name as approver_last_name
-      FROM member_awards ma 
-      LEFT JOIN award_types at ON at.id = ma.award_type_id 
+      FROM member_awards ma
+      LEFT JOIN award_types at ON at.id = ma.award_type_id
       LEFT JOIN members m ON m.id = ma.member_id
       LEFT JOIN members r ON r.id = ma.requested_by_member_id
       LEFT JOIN members appr ON appr.id = ma.approved_by_member_id
@@ -1098,10 +1100,19 @@ router.get(["/awards", "/member_awards", "/awards/requests", "/award-requests"],
       params.push(status);
     }
 
+    if (award_type_id) {
+      query += ` AND ma.award_type_id = $${params.length + 1}`;
+      params.push(award_type_id);
+    }
+
+    if (category) {
+      query += ` AND at.category = $${params.length + 1}`;
+      params.push(category);
+    }
+
     query += " ORDER BY ma.awarded_at DESC, ma.created_at DESC";
     const result = await pool.query(query, params);
-    
-    // Wir mappen die flachen DB-Zeilen in die verschachtelte Struktur, die das Frontend erwartet
+
     const awards = result.rows.map(row => ({
       ...row,
       member: row.first_name ? {
@@ -1123,20 +1134,24 @@ router.get(["/awards", "/member_awards", "/awards/requests", "/award-requests"],
       award_type_info: row.award_type_id ? {
         id: row.award_type_id,
         name: row.award_type_name,
-        icon: row.award_type_icon
+        icon: row.award_type_icon,
+        category: row.award_type_category,
+        is_bhds_standard: row.award_is_bhds_standard
       } : null
     }));
-    
+
     res.json(awards);
-  } catch (err) { 
+  } catch (err) {
     console.error("GET /awards error:", err);
-    res.status(500).json({ error: "Serverfehler" }); 
+    res.status(500).json({ error: "Serverfehler" });
   }
 });
 
 router.get(["/award-types", "/award_types", "/awards/types"], requireAuth, async (req, res) => {
   try {
-    let query = "SELECT id, club_id, name, description, icon, badge_color, scope_type, scope_id, is_active FROM award_types WHERE club_id = $1";
+    let query = `SELECT id, club_id, name, description, icon, badge_color, scope_type, scope_id,
+                        is_active, is_bhds_standard, category, requirements, special_notes, sort_order
+                 FROM award_types WHERE club_id = $1`;
     const params = [req.clubId];
 
     if (req.query.is_active !== undefined) {
@@ -1144,7 +1159,7 @@ router.get(["/award-types", "/award_types", "/awards/types"], requireAuth, async
       query += ` AND is_active = $${params.length}`;
     }
 
-    query += " ORDER BY name";
+    query += " ORDER BY sort_order ASC, name ASC";
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) { console.error("Award types fetch error:", err); res.status(500).json({ error: "Serverfehler" }); }
@@ -1152,10 +1167,11 @@ router.get(["/award-types", "/award_types", "/awards/types"], requireAuth, async
 
 router.post("/award-types", requireAuth, async (req, res) => {
   try {
-    const { name, description, icon, badge_color, scope_type, scope_id, is_active } = req.body;
+    const { name, description, icon, badge_color, scope_type, scope_id, is_active, category } = req.body;
     const result = await pool.query(
-      `INSERT INTO award_types (id, club_id, name, description, icon, badge_color, scope_type, scope_id, is_active)
-       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, club_id, name, description, icon, badge_color, scope_type, scope_id, is_active`,
+      `INSERT INTO award_types (id, club_id, name, description, icon, badge_color, scope_type, scope_id, is_active, is_bhds_standard, category, sort_order)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, false, $9, 99)
+       RETURNING id, club_id, name, description, icon, badge_color, scope_type, scope_id, is_active, is_bhds_standard, category, requirements, special_notes, sort_order`,
       [
         req.clubId,
         name,
@@ -1165,6 +1181,7 @@ router.post("/award-types", requireAuth, async (req, res) => {
         scope_type || 'club',
         scope_type === 'company' ? (scope_id || null) : null,
         is_active !== false,
+        category || 'custom',
       ]
     );
     res.json(result.rows[0]);
@@ -1173,29 +1190,59 @@ router.post("/award-types", requireAuth, async (req, res) => {
 
 router.put("/award-types/:id", requireAuth, async (req, res) => {
   try {
-    const { name, description, icon, badge_color, scope_type, scope_id, is_active } = req.body;
-    const result = await pool.query(
-      `UPDATE award_types
-       SET name=$1, description=$2, icon=$3, badge_color=$4, scope_type=$5, scope_id=$6, is_active=$7
-       WHERE id=$8 AND club_id=$9 RETURNING id, club_id, name, description, icon, badge_color, scope_type, scope_id, is_active`,
-      [
-        name,
-        description || null,
-        icon || 'medal',
-        badge_color || 'gold',
-        scope_type || 'club',
-        scope_type === 'company' ? (scope_id || null) : null,
-        is_active !== false,
-        req.params.id,
-        req.clubId,
-      ]
+    const { name, description, icon, badge_color, scope_type, scope_id, is_active, category } = req.body;
+
+    // BHDS-Standard-Auszeichnungen dürfen nur in is_active geändert werden
+    const existing = await pool.query(
+      "SELECT is_bhds_standard FROM award_types WHERE id=$1 AND club_id=$2",
+      [req.params.id, req.clubId]
     );
+    if (!existing.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
+
+    let result;
+    if (existing.rows[0].is_bhds_standard) {
+      result = await pool.query(
+        `UPDATE award_types SET is_active=$1
+         WHERE id=$2 AND club_id=$3
+         RETURNING id, club_id, name, description, icon, badge_color, scope_type, scope_id,
+                   is_active, is_bhds_standard, category, requirements, special_notes, sort_order`,
+        [is_active !== false, req.params.id, req.clubId]
+      );
+    } else {
+      result = await pool.query(
+        `UPDATE award_types
+         SET name=$1, description=$2, icon=$3, badge_color=$4, scope_type=$5, scope_id=$6, is_active=$7, category=$8
+         WHERE id=$9 AND club_id=$10
+         RETURNING id, club_id, name, description, icon, badge_color, scope_type, scope_id,
+                   is_active, is_bhds_standard, category, requirements, special_notes, sort_order`,
+        [
+          name,
+          description || null,
+          icon || 'medal',
+          badge_color || 'gold',
+          scope_type || 'club',
+          scope_type === 'company' ? (scope_id || null) : null,
+          is_active !== false,
+          category || 'custom',
+          req.params.id,
+          req.clubId,
+        ]
+      );
+    }
     res.json(result.rows[0]);
   } catch (err) { console.error("Award type update error:", err); res.status(500).json({ error: "Serverfehler" }); }
 });
 
 router.delete("/award-types/:id", requireAuth, async (req, res) => {
   try {
+    const check = await pool.query(
+      "SELECT is_bhds_standard FROM award_types WHERE id=$1 AND club_id=$2",
+      [req.params.id, req.clubId]
+    );
+    if (!check.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
+    if (check.rows[0].is_bhds_standard) {
+      return res.status(403).json({ error: "BHDS-Standardauszeichnungen können nicht gelöscht werden. Sie können jedoch deaktiviert werden." });
+    }
     await pool.query("DELETE FROM award_types WHERE id=$1 AND club_id=$2", [req.params.id, req.clubId]);
     res.json({ success: true });
   } catch (err) { console.error("Award type deletion error:", err); res.status(500).json({ error: "Serverfehler" }); }
@@ -1203,77 +1250,100 @@ router.delete("/award-types/:id", requireAuth, async (req, res) => {
 
 router.post("/awards", requireAuth, async (req, res) => {
   try {
-    const { 
-      member_id, title, description, awarded_at, award_type, 
-      award_type_id, company_id, is_regiment, requested_by_member_id, status 
+    const {
+      member_id, title, description, awarded_at, award_type,
+      award_type_id, company_id, is_regiment, requested_by_member_id, status,
+      awarded_by, notes
     } = req.body;
 
-    if (!title || !member_id) {
-      return res.status(400).json({ error: "Titel und Mitglied-ID sind erforderlich" });
+    if (!member_id) {
+      return res.status(400).json({ error: "Mitglied-ID ist erforderlich" });
     }
+
+    // Bestimme Titel: entweder explizit oder vom award_type_id ableiten
+    let resolvedTitle = title;
+    let resolvedIcon = award_type || 'medal';
 
     if (award_type_id) {
       const typeResult = await pool.query(
-        "SELECT id FROM award_types WHERE id = $1 AND club_id = $2 AND is_active = true",
+        "SELECT id, name, icon FROM award_types WHERE id = $1 AND club_id = $2 AND is_active = true",
         [award_type_id, req.clubId]
       );
       if (!typeResult.rows[0]) {
         return res.status(400).json({ error: "Dieser Auszeichnungstyp ist nicht aktiv und kann nicht verliehen werden" });
       }
+      if (!resolvedTitle) resolvedTitle = typeResult.rows[0].name;
+      resolvedIcon = typeResult.rows[0].icon || resolvedIcon;
+    }
+
+    if (!resolvedTitle) {
+      return res.status(400).json({ error: "Titel oder Auszeichnungstyp ist erforderlich" });
     }
 
     const id = uuidv4();
     const result = await pool.query(
       `INSERT INTO member_awards (
-        id, club_id, member_id, title, description, awarded_at, 
-        award_type, award_type_id, company_id, is_regiment, 
-        requested_by_member_id, status, approved_by_member_id, approved_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
+        id, club_id, member_id, title, description, awarded_at,
+        award_type, award_type_id, company_id, is_regiment,
+        requested_by_member_id, status, approved_by_member_id, approved_at,
+        awarded_by, notes
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
       [
-        id, req.clubId, member_id, title, description || null, awarded_at || new Date(), 
-        award_type || 'medal', award_type_id || null, company_id || null, 
-        is_regiment === undefined ? true : is_regiment, 
+        id, req.clubId, member_id, resolvedTitle, description || null, awarded_at || new Date(),
+        resolvedIcon, award_type_id || null, company_id || null,
+        is_regiment === undefined ? true : is_regiment,
         requested_by_member_id || req.member.id,
         status || 'approved',
         status === 'approved' ? req.member.id : null,
-        status === 'approved' ? new Date() : null
+        status === 'approved' ? new Date() : null,
+        awarded_by || null,
+        notes || null
       ]
     );
     res.json(result.rows[0]);
-  } catch (err) { 
+  } catch (err) {
     console.error("POST /awards error:", err);
-    res.status(500).json({ error: "Serverfehler" }); 
+    res.status(500).json({ error: "Serverfehler" });
   }
 });
 
 router.put("/awards/:id", requireAuth, async (req, res) => {
   try {
     const {
-      title, description, awarded_at, award_type, company_id, is_regiment,
-      status, rejection_reason, approved_by_member_id, approved_at
+      title, description, awarded_at, award_type, award_type_id, company_id, is_regiment,
+      status, rejection_reason, approved_by_member_id, approved_at,
+      awarded_by, notes
     } = req.body;
     const result = await pool.query(
-      `UPDATE member_awards SET 
+      `UPDATE member_awards SET
         title = COALESCE($1, title),
-        description = $2, 
+        description = $2,
         awarded_at = COALESCE($3, awarded_at),
         award_type = COALESCE($4, award_type),
-        company_id = $5, 
-        is_regiment = COALESCE($6, is_regiment),
-        status = COALESCE($7, status),
-        rejection_reason = $8,
-        approved_by_member_id = $9,
-        approved_at = $10
-       WHERE id=$11 AND club_id=$12 RETURNING *`,
-      [title || null, description || null, awarded_at || null, award_type || null, company_id || null, is_regiment !== undefined ? is_regiment : null,
-       status || null, rejection_reason || null, approved_by_member_id || null, approved_at || null,
-       req.params.id, req.clubId]
+        award_type_id = COALESCE($5, award_type_id),
+        company_id = $6,
+        is_regiment = COALESCE($7, is_regiment),
+        status = COALESCE($8, status),
+        rejection_reason = $9,
+        approved_by_member_id = $10,
+        approved_at = $11,
+        awarded_by = $12,
+        notes = $13
+       WHERE id=$14 AND club_id=$15 RETURNING *`,
+      [
+        title || null, description || null, awarded_at || null, award_type || null,
+        award_type_id || null, company_id || null,
+        is_regiment !== undefined ? is_regiment : null,
+        status || null, rejection_reason || null, approved_by_member_id || null, approved_at || null,
+        awarded_by || null, notes || null,
+        req.params.id, req.clubId
+      ]
     );
     if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
     res.json(result.rows[0]);
-  } catch (err) { 
+  } catch (err) {
     console.error("PUT /awards error:", err);
-    res.status(500).json({ error: "Serverfehler" }); 
+    res.status(500).json({ error: "Serverfehler" });
   }
 });
 
@@ -1282,6 +1352,36 @@ router.delete("/awards/:id", requireAuth, async (req, res) => {
     await pool.query("DELETE FROM member_awards WHERE id=$1 AND club_id=$2", [req.params.id, req.clubId]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: "Serverfehler" }); }
+});
+
+router.post("/awards/:id/certificate", requireAuth, upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "Keine Datei hochgeladen" });
+
+    const award = await pool.query(
+      "SELECT id, certificate_url FROM member_awards WHERE id=$1 AND club_id=$2",
+      [req.params.id, req.clubId]
+    );
+    if (!award.rows[0]) return res.status(404).json({ error: "Auszeichnung nicht gefunden" });
+
+    // Altes Zertifikat löschen falls vorhanden
+    if (award.rows[0].certificate_url) {
+      await deleteFile("documents", award.rows[0].certificate_url).catch(() => {});
+    }
+
+    const ext = req.file.originalname.split(".").pop();
+    const fileName = `awards/${req.params.id}/certificate-${Date.now()}.${ext}`;
+    const path = await saveFile("documents", fileName, req.file.path, req.file.mimetype);
+
+    await pool.query(
+      "UPDATE member_awards SET certificate_url=$1 WHERE id=$2 AND club_id=$3",
+      [path, req.params.id, req.clubId]
+    );
+    res.json({ certificate_url: path });
+  } catch (err) {
+    console.error("POST /awards/:id/certificate error:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
 });
 
 // ─── Member Company Memberships ───────────────────────────────────────────────
