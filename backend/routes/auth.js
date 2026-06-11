@@ -6,6 +6,11 @@ const { v4: uuidv4 } = require("uuid");
 const pool = require("../db");
 const { requireAuth } = require("../middleware/auth");
 const { getAdminMemberIds, insertNotifications } = require("../lib/notifications");
+const {
+  sendWelcomeEmail,
+  sendPasswordResetEmail,
+  sendVerificationEmail,
+} = require("../services/emailService");
 
 function signToken(userId, email) {
   return jwt.sign(
@@ -135,6 +140,10 @@ router.post("/register", async (req, res) => {
         })
       )
       .catch((err) => console.error("notifyAdmins registration error:", err));
+
+    // Willkommens-E-Mail an neues Mitglied (fire-and-forget)
+    sendWelcomeEmail(email.toLowerCase().trim(), firstName)
+      .catch((err) => console.error("sendWelcomeEmail error:", err));
 
     res.status(201).json({ token, userId, email: email.toLowerCase().trim() });
   } catch (err) {
@@ -369,17 +378,17 @@ router.post("/create-member-account", requireAuth, async (req, res) => {
 });
 
 // POST /api/auth/forgot-password
-// TODO: E-Mail-Versand implementieren (kein E-Mail-Service konfiguriert).
-//       Reset-Link wird aktuell nur auf der Konsole geloggt.
-// DB-Voraussetzung: ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS reset_token TEXT;
-//                  ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS reset_token_expires_at TIMESTAMPTZ;
 router.post("/forgot-password", async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: "E-Mail erforderlich" });
 
   try {
     const userRes = await pool.query(
-      "SELECT id FROM auth_users WHERE email = $1",
+      `SELECT u.id, m.first_name
+       FROM auth_users u
+       LEFT JOIN members m ON m.user_id = u.id
+       WHERE u.email = $1
+       LIMIT 1`,
       [email.toLowerCase().trim()]
     );
 
@@ -393,9 +402,11 @@ router.post("/forgot-password", async (req, res) => {
         [token, expiresAt, userRes.rows[0].id]
       );
 
-      // TODO: Hier E-Mail mit Reset-Link versenden
-      const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/auth?token=${token}`;
-      console.log(`[Passwort-Reset] Link für ${email}: ${resetUrl}`);
+      const resetUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/auth?token=${token}`;
+      const firstName = userRes.rows[0].first_name || "";
+
+      sendPasswordResetEmail(email.toLowerCase().trim(), firstName, resetUrl)
+        .catch((err) => console.error("sendPasswordResetEmail error:", err));
     }
 
     // Immer dieselbe Antwort – E-Mail-Existenz nicht preisgeben
@@ -439,6 +450,52 @@ router.post("/reset-password", async (req, res) => {
     res.json({ message: "Passwort erfolgreich zurückgesetzt" });
   } catch (err) {
     console.error("Reset-password-Fehler:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// POST /api/auth/send-verification – Verifikations-E-Mail (erneut) senden
+// Voraussetzung: email_verification_migration.sql muss ausgeführt worden sein
+router.post("/send-verification", requireAuth, async (req, res) => {
+  try {
+    const crypto = require("crypto");
+    const token = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 Stunden
+
+    await pool.query(
+      "UPDATE auth_users SET email_verification_token = $1 WHERE id = $2",
+      [token, req.userId]
+    );
+
+    const verifyUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/auth/verify-email?token=${token}`;
+
+    sendVerificationEmail(req.userEmail, req.member?.first_name || "", verifyUrl)
+      .catch((err) => console.error("sendVerificationEmail error:", err));
+
+    res.json({ message: "Verifikations-E-Mail wurde gesendet." });
+  } catch (err) {
+    console.error("send-verification-Fehler:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// GET /api/auth/verify-email?token=… – E-Mail-Adresse bestätigen
+// Voraussetzung: email_verification_migration.sql muss ausgeführt worden sein
+router.get("/verify-email", async (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.status(400).json({ error: "Token erforderlich" });
+
+  try {
+    const result = await pool.query(
+      "UPDATE auth_users SET email_verified_at = now(), email_verification_token = NULL WHERE email_verification_token = $1 RETURNING id",
+      [token]
+    );
+    if (!result.rows[0]) {
+      return res.status(400).json({ error: "Ungültiger oder bereits verwendeter Token" });
+    }
+    res.json({ message: "E-Mail-Adresse erfolgreich bestätigt." });
+  } catch (err) {
+    console.error("verify-email-Fehler:", err);
     res.status(500).json({ error: "Serverfehler" });
   }
 });

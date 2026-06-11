@@ -6,6 +6,10 @@ const { requireAuth, requireAdmin, requireActiveMember } = require("../middlewar
 const multer = require("multer");
 const { saveFile, getPublicUrl } = require("../storage");
 const { insertNotifications } = require("../lib/notifications");
+const {
+  sendMembershipApprovedEmail,
+  sendMembershipRejectedEmail,
+} = require("../services/emailService");
 
 const upload = multer({ dest: "tmp/" });
 
@@ -86,13 +90,23 @@ router.post("/:id/approve", requireAuth, requireAdmin, async (req, res) => {
     );
     if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
     const member = result.rows[0];
-    // Betroffenes Mitglied über Freigabe benachrichtigen
+
+    // In-App-Benachrichtigung
     insertNotifications(pool, [member.id], {
       type: "membership_approved",
       title: "Mitgliedschaft freigegeben",
       message: "Deine Mitgliedschaft wurde freigegeben.",
       link: "/portal",
     }).catch((err) => console.error("notifyMemberApproved error:", err));
+
+    // E-Mail-Benachrichtigung (fire-and-forget)
+    pool.query("SELECT name FROM clubs WHERE id = $1", [req.clubId])
+      .then(({ rows }) => {
+        const clubName = rows[0]?.name || "";
+        return sendMembershipApprovedEmail(member.email, member.first_name, clubName);
+      })
+      .catch((err) => console.error("sendMembershipApprovedEmail error:", err));
+
     res.json(member);
   } catch (err) {
     console.error(err);
@@ -104,10 +118,20 @@ router.post("/:id/approve", requireAuth, requireAdmin, async (req, res) => {
 router.post("/:id/reject", requireAuth, requireAdmin, async (req, res) => {
   try {
     const result = await pool.query(
-      "UPDATE members SET status = 'resigned', updated_at = now() WHERE id = $1 AND club_id = $2 RETURNING id",
+      "UPDATE members SET status = 'resigned', updated_at = now() WHERE id = $1 AND club_id = $2 RETURNING id, email, first_name",
       [req.params.id, req.clubId]
     );
     if (!result.rows[0]) return res.status(404).json({ error: "Nicht gefunden" });
+    const member = result.rows[0];
+
+    // E-Mail-Benachrichtigung (fire-and-forget)
+    pool.query("SELECT name FROM clubs WHERE id = $1", [req.clubId])
+      .then(({ rows }) => {
+        const clubName = rows[0]?.name || "";
+        return sendMembershipRejectedEmail(member.email, member.first_name, clubName);
+      })
+      .catch((err) => console.error("sendMembershipRejectedEmail error:", err));
+
     res.json({ success: true });
   } catch (err) {
     console.error(err);
