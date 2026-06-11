@@ -5,7 +5,11 @@
  * AWS  → API Gateway / ECS – nur VITE_API_URL in .env ändern
  */
 
-const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/+$/, "");
+const RAW_API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/+$/, "");
+const API_BASE =
+  typeof window !== "undefined" && RAW_API_BASE === window.location.origin
+    ? ""
+    : RAW_API_BASE;
 
 function normalizeSupabaseUrl(rawUrl: string): string {
   if (!rawUrl) return "";
@@ -53,6 +57,13 @@ async function apiFetch(
     headers,
   });
 
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("text/html") && path.startsWith("/api/")) {
+    throw new Error(
+      "API antwortet mit HTML statt JSON. Pruefe VITE_API_URL: sie muss auf das Render-Backend zeigen, nicht auf Vercel."
+    );
+  }
+
   if (response.status === 401 && getToken()) {
     clearToken();
     window.location.href = "/auth";
@@ -88,6 +99,12 @@ async function apiUpload(path: string, file: File, extraFields?: Record<string, 
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: formData,
   });
+  const contentType = res.headers.get("content-type") || "";
+  if (contentType.includes("text/html")) {
+    throw new Error(
+      "Upload-API antwortet mit HTML statt JSON. Pruefe VITE_API_URL: sie muss auf das Render-Backend zeigen, nicht auf Vercel."
+    );
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: "Upload fehlgeschlagen" }));
     throw new Error(err.error || `HTTP ${res.status}`);
