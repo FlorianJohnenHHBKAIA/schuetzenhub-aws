@@ -19,6 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { supabase, getStorageUrl } from "@/integrations/supabase/client";
+import { api } from "@/integrations/api/client";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 
@@ -175,9 +176,8 @@ const PublicCompanyProfile = () => {
       // Fetch leadership positions for this company
       try {
         const today = new Date().toISOString().split('T')[0];
-        const response = await fetch(
-          `/api/appointments/leadership?scope_type=company&scope_id=${companyId}&date=${today}`,
-          { headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` } }
+        const response = await api.fetch(
+          `/api/appointments/leadership?scope_type=company&scope_id=${companyId}&date=${today}`
         );
         if (response.ok) {
           const leadershipData: LeadershipPosition[] = await response.json();

@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Helmet } from "react-helmet-async";
 import { ArrowLeft, MapPin, Mail, Phone, Globe, Shield, BadgeCheck, ExternalLink, BookmarkPlus, Loader2, CheckCircle } from "lucide-react";
-import { apiJson, getStorageUrl } from "@/integrations/api/client";
+import { api, apiJson, getStorageUrl } from "@/integrations/api/client";
 import { useAuth } from "@/lib/auth";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -113,7 +113,7 @@ const PublicProviderDetail = () => {
     setContactSubmitting(true);
     setContactError("");
     try {
-      const res = await fetch(`/api/public/providers/${slug}/inquire`, {
+      const res = await api.fetch(`/api/public/providers/${slug}/inquire`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(contactForm),

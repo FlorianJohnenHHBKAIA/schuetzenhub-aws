@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase, getStorageUrl } from "@/integrations/supabase/client";
+import { api } from "@/integrations/api/client";
 
 interface ClubData {
   id: string;
@@ -61,7 +62,7 @@ const PublicGallery = () => {
       }
 
       // Fetch approved public gallery images
-      const galleryRes = await fetch(`/api/public/gallery/${slug}`);
+      const galleryRes = await api.fetch(`/api/public/gallery/${slug}`);
       const galleryData = galleryRes.ok ? await galleryRes.json() : [];
       setImages((galleryData as GalleryImage[]) || []);
     } catch (error) {

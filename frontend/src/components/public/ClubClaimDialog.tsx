@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
+import { api } from "@/integrations/api/client";
 
 interface ClubClaimDialogProps {
   clubSlug: string;
@@ -36,7 +37,7 @@ const ClubClaimDialog = ({ clubSlug, clubName, open, onOpenChange, onSuccess }: 
     setClaimSubmitting(true);
     setClaimError(null);
     try {
-      const res = await fetch(`/api/public/clubs/${clubSlug}/claim`, {
+      const res = await api.fetch(`/api/public/clubs/${clubSlug}/claim`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(claimForm),

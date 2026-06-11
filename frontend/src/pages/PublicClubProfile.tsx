@@ -36,6 +36,7 @@ import { de } from "date-fns/locale";
 import GallerySection from "@/components/landing/GallerySection";
 import PublicFooter from "@/components/public/PublicFooter";
 import ClubClaimDialog from "@/components/public/ClubClaimDialog";
+import { api } from "@/integrations/api/client";
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -162,7 +163,7 @@ const PublicClubProfile = () => {
     if (!slug) return;
     try {
       // Club
-      const clubRes = await fetch(`/api/clubs/by-slug/${slug}`);
+      const clubRes = await api.fetch(`/api/clubs/by-slug/${slug}`);
       if (clubRes.status === 410) { setIsArchived(true); return; }
       if (!clubRes.ok) throw new Error("Club not found");
       const c = await clubRes.json() as ClubData & { logo_url?: string; hero_image_url?: string };
@@ -171,14 +172,14 @@ const PublicClubProfile = () => {
       if (c.hero_image_url) setHeroUrl(c.hero_image_url);
 
       // Events via REST
-      const evRes = await fetch(`/api/events/public/${slug}`);
+      const evRes = await api.fetch(`/api/events/public/${slug}`);
       if (evRes.ok) {
         const evData: PublicEvent[] = await evRes.json();
         setEvents(evData.slice(0, 6));
       }
 
       // Gallery
-      const galRes = await fetch(`/api/public/gallery/${slug}`);
+      const galRes = await api.fetch(`/api/public/gallery/${slug}`);
       if (galRes.ok) {
         const galData: GalleryImage[] = await galRes.json();
         setGalleryImages(galData.slice(0, 8));
@@ -193,7 +194,7 @@ const PublicClubProfile = () => {
         ? `state=${encodeURIComponent(stateParam)}&limit=7`
         : null;
       if (relatedParam) {
-        const relRes = await fetch(`/api/public/clubs?${relatedParam}`);
+        const relRes = await api.fetch(`/api/public/clubs?${relatedParam}`);
         if (relRes.ok) {
           const relData = await relRes.json();
           const items: RelatedClub[] = (relData.items ?? [])
@@ -220,7 +221,7 @@ const PublicClubProfile = () => {
     setInterestSubmitting(true);
     setInterestError("");
     try {
-      const res = await fetch(`/api/public/clubs/${slug}/interest`, {
+      const res = await api.fetch(`/api/public/clubs/${slug}/interest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...interestForm, request_type: "membership_interest" }),
@@ -243,7 +244,7 @@ const PublicClubProfile = () => {
     setContactSubmitting(true);
     setContactError("");
     try {
-      const res = await fetch(`/api/public/clubs/${slug}/interest`, {
+      const res = await api.fetch(`/api/public/clubs/${slug}/interest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...contactForm, request_type: "club_contact" }),
