@@ -7,6 +7,19 @@
 
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/+$/, "");
 
+function normalizeSupabaseUrl(rawUrl: string): string {
+  if (!rawUrl) return "";
+  try {
+    const url = new URL(rawUrl.trim());
+    url.pathname = "/";
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return rawUrl.trim().replace(/\/(?:storage|rest|auth|functions)\/v1.*$/i, "").replace(/\/+$/, "");
+  }
+}
+
 function getToken(): string | null {
   return localStorage.getItem("auth_token");
 }
@@ -99,7 +112,7 @@ function getStorageUrl(bucket: string, filePath: string | null): string | null {
     ? normalizedPath.slice(bucket.length + 1)
     : normalizedPath;
 
-  const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
+  const supabaseUrl = normalizeSupabaseUrl(import.meta.env.VITE_SUPABASE_URL || "");
   if (import.meta.env.VITE_USE_SUPABASE_STORAGE === "true" || supabaseUrl) {
     return `${storageBase || supabaseUrl}/storage/v1/object/public/${bucket}/${pathInBucket}`;
   }

@@ -38,6 +38,21 @@ function normalizePath(filePath) {
   return String(filePath || "").replace(/^\/+/, "");
 }
 
+function getSupabaseProjectUrl() {
+  const rawUrl = process.env.SUPABASE_URL;
+  if (!rawUrl) return null;
+
+  try {
+    const url = new URL(rawUrl.trim());
+    url.pathname = "/";
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return rawUrl.trim().replace(/\/(?:storage|rest|auth|functions)\/v1.*$/i, "").replace(/\/+$/, "");
+  }
+}
+
 function getPublicUrl(bucket, filePath) {
   if (!filePath) return null;
   if (/^https?:\/\//i.test(filePath)) return filePath;
@@ -49,18 +64,18 @@ function getPublicUrl(bucket, filePath) {
     : normalizedPath;
 
   if (USE_SUPABASE_STORAGE) {
-    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseUrl = getSupabaseProjectUrl();
     if (!supabaseUrl) {
       throw new Error("SUPABASE_URL fehlt fuer Supabase Storage");
     }
-    return `${supabaseUrl.replace(/\/+$/, "")}/storage/v1/object/public/${bucket}/${pathInBucket}`;
+    return `${supabaseUrl}/storage/v1/object/public/${bucket}/${pathInBucket}`;
   }
 
   return `/uploads/${bucket}/${pathInBucket}`;
 }
 
 function getSupabaseStorageClient() {
-  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseUrl = getSupabaseProjectUrl();
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !serviceRoleKey) {
