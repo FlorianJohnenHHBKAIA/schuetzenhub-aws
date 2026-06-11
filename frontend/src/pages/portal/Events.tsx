@@ -176,7 +176,7 @@ const Events = () => {
   const [ownerType, setOwnerType] = useState<OwnerType>("club");
   const [audience, setAudience] = useState<EventAudience>("club_internal");
 
-  const [eventType, setEventType] = useState("");
+  const [eventType, setEventType] = useState("none");
 
   const [filterOwner, setFilterOwner] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
@@ -261,7 +261,7 @@ const Events = () => {
     setStartAt("");
     setEndAt("");
     setCategory("other");
-    setEventType("");
+    setEventType("none");
     setOwnerType(canManageClubEvents ? "club" : "company");
     setAudience("club_internal");
     setFormOwnerId(userCompanyScope || userCompanyId || "");
@@ -278,7 +278,7 @@ const Events = () => {
     setStartAt(event.start_at.slice(0, 16));
     setEndAt(event.end_at?.slice(0, 16) || "");
     setCategory(event.category);
-    setEventType((event as Event & { event_type?: string }).event_type || "");
+    setEventType((event as Event & { event_type?: string }).event_type || "none");
     setOwnerType(event.owner_type);
     setFormOwnerId(event.owner_id);
     setAudience(event.audience);
@@ -316,7 +316,7 @@ const Events = () => {
           category,
           audience: effectiveAudience,
           updated_by_member_id: member.id,
-          event_type: eventType || null,
+          event_type: eventType === "none" ? null : (eventType || null),
         };
 
         if (ownerType === "company") {
@@ -351,7 +351,7 @@ const Events = () => {
           category,
           audience: effectiveAudience,
           created_by_member_id: member.id,
-          event_type: eventType || null,
+          event_type: eventType === "none" ? null : (eventType || null),
           // Frontend bestimmt den initialen Publikationsstatus basierend auf Berechtigungen
           publication_status: ownerType === "company"
             ? "approved"
@@ -787,7 +787,7 @@ const Events = () => {
               <Select value={eventType} onValueChange={setEventType}>
                 <SelectTrigger><SelectValue placeholder="Kein Typ" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Kein Typ</SelectItem>
+                  <SelectItem value="none">Kein Typ</SelectItem>
                   {EVENT_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
                 </SelectContent>
               </Select>
