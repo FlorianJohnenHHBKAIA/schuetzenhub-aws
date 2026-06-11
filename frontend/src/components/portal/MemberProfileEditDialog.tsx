@@ -36,9 +36,10 @@ interface MemberProfileEditDialogProps {
   onOpenChange: (open: boolean) => void;
   member: MemberData;
   onSave: () => void;
+  isOwnProfile?: boolean;
 }
 
-const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberProfileEditDialogProps) => {
+const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave, isOwnProfile = false }: MemberProfileEditDialogProps) => {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [title, setTitle] = useState(member.title || "");
@@ -119,22 +120,30 @@ const MemberProfileEditDialog = ({ open, onOpenChange, member, onSave }: MemberP
   const handleSubmit = async () => {
     setIsSubmitting(true);
 
+    const payload = JSON.stringify({
+      title: title || null,
+      bio: bio || null,
+      phone: phone || null,
+      street: street || null,
+      zip: zip || null,
+      city: city || null,
+      avatar_url: avatarPath || null,
+      cover_url: coverPath || null,
+      birthday: birthday || null,
+    });
+
     try {
-      await api.json(`/api/members/${member.id}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          title: title || null,
-          bio: bio || null,
-          phone: phone || null,
-          street: street || null,
-          zip: zip || null,
-          city: city || null,
-          avatar_url: avatarPath || null,
-          cover_url: coverPath || null,
-          birthday: birthday || null,
-        }),
-      });
-      
+      if (isOwnProfile) {
+        await api.json(`/api/account/profile-details`, {
+          method: "PATCH",
+          body: payload,
+        });
+      } else {
+        await api.json(`/api/members/${member.id}`, {
+          method: "PUT",
+          body: payload,
+        });
+      }
       toast({ title: "Profil aktualisiert" });
       onSave();
     } catch (error: unknown) {

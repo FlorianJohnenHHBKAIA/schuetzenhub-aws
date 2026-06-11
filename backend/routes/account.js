@@ -144,6 +144,37 @@ router.patch("/profile", requireAuth, requireMemberAccount, async (req, res) => 
   }
 });
 
+// PATCH /api/account/profile-details - update own profile details (self-service).
+router.patch("/profile-details", requireAuth, requireMemberAccount, async (req, res) => {
+  const title = req.body.title ? String(req.body.title).trim() : null;
+  const bio = req.body.bio ? String(req.body.bio).trim() : null;
+  const phone = req.body.phone ? String(req.body.phone).trim() : null;
+  const street = req.body.street ? String(req.body.street).trim() : null;
+  const zip = req.body.zip ? String(req.body.zip).trim() : null;
+  const city = req.body.city ? String(req.body.city).trim() : null;
+  const avatarUrl = req.body.avatar_url ? String(req.body.avatar_url).trim() : null;
+  const coverUrl = req.body.cover_url ? String(req.body.cover_url).trim() : null;
+  const birthday = req.body.birthday ? String(req.body.birthday).trim() : null;
+
+  try {
+    const updated = await pool.query(
+      `UPDATE members
+       SET title = $1, bio = $2, phone = $3, street = $4, zip = $5,
+           city = $6, avatar_url = $7, cover_url = $8, birthday = $9
+       WHERE id = $10 AND club_id = $11
+       RETURNING id, first_name, last_name, email, phone, title, bio,
+                 street, zip, city, avatar_url, cover_url, birthday`,
+      [title, bio, phone, street, zip, city, avatarUrl, coverUrl, birthday,
+       req.member.id, req.clubId]
+    );
+    if (!updated.rows[0]) return res.status(404).json({ error: "Mitglied nicht gefunden" });
+    res.json(updated.rows[0]);
+  } catch (err) {
+    console.error("PATCH /account/profile-details error:", err);
+    res.status(500).json({ error: "Profil konnte nicht gespeichert werden" });
+  }
+});
+
 // POST /api/account/avatar - upload and attach the member profile image.
 router.post("/avatar", requireAuth, requireMemberAccount, upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "Keine Datei hochgeladen" });

@@ -578,7 +578,7 @@ const MemberProfile = () => {
         </motion.div>
       </div>
 
-      {memberData && <MemberProfileEditDialog open={isEditOpen} onOpenChange={setIsEditOpen} member={memberData} onSave={() => { fetchMemberData(); setIsEditOpen(false); }} />}
+      {memberData && <MemberProfileEditDialog open={isEditOpen} onOpenChange={setIsEditOpen} member={memberData} onSave={() => { fetchMemberData(); setIsEditOpen(false); }} isOwnProfile={isOwnProfile} />}
 
       {memberData && currentMember && (
         <AwardDialog open={isAwardDialogOpen} onOpenChange={setIsAwardDialogOpen} memberId={memberData.id} clubId={currentMember.club_id} award={selectedAward} onSave={() => { fetchMemberData(); setIsAwardDialogOpen(false); }} />
