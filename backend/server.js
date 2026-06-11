@@ -60,5 +60,11 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`✅ Backend läuft auf http://localhost:${PORT}`);
   console.log(`   Datenbank: ${process.env.DB_HOST || "localhost"}:${process.env.DB_PORT || 5432}/${process.env.DB_NAME || "schuetzenhub"}`);
-  console.log(`   Speicher:  ${process.env.USE_S3 === "true" ? "AWS S3 (" + process.env.AWS_S3_BUCKET + ")" : "Lokal (" + UPLOAD_BASE + ")"}`);
+  const storageProvider =
+    process.env.STORAGE_PROVIDER === "supabase" ||
+    process.env.USE_SUPABASE_STORAGE === "true" ||
+    (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
+      ? "Supabase Storage"
+      : `Lokal (${UPLOAD_BASE})`;
+  console.log(`   Speicher:  ${storageProvider}`);
 });

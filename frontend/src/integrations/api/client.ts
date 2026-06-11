@@ -99,6 +99,11 @@ function getStorageUrl(bucket: string, filePath: string | null): string | null {
     ? normalizedPath.slice(bucket.length + 1)
     : normalizedPath;
 
+  const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL || "").replace(/\/+$/, "");
+  if (import.meta.env.VITE_USE_SUPABASE_STORAGE === "true" || supabaseUrl) {
+    return `${storageBase || supabaseUrl}/storage/v1/object/public/${bucket}/${pathInBucket}`;
+  }
+
   if (import.meta.env.VITE_USE_S3 === "true") {
     const region = import.meta.env.VITE_AWS_REGION || "eu-central-1";
     const bucketName = import.meta.env.VITE_AWS_S3_BUCKET || "schuetzenhub-uploads";
