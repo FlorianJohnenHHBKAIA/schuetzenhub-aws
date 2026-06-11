@@ -1827,10 +1827,9 @@ router.post("/upload", requireAuth, upload.single("file"), async (req, res) => {
 
     const filePath = filePathFromClient || req.file.originalname;
     console.log(`[API] /upload - Bucket: ${bucket}, FilePath: ${filePath}`);
-    const savedPath = await saveFile(req.file, bucket, filePath);
-    const publicUrl = getPublicUrl(bucket, savedPath);
+    const publicUrl = await saveFile(req.file, bucket, filePath);
 
-    res.json({ path: savedPath, publicUrl, bucket, filePath });
+    res.json({ path: filePath, publicUrl, bucket, filePath });
   } catch (err) {
     console.error("Upload error:", err);
     res.status(500).json({ error: "Upload fehlgeschlagen" });

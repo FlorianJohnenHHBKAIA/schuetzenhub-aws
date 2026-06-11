@@ -5,7 +5,7 @@
  * AWS  → API Gateway / ECS – nur VITE_API_URL in .env ändern
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/+$/, "");
 
 function getToken(): string | null {
   return localStorage.getItem("auth_token");
@@ -86,13 +86,26 @@ async function apiUpload(path: string, file: File, extraFields?: Record<string, 
 
 function getStorageUrl(bucket: string, filePath: string | null): string | null {
   if (!filePath) return null;
+  if (/^https?:\/\//i.test(filePath)) return filePath;
+
+  const storageBase = (import.meta.env.VITE_STORAGE_BASE_URL || "").replace(/\/+$/, "");
+  if (filePath.startsWith("/uploads/")) {
+    return `${storageBase || API_BASE}${filePath}`;
+  }
+  if (filePath.startsWith("/")) return filePath;
+
+  const normalizedPath = filePath.replace(/^\/+/, "");
+  const pathInBucket = normalizedPath.startsWith(`${bucket}/`)
+    ? normalizedPath.slice(bucket.length + 1)
+    : normalizedPath;
+
   if (import.meta.env.VITE_USE_S3 === "true") {
     const region = import.meta.env.VITE_AWS_REGION || "eu-central-1";
     const bucketName = import.meta.env.VITE_AWS_S3_BUCKET || "schuetzenhub-uploads";
-    return `https://${bucketName}.s3.${region}.amazonaws.com/${bucket}/${filePath}`;
+    return `${storageBase || `https://${bucketName}.s3.${region}.amazonaws.com`}/${bucket}/${pathInBucket}`;
   }
   // Relativer Pfad → Vite-Proxy leitet /uploads/* an Backend weiter
-  return `/uploads/${bucket}/${filePath}`;
+  return `${storageBase || API_BASE}/uploads/${bucket}/${pathInBucket}`;
 }
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
